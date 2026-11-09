@@ -9730,6 +9730,57 @@
     });
   }
 
+  function formatStorageSize(bytes) {
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    let size = bytes;
+    let unitIndex = 0;
+    while (size >= 1024 && unitIndex < units.length - 1) {
+      size /= 1024;
+      unitIndex += 1;
+    }
+    return `${size.toFixed(unitIndex > 0 && size < 10 ? 1 : 0)} ${units[unitIndex]}`;
+  }
+
+  async function updateStorageIndicator() {
+    const indicator = $("#storage-indicator");
+    const value = $("#storage-usage");
+    const fill = $("#storage-meter-fill");
+    if (!indicator || !value || !fill) return;
+
+    if (!navigator.storage?.estimate) {
+      value.textContent = "Storage unavailable";
+      indicator.title = "This browser does not provide storage estimates.";
+      indicator.setAttribute("aria-label", indicator.title);
+      return;
+    }
+
+    try {
+      const estimate = await navigator.storage.estimate();
+      const quota = estimate.quota;
+      const indexedDbUsage = estimate.usageDetails?.indexedDB;
+      const hasIndexedDbUsage = Number.isFinite(indexedDbUsage);
+      const usage = hasIndexedDbUsage ? indexedDbUsage : estimate.usage;
+      if (!Number.isFinite(usage) || !Number.isFinite(quota) || quota <= 0) {
+        throw new Error("The browser did not provide a valid storage estimate.");
+      }
+
+      const percent = Math.min(100, Math.max(0, usage / quota * 100));
+      const usageLabel = `${hasIndexedDbUsage ? "IDB" : "Site"} ${formatStorageSize(usage)} / ${formatStorageSize(quota)}`;
+      value.textContent = usageLabel;
+      fill.style.width = `${percent}%`;
+      indicator.dataset.level = percent >= 90 ? "critical" : percent >= 70 ? "warning" : "normal";
+      indicator.title = hasIndexedDbUsage
+        ? `IndexedDB uses ${formatStorageSize(usage)} of an estimated ${formatStorageSize(quota)} browser storage quota.`
+        : `IndexedDB usage is not reported separately; showing total site storage (${formatStorageSize(usage)} of ${formatStorageSize(quota)} estimated).`;
+      indicator.setAttribute("aria-label", indicator.title);
+    } catch (error) {
+      value.textContent = "Storage unavailable";
+      fill.style.width = "0";
+      indicator.title = `Could not estimate browser storage: ${error.message || "unknown error"}`;
+      indicator.setAttribute("aria-label", indicator.title);
+    }
+  }
+
   function persistClip(track, clip) {
     return openRecordingDb().then((database) => new Promise((resolve, reject) => {
       const transaction = database.transaction("recordings", "readwrite");
@@ -9748,7 +9799,7 @@
         muted: track.muted,
         blob: clip.blob,
       });
-      transaction.oncomplete = () => { database.close(); resolve(); };
+      transaction.oncomplete = () => { database.close(); resolve(); updateStorageIndicator(); };
       transaction.onerror = () => { database.close(); reject(transaction.error || new Error("Could not save recording")); };
       transaction.onabort = () => { database.close(); reject(transaction.error || new Error("Recording save was cancelled")); };
     }));
@@ -9774,7 +9825,7 @@
         audioMetadata: normalizeAudioMetadata(track.audioMetadata),
         blob: file,
       });
-      transaction.oncomplete = () => { database.close(); resolve(); };
+      transaction.oncomplete = () => { database.close(); resolve(); updateStorageIndicator(); };
       transaction.onerror = () => { database.close(); reject(transaction.error || new Error("Could not save drum sample")); };
       transaction.onabort = () => { database.close(); reject(transaction.error || new Error("Drum sample save was cancelled")); };
     }));
@@ -9784,7 +9835,7 @@
     return openRecordingDb().then((database) => new Promise((resolve, reject) => {
       const transaction = database.transaction("recordings", "readwrite");
       transaction.objectStore("recordings").delete(`drum-sample:${trackId}`);
-      transaction.oncomplete = () => { database.close(); resolve(); };
+      transaction.oncomplete = () => { database.close(); resolve(); updateStorageIndicator(); };
       transaction.onerror = () => { database.close(); reject(transaction.error || new Error("Could not remove drum sample")); };
       transaction.onabort = () => { database.close(); reject(transaction.error || new Error("Drum sample removal was cancelled")); };
     }));
@@ -9800,7 +9851,7 @@
     openRecordingDb().then((database) => new Promise((resolve, reject) => {
       const transaction = database.transaction("recordings", "readwrite");
       transaction.objectStore("recordings").delete(clipId);
-      transaction.oncomplete = () => { database.close(); resolve(); };
+      transaction.oncomplete = () => { database.close(); resolve(); updateStorageIndicator(); };
       transaction.onerror = () => { database.close(); reject(transaction.error || new Error("Could not remove recording")); };
     })).catch(() => showToast("The clip was removed, but browser storage could not be updated."));
   }
@@ -12281,6 +12332,8 @@
   }
 
   initialize();
+  updateStorageIndicator();
+  window.addEventListener("focus", updateStorageIndicator);
   if (state.currentUser) {
     restoreArrangement().then(renderDjView);
     try {

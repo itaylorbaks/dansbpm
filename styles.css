@@ -49,6 +49,12 @@ body.is-exporting .app-shell { cursor: wait; opacity: .7; pointer-events: none; 
 .save-dot { width: 6px; height: 6px; border-radius: 50%; background: #7f9d43; }
 .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 15px; }
 .topbar-actions .workspace-open-button { height: 30px; white-space: nowrap; }
+.storage-indicator { display: flex; align-items: center; gap: 7px; color: var(--muted); font: 9px var(--mono); white-space: nowrap; }
+.storage-indicator-value { min-width: 90px; text-align: right; }
+.storage-indicator-meter { width: 32px; height: 4px; overflow: hidden; border-radius: 4px; background: #393a3f; }
+.storage-indicator-meter span { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--accent); transition: width .2s ease; }
+.storage-indicator[data-level="warning"] .storage-indicator-meter span { background: #d3a34b; }
+.storage-indicator[data-level="critical"] .storage-indicator-meter span { background: #e36a6a; }
 .workspace-open-button svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .topbar-actions .workspace-open-button.is-active { border-color: #687641; background: var(--accent-soft); color: var(--accent); }
 .icon-button { display: grid; place-items: center; width: 31px; height: 31px; padding: 0; border: 1px solid var(--stroke); border-radius: 7px; background: transparent; color: #a3a4aa; cursor: pointer; }
@@ -469,6 +475,8 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
   .save-state { display: none; }
   .topbar-actions { gap: 8px; }
   .topbar-actions .workspace-open-button { gap: 5px; padding: 0 7px; font-size: 9px; }
+  .storage-indicator { gap: 5px; font-size: 8px; }
+  .storage-indicator-value { min-width: 84px; }
   .transport-panel { height: auto; min-height: 75px; }
   .transport-panel .transport-divider { margin: 0 12px; }
   .swing-control { width: 90px; margin-left: 12px; }
@@ -499,6 +507,9 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
   #open-beat-grid-button, #open-piano-roll-button { display: none; }
   .topbar-actions .workspace-open-button { width: 31px; justify-content: center; padding: 0; }
   .topbar-actions .workspace-open-button span { display: none; }
+  .storage-indicator { gap: 4px; }
+  .storage-indicator-value { min-width: 0; max-width: 74px; overflow: hidden; text-overflow: ellipsis; }
+  .storage-indicator-meter { width: 22px; }
   .export-button { width: 34px; justify-content: center; padding: 0; font-size: 0; }
   .export-button svg { width: 16px; }
   .transport-panel { flex-wrap: wrap; row-gap: 8px; padding: 10px 0; }
@@ -539,6 +550,12 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
   .arrangement-label-actions button { width: 19px; }
   .arrangement-footer { gap: 8px; padding: 0 8px; font-size: 7px; }
   .arrangement-footer > span:last-child { text-align: right; }
+}
+
+@media (max-width: 380px) {
+  .storage-indicator-value { display: none; }
+  .storage-indicator::before { content: "IDB"; color: var(--muted); font-size: 8px; }
+  .storage-indicator-meter { width: 28px; }
 }
 
 .step-cell.is-selected { outline: 2px solid #fff; outline-offset: 2px; z-index: 3; }
