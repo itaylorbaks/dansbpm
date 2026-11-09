@@ -1,0 +1,24 @@
+Live sample recordings
+
+Source: OLPC Berklee Sound Library
+Source page: https://wiki.laptop.org/go/Sound_samples
+License: Creative Commons Attribution 3.0 Unported (CC BY 3.0)
+License URL: https://creativecommons.org/licenses/by/3.0/
+
+The recordings are bundled from the Tone.js audio collection:
+https://github.com/Tonejs/audio/tree/efd8296360f9526e379bfbe5c1698ff54d6a1d34/berklee
+That collection identifies these recordings as files from the OLPC Berklee Sound Library licensed under CC BY 3.0.
+
+The audio files are included unchanged. The application adds library labels and sample playback metadata.
+
+Additional recorded drum kicks
+
+Source: Ludodex Música sample packs
+Source repository: https://github.com/jonsatella/ludodex-samples
+Source revision: fdcbbf86f867841933082a29f57349a87de4bd7f
+Source pack: drums-virtuosity
+Original library: Virtuosity Drums by Versilian Studios and Karoryfer Samples
+License: CC0 1.0 Universal (public domain dedication)
+License URL: https://creativecommons.org/publicdomain/zero/1.0/
+
+The eight OGG recordings in the virtuosity/ subdirectory are included unchanged from the source pack.

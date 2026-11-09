@@ -1,0 +1,680 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#111214" />
+    <title>DansBPM — Browser DAW</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="DansBPM home">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <span>dans<span class="brand-light">bpm</span></span>
+        </a>
+        <span class="topbar-divider"></span>
+        <button class="project-name" id="project-name" type="button" title="Open project menu" aria-haspopup="dialog">
+          Untitled session <span aria-hidden="true">⌄</span>
+        </button>
+        <div class="save-state"><span class="save-dot"></span><span id="save-state">All changes saved</span></div>
+        <div class="topbar-actions">
+          <button class="quiet-button workspace-open-button" id="open-beat-grid-button" type="button" aria-label="Open Step" title="Open Step">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4h3v3H3zm5.5 0h3v3h-3zm5.5 0h3v3h-3zM3 9h3v3H3zm5.5 0h3v3h-3zm5.5 0h3v3h-3zM3 14h3v3H3zm5.5 0h3v3h-3zm5.5 0h3v3h-3z" /></svg>
+            <span>Step</span>
+          </button>
+          <button class="quiet-button workspace-open-button" id="open-piano-roll-button" type="button" aria-label="Open Piano Roll" title="Open Piano Roll">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4h14v12H3zM6 4v7m4-7v7m4-7v7M6 11h2v5m4-5h2v5" /></svg>
+            <span>Piano Roll</span>
+          </button>
+          <button class="icon-button help-button" id="help-button" type="button" aria-label="Show keyboard shortcuts">?</button>
+          <button class="export-button" id="export-button" type="button">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v9m0 0 3.5-3.5M10 12 6.5 8.5M4 13v3h12v-3" /></svg>
+            Export pattern
+          </button>
+          <button class="export-button topbar-save-button" id="top-save-project-button" type="button" aria-label="Save project" title="Save project">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3h10l3 3v11H3V3h1Zm2 0v5h8V3M6 17v-6h8v6" /></svg>
+            <span>Save</span>
+          </button>
+        </div>
+      </header>
+
+      <main>
+        <section class="transport-panel" aria-label="Transport controls">
+          <div class="transport-left">
+            <button class="transport-button stop-button" id="stop-button" type="button" aria-label="Stop playback">
+              <span class="stop-icon"></span>
+            </button>
+            <button class="transport-button play-button" id="play-button" type="button" aria-label="Play">
+              <span class="play-icon"></span>
+            </button>
+            <span class="transport-divider"></span>
+            <button class="tempo-control" id="tempo-control" type="button" title="Click to edit tempo">
+              <span class="control-caption">TEMPO</span>
+              <span class="tempo-value"><span id="tempo-value">124</span><span class="tempo-unit">BPM</span></span>
+            </button>
+            <label class="swing-control">
+              <span class="control-caption">SWING</span>
+              <span class="swing-value" id="swing-value">0%</span>
+              <input id="swing-slider" type="range" min="0" max="45" value="0" aria-label="Swing amount" />
+            </label>
+            <button class="quiet-button assets-open-button" id="assets-button" type="button" aria-haspopup="dialog">Assets</button>
+          </div>
+          <div class="transport-right">
+            <span class="now-playing" id="now-playing"><span class="live-dot"></span>READY TO PLAY</span>
+            <span class="transport-divider transport-divider-small"></span>
+            <button class="icon-button metronome-button" id="metronome-button" type="button" aria-label="Toggle metronome" aria-pressed="false" title="Metronome">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 3h4l4 14H4L8 3Z" /><path d="m10 8 3-2" /><path d="M10 14h.01" /></svg>
+            </button>
+          </div>
+        </section>
+
+        <div class="workspace-tabs" role="tablist" aria-label="Workspace">
+          <button class="workspace-tab" id="sequencer-tab" type="button" role="tab" aria-selected="false" aria-controls="sequencer-view">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h2v2H3zm6 0h2v2H9zm6 0h2v2h-2zM3 11h2v2H3zm6 0h2v2H9zm6 0h2v2h-2z" /></svg>
+            Step
+          </button>
+          <button class="workspace-tab is-selected" id="arrangement-tab" type="button" role="tab" aria-selected="true" aria-controls="arrangement-view">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4h14M3 8h9M3 12h14M3 16h9" /><path d="M14 6v4m-2-2h4M10 14v4m-2-2h4" /></svg>
+            Arrangement <span class="tab-count" id="arrangement-tab-count">0</span>
+          </button>
+          <button class="workspace-tab" id="piano-roll-tab" type="button" role="tab" aria-selected="false" aria-controls="piano-roll-view">
+            Piano Roll
+          </button>
+          <button class="workspace-tab" id="mixer-tab" type="button" role="tab" aria-selected="false" aria-controls="mixer-view">
+            Mixer
+          </button>
+          <button class="workspace-tab" id="dj-tab" type="button" role="tab" aria-selected="false" aria-controls="dj-view">
+            DJ View
+          </button>
+        </div>
+
+        <section class="arrangement-workspace" id="arrangement-view" role="tabpanel" aria-labelledby="arrangement-tab">
+          <div class="arrangement-heading" id="arrangement-heading">
+            <div class="arrangement-title">
+              <h1>Arrangement</h1>
+            </div>
+            <div class="arrangement-actions" id="arrangement-actions">
+              <button class="quiet-button" id="source-browser-button" type="button">Browser</button>
+              <label class="pattern-select-control">
+                <span>PATTERN</span>
+                <select id="arrangement-pattern-select" aria-label="Select pattern"></select>
+              </label>
+              <button class="quiet-button" id="rename-pattern-button" type="button">Rename</button>
+              <button class="quiet-button pattern-drag-source" id="pattern-drag-source" type="button" draggable="true">Drag pattern to timeline</button>
+              <button class="quiet-button" id="new-pattern-button" type="button">＋ New pattern</button>
+              <button class="quiet-button add-pattern-button" id="add-pattern-button" type="button">Add to song</button>
+              <button class="quiet-button record-audio-button" id="record-audio-button" type="button" aria-pressed="false">
+                <span class="record-dot"></span>
+                <span id="record-button-label">Record input</span>
+              </button>
+              <button class="export-button" id="export-song-button" type="button">
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v9m0 0 3.5-3.5M10 12 6.5 8.5M4 13v3h12v-3" /></svg>
+                Export song
+              </button>
+              <button class="export-button import-recording-button" id="import-recording-button" type="button">
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 13V3m0 0L6.5 6.5M10 3l3.5 3.5M4 12v4h12v-4" /></svg>
+                Add recordings
+              </button>
+              <button class="quiet-button" id="arrangement-clear-button" type="button">Clear</button>
+            </div>
+          </div>
+
+          <div class="arrangement-card" id="arrangement-card">
+            <div class="arrangement-layout">
+              <div class="arrangement-main" id="arrangement-main">
+                <section class="workspace-area" id="workspace-area" aria-label="Workspace">
+                  <div class="workspace-area-heading">
+                    <span>WORKSPACE</span>
+                    <div class="view-panel-actions">
+                      <button class="quiet-button" id="show-track-view-button" type="button" hidden>Show Track View</button>
+                      <button class="quiet-button" id="hide-workspace-button" type="button">Hide</button>
+                    </div>
+                  </div>
+                  <div class="workspace-content">
+                    <div class="arrangement-empty" id="arrangement-empty">
+                      <span class="empty-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+                      <h2>Start arranging your song</h2>
+                      <p>Choose a pattern above and drag it into the track view below, or import recordings to get started.</p>
+                      <button class="quiet-button" id="empty-import-button" type="button">＋ Add audio files</button>
+                    </div>
+                    <section class="workspace workspace-tool-panel" id="sequencer-view" role="tabpanel" aria-labelledby="sequencer-tab" hidden>
+                      <div class="section-heading">
+                        <div>
+                          <div class="eyebrow">STEP <span class="heading-dot"></span></div>
+                        </div>
+                        <div class="sequencer-actions" id="sequencer-actions">
+                          <button class="quiet-button workspace-play-button" id="sequencer-workspace-play-button" type="button" aria-label="Play step sequencer workspace" aria-pressed="false"><span class="play-icon" aria-hidden="true"></span><span class="workspace-play-label">Play</span></button>
+                          <label class="pattern-select-control">
+                            <span>PATTERN</span>
+                            <select id="sequencer-pattern-select" aria-label="Select pattern to edit"></select>
+                          </label>
+                          <label class="pattern-select-control">
+                            <span>STEP SIZE</span>
+                            <select id="grid-resolution-select" aria-label="Step grid subdivision">
+                              <option value="1/4">1/4</option>
+                              <option value="1/8">1/8</option>
+                              <option value="1/16" selected>1/16</option>
+                              <option value="1/32">1/32</option>
+                              <option value="1/64">1/64</option>
+                            </select>
+                          </label>
+                          <div class="length-control step-length-control" role="group" aria-label="Step grid length">
+                            <span class="control-caption">LENGTH</span>
+                            <div class="segmented-control">
+                              <button class="length-button" id="decrease-pattern-bars" type="button" aria-label="Remove one bar from step grid">−</button>
+                              <span class="length-value" id="pattern-bars-value">1 BAR</span>
+                              <button class="length-button" id="increase-pattern-bars" type="button" aria-label="Add one bar to step grid">+</button>
+                            </div>
+                          </div>
+                          <label class="scale-control">
+                            <span>SCALE</span>
+                            <input id="sequencer-scale-slider" type="range" min="50" max="400" step="10" value="100" aria-label="Step grid scale">
+                            <output id="sequencer-scale-value" for="sequencer-scale-slider">100%</output>
+                          </label>
+                          <button class="quiet-button keyboard-record-button" id="step-keyboard-record-button" type="button" aria-pressed="false">Record keys</button>
+                          <button class="quiet-button" id="rename-pattern-sequencer-button" type="button">Rename</button>
+                          <button class="quiet-button" id="sequencer-browser-button" type="button">Browser</button>
+                          <button class="quiet-button" id="new-pattern-sequencer-button" type="button">＋ New</button>
+                          <button class="quiet-button" id="clear-button" type="button">
+                            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 6h11m-9.5 0 .6 10h5.8l.6-10M8 6V4h4v2m-3 3v4m2-4v4" /></svg>
+                            Clear
+                          </button>
+                          <button class="quiet-button" id="reset-session" type="button">Reset session</button>
+                          <select class="quiet-button preload-pattern-select" id="preload-pattern-select" aria-label="Preload drum pattern" title="Preload drum pattern">
+                            <option value="">Preload</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div class="sequencer-card">
+                        <div class="sequencer-grid-scroll" id="sequencer-grid-scroll" role="region" aria-label="Scrollable step grid" tabindex="0">
+                          <div class="grid-header">
+                            <div class="track-header-label"><span>TRACK</span><span class="header-track-count" id="track-count">06</span></div>
+                            <div class="steps-header" id="steps-header" aria-hidden="true"></div>
+                          </div>
+                          <div class="track-list" id="track-list" aria-label="Drum step sequencer"></div>
+                        </div>
+                        <div class="grid-footer">
+                          <div class="grid-legend"><span class="legend-swatch"></span>STEP ON <span class="legend-playhead"></span>PLAYHEAD</div>
+                          <span class="grid-hint"><kbd>SPACE</kbd> play / stop <span class="hint-divider">·</span> click steps to edit</span>
+                        </div>
+                      </div>
+                    </section>
+                    <section class="piano-roll-view" id="piano-roll-view" role="tabpanel" aria-labelledby="piano-roll-tab" hidden>
+                      <div class="piano-roll-toolbar">
+                        <div class="piano-roll-context" id="step-piano-context" hidden>
+                          <span id="step-piano-context-label"></span>
+                          <button class="quiet-button" id="step-piano-return" type="button">Back to Step</button>
+                        </div>
+                        <button class="quiet-button workspace-play-button" id="piano-workspace-play-button" type="button" aria-label="Play piano roll workspace" aria-pressed="false"><span class="play-icon" aria-hidden="true"></span><span class="workspace-play-label">Play</span></button>
+                        <button class="quiet-button" id="piano-draw-mode-button" type="button" aria-pressed="false" title="Toggle note draw mode">Draw</button>
+                        <button class="quiet-button" id="piano-humanize-button" type="button" title="Slightly vary note timing and velocity">Humanize</button>
+                        <label class="pattern-select-control">
+                          <span>MEL</span>
+                          <select id="mel-select" aria-label="Select a Mel"></select>
+                        </label>
+                        <button class="quiet-button" id="new-mel-button" type="button">＋ New Mel</button>
+                        <button class="quiet-button" id="rename-mel-button" type="button">Rename</button>
+                        <button class="quiet-button pattern-drag-source" id="mel-drag-source" type="button" draggable="true">Drag Mel to Track View</button>
+                        <button class="quiet-button keyboard-record-button" id="piano-keyboard-record-button" type="button" aria-pressed="false">Record keys</button>
+                        <label class="pattern-select-control">
+                          <span>INSTRUMENT</span>
+                          <button class="piano-instrument-picker-button" id="piano-instrument-select" type="button" aria-label="Piano roll instrument" aria-haspopup="dialog" aria-controls="step-instrument-dialog">
+                            <span id="piano-instrument-name">Choose instrument</span><span class="piano-instrument-picker-arrow" aria-hidden="true">▾</span>
+                          </button>
+                        </label>
+                        <label class="pattern-select-control">
+                          <span>SNAP</span>
+                          <select id="piano-snap-select" aria-label="Piano roll grid snap">
+                            <option value="off">Off</option>
+                            <option value="1">1/32</option>
+                            <option value="2" selected>1/16</option>
+                            <option value="4">1/8</option>
+                            <option value="8">1/4</option>
+                          </select>
+                        </label>
+                        <label class="pattern-select-control">
+                          <span>LENGTH</span>
+                          <select id="piano-note-length-select" aria-label="Default piano roll note length">
+                            <option value="1">1/32</option>
+                            <option value="2">1/16</option>
+                            <option value="4">1/8</option>
+                            <option value="8">1/4</option>
+                          </select>
+                        </label>
+                        <label class="pattern-select-control">
+                          <span>BARS</span>
+                          <select id="piano-bars-select" aria-label="Piano roll length">
+                            <option value="1">1 BAR</option>
+                            <option value="2">2 BARS</option>
+                            <option value="4" selected>4 BARS</option>
+                            <option value="8">8 BARS</option>
+                          </select>
+                        </label>
+                        <label class="scale-control">
+                          <span>SCALE</span>
+                          <input id="piano-scale-slider" type="range" min="50" max="400" step="10" value="100" aria-label="Piano roll scale">
+                          <output id="piano-scale-value" for="piano-scale-slider">100%</output>
+                        </label>
+                        <button class="quiet-button" id="clear-piano-roll-button" type="button">Clear notes</button>
+                      </div>
+                      <div class="piano-roll-ruler-spacer" id="piano-roll-ruler-placeholder"></div>
+                      <div class="piano-roll-ruler-viewport" id="piano-roll-ruler-viewport">
+                        <div class="piano-roll-ruler" id="piano-roll-ruler"></div>
+                        <div class="piano-roll-sticky-playhead" id="piano-roll-sticky-playhead" aria-hidden="true"></div>
+                      </div>
+                      <div class="piano-roll-scroll" id="piano-roll-scroll">
+                        <div class="piano-roll-keys" id="piano-roll-keys" aria-label="Piano keyboard"></div>
+                        <div class="piano-roll-editor">
+                          <div class="piano-roll-grid" id="piano-roll-grid" aria-label="Piano roll note grid"></div>
+                        </div>
+                      </div>
+                      <div class="piano-roll-footer">Click to add · Drag notes to move/resize · Shift-click to add/select · Drag empty space to select · Delete removes selected notes · Drum kits use GM keys B1-A5</div>
+                      <div class="piano-note-context-menu" id="piano-note-context-menu" role="group" aria-label="Selected note controls" hidden>
+                        <div class="piano-note-context-heading">
+                          <span>NOTE CONTROLS</span>
+                          <button class="quiet-button" id="piano-note-context-close" type="button" aria-label="Close note controls">×</button>
+                        </div>
+                        <label class="piano-note-context-control">
+                          <span>Volume <output id="piano-note-volume-value">100%</output></span>
+                          <input type="range" id="piano-note-volume" data-note-property="volume" min="0" max="100" step="1" value="100" aria-label="Note volume">
+                        </label>
+                        <label class="piano-note-context-control">
+                          <span>Attack <output id="piano-note-attack-value">0 ms</output></span>
+                          <input type="range" id="piano-note-attack" data-note-property="attack" min="0" max="1000" step="1" value="0" aria-label="Note attack">
+                        </label>
+                        <label class="piano-note-context-control">
+                          <span>Velocity <output id="piano-note-velocity-value">80%</output></span>
+                          <input type="range" id="piano-note-velocity" data-note-property="velocity" min="0" max="100" step="1" value="80" aria-label="Note velocity">
+                        </label>
+                        <label class="piano-note-context-control">
+                          <span>Detune <output id="piano-note-detune-value">0 cents</output></span>
+                          <input type="range" id="piano-note-detune" data-note-property="detune" min="-100" max="100" step="1" value="0" aria-label="Note detune">
+                        </label>
+                      </div>
+                    </section>
+                    <section class="mixer-view" id="mixer-view" role="tabpanel" aria-labelledby="mixer-tab" hidden>
+                      <div class="mixer-heading">
+                        <div>
+                          <div class="eyebrow">MIXER <span class="heading-dot"></span> TRACKS</div>
+                          <h1>Track Mixer</h1>
+                          <p class="section-subtitle">Set levels and route tracks through effects. EQ is always first in the chain.</p>
+                        </div>
+                        <button class="quiet-button" id="add-effects-track" type="button">＋ Effects Track</button>
+                      </div>
+                      <div class="mixer-content" id="mixer-content"></div>
+                    </section>
+                    <section class="dj-view" id="dj-view" role="tabpanel" aria-labelledby="dj-tab" hidden>
+                      <div class="dj-heading">
+                        <div>
+                          <div class="eyebrow">LIVE PERFORMANCE <span class="heading-dot"></span> DJ VIEW</div>
+                          <h1>DJ Decks</h1>
+                          <p class="section-subtitle">Load the full arrangement as one deck source, or mix individual patterns, Mels, and audio tracks.</p>
+                        </div>
+                        <div class="dj-heading-actions">
+                          <div class="dj-crossfader-control">
+                            <label for="dj-crossfader">CROSSFADER</label>
+                            <div class="dj-crossfader-labels"><span>A</span><span>B</span></div>
+                            <input id="dj-crossfader" type="range" min="0" max="100" step="1" value="50" aria-label="DJ crossfader">
+                          </div>
+                          <button class="quiet-button dj-expand-button" id="dj-expand-button" type="button" aria-pressed="false" aria-label="Expand DJ view">Expand</button>
+                        </div>
+                      </div>
+                      <section class="dj-master-panel" aria-label="DJ master controls">
+                        <h2>DJ Master</h2>
+                        <div class="dj-master-controls">
+                          <label class="dj-dial-control" for="dj-master-volume">
+                            <span>MASTER VOLUME</span><div class="dj-dial"><input id="dj-master-volume" type="range" min="0" max="100" value="100" aria-label="DJ master volume"></div><output id="dj-master-volume-value">100%</output>
+                          </label>
+                          <label class="dj-dial-control" for="dj-master-filter">
+                            <span>MASTER FILTER</span><div class="dj-dial"><input id="dj-master-filter" type="range" min="200" max="20000" step="100" value="20000" aria-label="DJ master filter"></div><output id="dj-master-filter-value">20 kHz</output>
+                          </label>
+                          <label class="dj-dial-control" for="dj-master-low">
+                            <span>MASTER LOW</span><div class="dj-dial"><input id="dj-master-low" type="range" min="-12" max="12" value="0" aria-label="DJ master low EQ"></div><output id="dj-master-low-value">0 dB</output>
+                          </label>
+                          <label class="dj-dial-control" for="dj-master-mid">
+                            <span>MASTER MID</span><div class="dj-dial"><input id="dj-master-mid" type="range" min="-12" max="12" value="0" aria-label="DJ master mid EQ"></div><output id="dj-master-mid-value">0 dB</output>
+                          </label>
+                          <label class="dj-dial-control" for="dj-master-high">
+                            <span>MASTER HIGH</span><div class="dj-dial"><input id="dj-master-high" type="range" min="-12" max="12" value="0" aria-label="DJ master high EQ"></div><output id="dj-master-high-value">0 dB</output>
+                          </label>
+                        </div>
+                      </section>
+                      <div class="dj-decks">
+                        <section class="dj-deck" id="dj-deck-a" data-deck="A">
+                          <div class="dj-deck-heading">
+                            <h2>Deck A</h2>
+                            <button class="quiet-button dj-active-deck" id="dj-focus-a" type="button" aria-pressed="true">Focus A</button>
+                          </div>
+                          <label class="dj-source-control" for="dj-source-a">LIVE SOURCE</label>
+                          <select id="dj-source-a" aria-label="Deck A source"></select>
+                          <canvas class="dj-waveform dj-deck-waveform" id="dj-deck-waveform-a" data-deck="A" data-waveform="deck" aria-label="Deck A scrolling waveform"></canvas>
+                          <div class="dj-deck-stage">
+                            <div class="dj-platter" id="dj-platter-a" role="button" tabindex="0" aria-label="Scratch Deck A platter">
+                              <div class="dj-platter-label"><strong>A</strong><span id="dj-time-a">00:00</span></div>
+                            </div>
+                            <div class="dj-deck-display">
+                              <span id="dj-track-name-a">No track loaded</span>
+                              <small class="dj-track-metadata" id="dj-metadata-a">BPM — · KEY —</small>
+                              <button class="quiet-button dj-reverse" id="dj-reverse-a" type="button" aria-pressed="false">REV</button>
+                            </div>
+                          </div>
+                          <label class="dj-pitch-control" for="dj-pitch-a"><span>PITCH / TEMPO <output id="dj-pitch-value-a">0.0%</output></span><input id="dj-pitch-a" type="range" min="-8" max="8" step="0.1" value="0" aria-label="Deck A pitch and tempo"></label>
+                          <div class="dj-deck-transport">
+                            <button class="export-button dj-play" id="dj-play-a" type="button">Play</button>
+                            <button class="quiet-button dj-sync" id="dj-sync-a" type="button">Sync</button>
+                            <button class="quiet-button dj-nudge" data-deck="A" data-direction="-1" type="button" aria-label="Nudge deck A backward">−</button>
+                            <button class="quiet-button dj-nudge" data-deck="A" data-direction="1" type="button" aria-label="Nudge deck A forward">+</button>
+                            <button class="quiet-button dj-add-slot" data-deck="A" type="button">Add Cue Slot</button>
+                          </div>
+                          <div class="dj-deck-knobs" aria-label="Deck A controls">
+                            <label class="dj-dial-control" for="dj-volume-a">
+                              <span>VOLUME</span><div class="dj-dial"><input id="dj-volume-a" type="range" min="0" max="100" value="80" aria-label="Deck A volume"></div><output id="dj-volume-a-value">80%</output>
+                            </label>
+                            <label class="dj-dial-control" for="dj-filter-a">
+                              <span>FILTER</span><div class="dj-dial"><input id="dj-filter-a" type="range" min="200" max="20000" step="100" value="20000" aria-label="Deck A filter"></div><output id="dj-filter-a-value">20 kHz</output>
+                            </label>
+                            <label class="dj-dial-control" for="dj-eq-low-a">
+                              <span>LOW EQ</span><div class="dj-dial"><input id="dj-eq-low-a" type="range" min="-12" max="12" value="0" aria-label="Deck A low EQ"></div><output id="dj-eq-low-a-value">0 dB</output>
+                            </label>
+                            <label class="dj-dial-control" for="dj-eq-mid-a">
+                              <span>MID EQ</span><div class="dj-dial"><input id="dj-eq-mid-a" type="range" min="-12" max="12" value="0" aria-label="Deck A mid EQ"></div><output id="dj-eq-mid-a-value">0 dB</output>
+                            </label>
+                            <label class="dj-dial-control" for="dj-eq-high-a">
+                              <span>HIGH EQ</span><div class="dj-dial"><input id="dj-eq-high-a" type="range" min="-12" max="12" value="0" aria-label="Deck A high EQ"></div><output id="dj-eq-high-a-value">0 dB</output>
+                            </label>
+                          </div>
+                        </section>
+                        <section class="dj-deck" id="dj-deck-b" data-deck="B">
+                          <div class="dj-deck-heading">
+                            <h2>Deck B</h2>
+                            <button class="quiet-button dj-active-deck" id="dj-focus-b" type="button" aria-pressed="false">Focus B</button>
+                          </div>
+                          <label class="dj-source-control" for="dj-source-b">LIVE SOURCE</label>
+                          <select id="dj-source-b" aria-label="Deck B source"></select>
+                          <canvas class="dj-waveform dj-deck-waveform" id="dj-deck-waveform-b" data-deck="B" data-waveform="deck" aria-label="Deck B scrolling waveform"></canvas>
+                          <div class="dj-deck-stage">
+                            <div class="dj-platter" id="dj-platter-b" role="button" tabindex="0" aria-label="Scratch Deck B platter">
+                              <div class="dj-platter-label"><strong>B</strong><span id="dj-time-b">00:00</span></div>
+                            </div>
+                            <div class="dj-deck-display">
+                              <span id="dj-track-name-b">No track loaded</span>
+                              <small class="dj-track-metadata" id="dj-metadata-b">BPM — · KEY —</small>
+                              <button class="quiet-button dj-reverse" id="dj-reverse-b" type="button" aria-pressed="false">REV</button>
+                            </div>
+                          </div>
+                          <label class="dj-pitch-control" for="dj-pitch-b"><span>PITCH / TEMPO <output id="dj-pitch-value-b">0.0%</output></span><input id="dj-pitch-b" type="range" min="-8" max="8" step="0.1" value="0" aria-label="Deck B pitch and tempo"></label>
+                          <div class="dj-deck-transport">
+                            <button class="export-button dj-play" id="dj-play-b" type="button">Play</button>
+                            <button class="quiet-button dj-sync" id="dj-sync-b" type="button">Sync</button>
+                            <button class="quiet-button dj-nudge" data-deck="B" data-direction="-1" type="button" aria-label="Nudge deck B backward">−</button>
+                            <button class="quiet-button dj-nudge" data-deck="B" data-direction="1" type="button" aria-label="Nudge deck B forward">+</button>
+                            <button class="quiet-button dj-add-slot" data-deck="B" type="button">Add Cue Slot</button>
+                          </div>
+                          <div class="dj-deck-knobs" aria-label="Deck B controls">
+                            <label class="dj-dial-control" for="dj-volume-b">
+                              <span>VOLUME</span><div class="dj-dial"><input id="dj-volume-b" type="range" min="0" max="100" value="80" aria-label="Deck B volume"></div><output id="dj-volume-b-value">80%</output>
+                            </label>
+                            <label class="dj-dial-control" for="dj-filter-b">
+                              <span>FILTER</span><div class="dj-dial"><input id="dj-filter-b" type="range" min="200" max="20000" step="100" value="20000" aria-label="Deck B filter"></div><output id="dj-filter-b-value">20 kHz</output>
+                            </label>
+                            <label class="dj-dial-control" for="dj-eq-low-b">
+                              <span>LOW EQ</span><div class="dj-dial"><input id="dj-eq-low-b" type="range" min="-12" max="12" value="0" aria-label="Deck B low EQ"></div><output id="dj-eq-low-b-value">0 dB</output>
+                            </label>
+                            <label class="dj-dial-control" for="dj-eq-mid-b">
+                              <span>MID EQ</span><div class="dj-dial"><input id="dj-eq-mid-b" type="range" min="-12" max="12" value="0" aria-label="Deck B mid EQ"></div><output id="dj-eq-mid-b-value">0 dB</output>
+                            </label>
+                            <label class="dj-dial-control" for="dj-eq-high-b">
+                              <span>HIGH EQ</span><div class="dj-dial"><input id="dj-eq-high-b" type="range" min="-12" max="12" value="0" aria-label="Deck B high EQ"></div><output id="dj-eq-high-b-value">0 dB</output>
+                            </label>
+                          </div>
+                        </section>
+                      </div>
+                      <section class="dj-arrangement" aria-labelledby="dj-arrangement-title">
+                        <div class="dj-section-heading">
+                          <div>
+                            <h2 id="dj-arrangement-title">Arrangement</h2>
+                            <p>Drag either waveform to stage its entry; drag the ruler to seek. Space pauses and resumes.</p>
+                          </div>
+                        </div>
+                        <div class="dj-live-deck-view" id="dj-live-deck-view">
+                          <div class="dj-live-ruler" aria-label="Arrangement time ruler">
+                            <span>TIME<small>BAR</small></span>
+                            <canvas id="dj-arrangement-ruler" role="slider" tabindex="0" aria-label="Arrangement playhead" aria-valuemin="0" aria-valuemax="256" aria-valuenow="0" aria-valuetext="Bar 1"></canvas>
+                          </div>
+                          <label class="dj-arrangement-scroll" for="dj-arrangement-scroll">
+                            <span>VIEW</span>
+                            <input id="dj-arrangement-scroll" type="range" min="0" max="248" step="any" value="0" aria-label="Scroll arrangement timeline">
+                            <output id="dj-arrangement-range">BARS 1–8</output>
+                          </label>
+                          <div class="dj-live-waveform-row" data-deck="A" title="Drag to move Deck A in the arrangement">
+                            <span>DECK A <output id="dj-live-offset-a">+0 bars</output></span>
+                            <canvas class="dj-waveform dj-live-waveform" id="dj-live-waveform-a" data-deck="A" data-waveform="live" aria-label="Deck A live waveform"></canvas>
+                          </div>
+                          <div class="dj-live-waveform-row" data-deck="B" title="Drag to move Deck B in the arrangement">
+                            <span>DECK B <output id="dj-live-offset-b">+0 bars</output></span>
+                            <canvas class="dj-waveform dj-live-waveform" id="dj-live-waveform-b" data-deck="B" data-waveform="live" aria-label="Deck B live waveform"></canvas>
+                          </div>
+                        </div>
+                      </section>
+                      <section class="dj-cue-slots" aria-labelledby="dj-cue-slots-title">
+                        <div class="dj-section-heading">
+                          <div>
+                            <h2 id="dj-cue-slots-title">Cue Slots</h2>
+                            <p>Save up to eight pattern, Mel, or audio cues for instant deck loading.</p>
+                          </div>
+                        </div>
+                        <div class="dj-live-slots" id="dj-live-slots"></div>
+                      </section>
+                      <section class="dj-pads" aria-labelledby="dj-pads-title">
+                        <div class="dj-section-heading">
+                          <div>
+                            <h2 id="dj-pads-title">Drum Pads</h2>
+                            <p>Trigger the drum kit on the selected deck's live pattern.</p>
+                          </div>
+                        </div>
+                        <div class="dj-pad-grid" id="dj-pad-grid"></div>
+                      </section>
+                      <p class="dj-controls-hint">Drag a platter to scratch. Keyboard: QWER / ASDF / ZXCV / 1234 pads · Space selected deck · Expanded: Space all loaded decks, Ctrl + Space Deck A, Alt + Space Deck B, [ + Space / ] + Space Deck A/B (or tap [ / ]) · Hold [ or ] + U filter, I low, O mid, P high, \ volume, then ↑/↓ to adjust; with no bracket, adjust DJ Master · Y sync · , / . nudge · ← / → crossfader · F1–F8 cue slots · L add source</p>
+                    </section>
+                  </div>
+                </section>
+                <div class="view-resizer" id="view-resizer" role="separator" aria-label="Resize Workspace and Track View" aria-orientation="horizontal" aria-valuemin="20" aria-valuemax="80" aria-valuenow="50" tabindex="0">
+                  <span></span>
+                </div>
+                <section class="track-view-area" id="track-view-area" aria-label="Track view">
+                  <div class="track-view-heading">
+                    <span>TRACK VIEW</span>
+                    <div class="track-view-controls">
+                      <button class="quiet-button" id="show-workspace-button" type="button" hidden>Show Workspace</button>
+                      <button class="quiet-button" id="arrangement-snap-button" type="button" aria-pressed="true" title="Snap the playhead and clips to quarter-note beats">SNAP ON</button>
+                      <label class="scale-control">
+                        <span>SCALE</span>
+                        <input id="arrangement-scale-slider" type="range" min="50" max="400" step="10" value="100" aria-label="Track view scale">
+                        <output id="arrangement-scale-value" for="arrangement-scale-slider">100%</output>
+                      </label>
+                      <span class="arrangement-bar-label" id="arrangement-bar-label">32 BARS</span>
+                      <button class="quiet-button" id="add-bars-button" type="button">+ 4 BARS</button>
+                      <button class="quiet-button" id="hide-track-view-button" type="button">Hide</button>
+                    </div>
+                  </div>
+                  <div class="arrangement-editor" id="arrangement-editor">
+                    <div class="arrangement-track-column">
+                      <div class="arrangement-track-header">TRACKS <span id="arrangement-track-count">01</span></div>
+                      <div class="arrangement-track-labels" id="arrangement-track-labels"></div>
+                      <button class="add-track-button" id="add-track-button" type="button">＋ Add audio track</button>
+                    </div>
+                    <div class="timeline-scroll" id="timeline-scroll">
+                      <div class="timeline-content" id="timeline-content"></div>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            </div>
+            <div class="arrangement-footer">
+              <span><span class="legend-swatch"></span>DRUM PATTERN <span class="audio-legend"></span>AUDIO CLIP <span class="mel-legend"></span>MEL</span>
+              <span>Drag edges to trim/extend <span class="hint-divider">·</span> <kbd>P</kbd> place <span class="hint-divider">·</span> <kbd>S</kbd> split <span class="hint-divider">·</span> <kbd>DELETE</kbd> remove</span>
+            </div>
+          </div>
+        </section>
+
+        <div class="arrangement-track-context-menu" id="arrangement-track-context-menu" role="menu" hidden>
+          <button type="button" id="add-empty-track-below" role="menuitem">Add empty track below</button>
+        </div>
+
+        <dialog class="source-browser-dialog" id="source-browser-dialog" aria-label="Asset library">
+          <aside class="source-sidebar">
+            <div class="source-sidebar-heading">ASSET LIBRARY <button id="source-browser-close" type="button" aria-label="Close asset library">×</button></div>
+            <div class="source-section-label">PATTERNS <span id="pattern-asset-count">0</span></div>
+            <div class="asset-browser" id="pattern-asset-browser"></div>
+            <div class="source-section-label">MELS <span id="mel-asset-count">0</span></div>
+            <div class="asset-browser" id="mel-asset-browser"></div>
+            <div class="source-section-label recordings-section-label">AUDIO FILES <span id="recording-source-count">0</span></div>
+            <div class="recording-browser" id="recording-browser"></div>
+            <button class="source-add-button" id="side-add-recording" type="button">＋ Import audio</button>
+            <div class="source-section-label instrument-section-label">SOUND LIBRARY <span id="drum-sound-count">138</span></div>
+            <button class="source-add-button" id="import-drum-sounds-button" type="button">＋ Import drum sounds</button>
+            <div class="instrument-browser" id="instrument-browser"></div>
+            <p class="sound-library-attribution">Live recordings: <a href="https://wiki.laptop.org/go/Sound_samples" target="_blank" rel="noreferrer">OLPC Berklee Sound Library</a>, licensed under <a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noreferrer">CC BY 3.0</a>.</p>
+          </aside>
+        </dialog>
+        <div class="sound-duration-menu" id="sound-duration-menu" role="group" aria-label="Sound duration controls" hidden>
+          <div class="sound-duration-heading">
+            <span id="sound-duration-title">Sound duration</span>
+            <button class="quiet-button" id="sound-duration-close" type="button" aria-label="Close sound duration menu">×</button>
+          </div>
+          <label class="sound-duration-control">
+            <span>Duration <output id="sound-duration-value">100%</output></span>
+            <input id="sound-duration-slider" type="range" min="1" max="100" step="1" value="100" aria-label="Sound duration">
+          </label>
+          <div class="sound-duration-actions">
+            <button class="quiet-button" id="sound-duration-play" type="button">Play</button>
+            <button class="quiet-button" id="sound-duration-reset" type="button">Revert duration</button>
+          </div>
+        </div>
+        <dialog class="step-instrument-dialog" id="step-instrument-dialog" aria-labelledby="step-instrument-title">
+          <div class="step-dialog-heading">
+            <div>
+              <div class="eyebrow">SOUND LIBRARY</div>
+              <h2 id="step-instrument-title">Choose an instrument</h2>
+            </div>
+            <button class="dialog-close" id="step-instrument-close" type="button" aria-label="Close instrument picker">×</button>
+          </div>
+          <div class="sound-library-search" id="sound-library-search">
+            <label class="sound-library-search-label" for="sound-library-search-input">SEARCH SOUNDS &amp; CATEGORIES</label>
+            <div class="sound-library-search-control">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="m13 13 4 4" /></svg>
+              <input id="sound-library-search-input" type="search" placeholder="Try kick, guitar, or live" autocomplete="off" aria-label="Search sounds, categories, or keywords" aria-controls="sound-library-search-results" aria-expanded="false">
+            </div>
+            <div class="sound-library-search-results" id="sound-library-search-results" role="listbox" aria-label="Sound search results" hidden></div>
+          </div>
+          <div class="step-instrument-library" id="step-instrument-library"></div>
+          <div class="step-instrument-actions">
+            <button class="quiet-button step-instrument-select-button" id="step-instrument-select" type="button" disabled>Select</button>
+          </div>
+          <p class="sound-library-attribution">Live recordings: <a href="https://wiki.laptop.org/go/Sound_samples" target="_blank" rel="noreferrer">OLPC Berklee Sound Library</a>, licensed under <a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noreferrer">CC BY 3.0</a>.</p>
+        </dialog>
+        <dialog class="step-track-mix-dialog" id="step-track-mix-dialog" aria-labelledby="step-track-mix-title">
+          <div class="step-dialog-heading">
+            <div>
+              <div class="eyebrow">STEP ROW MIX</div>
+              <h2 id="step-track-mix-title">Row mix</h2>
+            </div>
+            <button class="dialog-close" id="step-track-mix-close" type="button" aria-label="Close row mixer">×</button>
+          </div>
+          <div id="step-track-mix-controls"></div>
+        </dialog>
+        <dialog class="mixer-effect-dialog" id="mixer-effect-dialog" aria-labelledby="mixer-effect-title">
+          <div class="mixer-effect-dialog-heading">
+            <div>
+              <div class="eyebrow" id="mixer-effect-track-name">TRACK EFFECT</div>
+              <h2 id="mixer-effect-title">Effect</h2>
+            </div>
+            <button class="dialog-close" id="mixer-effect-close" type="button" aria-label="Close effect settings">×</button>
+          </div>
+          <div class="mixer-effect-dialog-content" id="mixer-effect-dialog-content"></div>
+        </dialog>
+        <dialog class="mixer-routing-dialog" id="mixer-routing-dialog" aria-labelledby="mixer-routing-title">
+          <div class="mixer-routing-dialog-heading">
+            <div>
+              <div class="eyebrow">EFFECTS TRACK ROUTING</div>
+              <h2 id="mixer-routing-title">Effects Track</h2>
+            </div>
+            <button class="dialog-close" id="mixer-routing-close" type="button" aria-label="Close routing">×</button>
+          </div>
+          <p class="mixer-routing-help">Choose which tracks route through this Effects Track. Each track can route through one Effects Track at a time.</p>
+          <div class="mixer-routing-choices" id="mixer-routing-choices"></div>
+          <div class="mixer-routing-actions">
+            <button class="quiet-button mixer-remove-effects-track" id="mixer-routing-remove" type="button">Remove Effects Track</button>
+            <button class="quiet-button" id="mixer-routing-done" type="button">Done</button>
+          </div>
+        </dialog>
+      </main>
+      <input id="sample-input" type="file" accept="audio/*" hidden />
+      <input id="drum-samples-input" type="file" accept="audio/*" multiple hidden />
+      <input id="recording-input" type="file" accept="audio/*" multiple hidden />
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+      <dialog class="help-dialog" id="help-dialog">
+        <form method="dialog">
+          <button class="dialog-close" aria-label="Close">×</button>
+          <div class="eyebrow">QUICK HELP</div>
+          <h2>Your first groove</h2>
+          <p>Click squares to switch drum hits on or off. Press <kbd>Space</kbd> to play, then change the tempo or swing while it runs.</p>
+          <p>Use the <strong>+</strong> next to a row to load or replace its sample. Choose a row instrument with the arrow beside its name; use <strong>Add instrument</strong> below the rows to add an empty row. Each row’s <strong>MIX</strong> menu adjusts pitch, volume, swing, and EQ. Drum kits are available in Piano Roll, not Step.</p>
+          <p>Open <strong>Browser → Import drum sounds</strong> to add multiple samples as new sequencer rows.</p>
+          <p>Use the top-bar <strong>Step</strong> and <strong>Piano Roll</strong> buttons to open either editor in the workspace. In the piano roll, choose an instrument, click to add notes, and drag notes or their edges to edit them.</p>
+          <p><strong>Keyboard shortcuts</strong> (use <kbd>⌘</kbd> instead of <kbd>Ctrl</kbd> on Mac): <kbd>Space</kbd> play/stop; <kbd>Ctrl</kbd> + <kbd>A</kbd> select all in the active editor; <kbd>Ctrl</kbd> + <kbd>C</kbd>/<kbd>V</kbd> copy/paste selected Piano Roll notes or Track View clips; <kbd>Ctrl</kbd> + <kbd>X</kbd> cut them; <kbd>Delete</kbd>/<kbd>Backspace</kbd> remove selected notes or clips.</p>
+          <p>In <strong>Step</strong> or <strong>Piano Roll</strong>, press <kbd>P</kbd> to place a non-empty current pattern or Mel at the Track View playhead. In Track View, press <kbd>S</kbd> to split selected clips at the playhead (or all clips crossing it if none are selected). The <strong>Snap</strong> button toggles beat-grid snapping for the playhead and clip placement, movement, and resizing; turn it off for free positioning. Drag clip edges to trim or extend; trimmed content is cut and any extension beyond the source is silent. Press <kbd>Delete</kbd>/<kbd>Backspace</kbd> to remove selected Track View items.</p>
+          <p>In <strong>Step</strong>, <kbd>Shift</kbd>-click cells to select them, then <kbd>Delete</kbd> to clear the selected hits. In <strong>Piano Roll</strong> and <strong>Track View</strong>, <kbd>Alt</kbd>/<kbd>Option</kbd>-drag a marquee to deselect items inside it; <kbd>Shift</kbd>-drag adds to the selection. Piano Roll arrow keys move selected notes by one snap step or semitone; <kbd>Shift</kbd> + <kbd>←</kbd>/<kbd>→</kbd> changes note length by one snap step; <kbd>Ctrl</kbd> + <kbd>↑</kbd>/<kbd>↓</kbd> moves notes by an octave. In Track View, <kbd>←</kbd>/<kbd>→</kbd> nudges selected clips by one bar.</p>
+          <p>Open <strong>Arrangement</strong> to add vocal takes or loops on separate tracks. Drag clips to line them up with your beat; playback combines all tracks at the project tempo.</p>
+          <p>Open <strong>Mixer</strong>, or choose <strong>EQ</strong> beside a track, to adjust its level, three-band EQ, and effects.</p>
+          <p>Projects save in this browser. Use the project menu by the project name to save, rename, create, or switch projects. Export a full arrangement as WAV or download the drum pattern as JSON.</p>
+        </form>
+      </dialog>
+      <dialog class="project-dialog" id="project-dialog" aria-label="Projects">
+        <div class="project-dialog-heading">
+          <div>
+            <div class="eyebrow">PULSEGRID</div>
+            <h2>Projects</h2>
+            <p class="project-user-label">Signed in as <strong id="active-user-label">Taylor</strong></p>
+          </div>
+          <button class="dialog-close" id="project-dialog-close" type="button" aria-label="Close projects">×</button>
+        </div>
+        <div class="project-dialog-actions">
+          <button class="quiet-button" id="save-project-button" type="button">Save now</button>
+          <button class="quiet-button" id="rename-project-button" type="button">Rename</button>
+          <button class="quiet-button" id="new-project-button" type="button">＋ New project</button>
+          <button class="quiet-button" id="switch-user-button" type="button">Switch user</button>
+        </div>
+        <div class="project-list" id="project-list" aria-label="Saved projects"></div>
+      </dialog>
+    </div>
+    <section class="login-screen" id="login-screen" aria-labelledby="login-title">
+      <div class="login-card">
+        <a class="brand login-brand" href="#" aria-label="DansBPM">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <span>dans<span class="brand-light">bpm</span></span>
+        </a>
+        <div class="eyebrow">LOCAL PROFILES</div>
+        <div class="login-options" id="login-options" aria-label="Choose a profile"></div>
+        <form class="create-profile-form" id="create-profile-form">
+          <label for="new-profile-name">Create a new profile</label>
+          <div class="create-profile-controls">
+            <input id="new-profile-name" name="profileName" type="text" maxlength="32" autocomplete="name" placeholder="Your name" required />
+            <button class="quiet-button" type="submit">Create</button>
+          </div>
+        </form>
+        <p class="login-error" id="login-error" role="alert"></p>
+        <p class="login-note">Profiles are local to this browser and are not password-protected.</p>
+      </div>
+    </section>
+    <script src="app.js"></script>
+  </body>
+</html>
