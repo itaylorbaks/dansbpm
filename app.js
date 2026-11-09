@@ -1851,6 +1851,7 @@
     const keys = $("#piano-roll-keys");
     const ruler = $("#piano-roll-ruler");
     const grid = $("#piano-roll-grid");
+    const editor = $(".piano-roll-editor");
     const pianoRollScroll = $("#piano-roll-scroll");
     keys.replaceChildren();
     ruler.replaceChildren();
@@ -1861,6 +1862,7 @@
     const height = (PIANO_TOP_MIDI - PIANO_BOTTOM_MIDI + 1) * PIANO_ROW_HEIGHT;
     ruler.style.width = `${width}px`;
     ruler.style.transform = `translateX(-${pianoRollScroll.scrollLeft}px)`;
+    editor.style.height = `${height}px`;
     grid.style.width = `${width}px`;
     grid.style.height = `${height}px`;
     grid.style.setProperty("--piano-tick-width", `${tickWidth}px`);
@@ -1885,7 +1887,7 @@
         event.stopPropagation();
         setPianoCursorTick(state.pianoCursorTick + (event.key === "ArrowRight" ? getPianoSnapStep() : -getPianoSnapStep()));
       });
-      $(".piano-roll-editor").append(playhead);
+      editor.append(playhead);
     }
     playhead.setAttribute("aria-valuemax", String(totalTicks));
     for (let bar = 0; bar < state.pianoBars; bar += 1) {
