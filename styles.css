@@ -12,7 +12,7 @@
   --accent: #d3f36b;
   --accent-soft: rgba(211, 243, 107, .11);
   --mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --sans: "Londrina Solid", ui-sans-serif, system-ui, sans-serif;
+  --sans: "Barlow", ui-sans-serif, system-ui, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -388,6 +388,9 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .drum-arrangement-clip .clip-resize-handle { position: absolute; right: 0; z-index: 2; width: 12px; height: 50%; flex: 0 0 12px; margin: 0; cursor: ew-resize; }
 .drum-arrangement-clip .clip-repeat-handle { top: 0; border-top: 1px solid currentColor; }
 .drum-arrangement-clip .clip-length-handle { bottom: 0; border-bottom: 1px solid currentColor; }
+.mel-arrangement-clip .clip-resize-handle, .audio-clip .clip-resize-handle { position: absolute; right: 0; z-index: 2; width: 12px; height: 50%; flex: 0 0 12px; margin: 0; cursor: ew-resize; }
+.mel-arrangement-clip .clip-repeat-handle, .audio-clip .clip-repeat-handle { top: 0; border-top: 1px solid currentColor; }
+.mel-arrangement-clip .clip-length-handle, .audio-clip .clip-length-handle { bottom: 0; border-bottom: 1px solid currentColor; }
 .audio-clip { position: absolute; top: 11px; height: 52px; display: flex; align-items: center; overflow: hidden; border: 0; border-radius: 0; background: transparent; padding: 0 7px; color: #e4e4e1; cursor: grab; user-select: none; }
 .audio-clip.is-recording { cursor: default; }
 .recording-waveform { position: absolute; z-index: 0; inset: 3px 4px; width: calc(100% - 8px); height: calc(100% - 6px); opacity: .7; pointer-events: none; }
@@ -397,7 +400,7 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .clip-waveform { position: absolute; z-index: 0; inset: 3px 4px; display: flex; align-items: center; justify-content: space-around; gap: 1px; opacity: .58; pointer-events: none; }
 .clip-waveform i { width: 2px; min-height: 2px; border-radius: 2px; background: var(--clip-color); }
 .clip-name { position: relative; z-index: 1; overflow: hidden; max-width: calc(100% - 24px); text-shadow: 0 1px 5px #000; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; font-weight: 600; }
-.audio-clip .clip-resize-handle { position: relative; z-index: 2; color: var(--clip-color); }
+.audio-clip .clip-resize-handle { color: var(--clip-color); }
 .track-view-controls #arrangement-snap-button[aria-pressed="true"] { border-color: #687641; color: var(--accent); }
 .arrangement-cursor { position: absolute; top: 0; bottom: 0; z-index: 5; width: 12px; margin-left: -6px; border: 0; background: transparent; padding: 0; cursor: ew-resize; touch-action: none; }
 .arrangement-cursor::before { position: absolute; top: 0; left: 1px; width: 10px; height: 8px; background: #f3f4e8; clip-path: polygon(0 0, 100% 0, 50% 100%); content: ""; }

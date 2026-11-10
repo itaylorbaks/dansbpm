@@ -4980,25 +4980,26 @@
     state.arrangementTracks.forEach((track) => {
       if (track.muted || (hasArrangementSolo && !track.solo)) return;
       track.clips.forEach((clip) => {
-        const key = `audio:${clip.id}`;
-        if (deck.songEvents.has(key) || !clip.buffer) return;
-        const time = getDjSongTimeForBar(deck, clip.startBar);
-        if (!isInLookAhead(time)) return;
-        const sourceOffset = Math.max(0, clip.sourceOffsetSeconds || 0);
-        const duration = Math.min(clip.buffer.duration - sourceOffset,
-          clip.durationSeconds ?? clip.buffer.duration, Math.max(0, (endTime - time) * deck.songRate));
-        if (duration <= 0) return;
-        const player = state.audioContext.createBufferSource();
-        player.buffer = clip.buffer;
-        player.playbackRate.value = deck.songRate;
-        player.connect(getDjSongGain(deck, `audio:${track.id}`, track.volume));
-        player.onended = () => {
-          deck.songSources.delete(player);
-          player.disconnect();
-        };
-        player.start(time, sourceOffset, duration);
-        deck.songSources.add(player);
-        deck.songEvents.add(key);
+        getAudioClipSegments(clip, deck.songPositionBar, clip.startBar + getArrangementClipDuration("audio", clip))
+          .forEach((segment) => {
+            const key = `audio:${clip.id}:${segment.loopIndex}`;
+            if (deck.songEvents.has(key)) return;
+            const time = getDjSongTimeForBar(deck, segment.startBar);
+            if (!isInLookAhead(time)) return;
+            const duration = Math.min(segment.durationSeconds, Math.max(0, (endTime - time) * deck.songRate));
+            if (duration <= 0) return;
+            const player = state.audioContext.createBufferSource();
+            player.buffer = clip.buffer;
+            player.playbackRate.value = deck.songRate;
+            player.connect(getDjSongGain(deck, `audio:${track.id}`, track.volume));
+            player.onended = () => {
+              deck.songSources.delete(player);
+              player.disconnect();
+            };
+            player.start(time, segment.sourceOffsetSeconds, duration);
+            deck.songSources.add(player);
+            deck.songEvents.add(key);
+          });
       });
     });
 
@@ -5079,20 +5080,11 @@
       melTrack.clips.forEach((clip) => {
         const mel = getMel(clip.melId);
         if (!mel) return;
-        const sourceOffset = clip.sourceOffsetBars || 0;
-        const sourceEnd = Math.min(getMelLengthBars(mel), sourceOffset + getArrangementClipDuration("mel", clip));
-        mel.notes.forEach((note) => {
-          const noteStartSource = note.startTick / PIANO_TICKS_PER_BAR;
-          const noteEndSource = noteStartSource + note.durationTicks / PIANO_TICKS_PER_BAR;
-          const audibleStart = Math.max(sourceOffset, noteStartSource);
-          const audibleEnd = Math.min(sourceEnd, noteEndSource);
-          if (audibleEnd <= audibleStart) return;
-          const noteStartBar = clip.startBar + audibleStart - sourceOffset;
-          const noteEndBar = clip.startBar + audibleEnd - sourceOffset;
-          const time = getDjSongTimeForBar(deck, noteStartBar);
-          const eventKey = `mel:${melTrack.id}:${clip.id}:${note.id}`;
+        getMelClipNoteEvents(mel, clip).forEach(({ note, loop, startBar, endBar }) => {
+          const time = getDjSongTimeForBar(deck, startBar);
+          const eventKey = `mel:${melTrack.id}:${clip.id}:${loop}:${note.id}`;
           if (deck.songEvents.has(eventKey) || !isInLookAhead(time)) return;
-          const duration = Math.min((noteEndBar - noteStartBar) * secondsPerBar, endTime - time);
+          const duration = Math.min((endBar - startBar) * secondsPerBar, endTime - time);
           if (duration > 0) {
             playPianoNote(instrument, time, note.midi, duration, note.velocity ?? 0.8, melTrack,
               getDjSongGain(deck, `mel:${melTrack.id}:${clip.id}`, melTrack.volume), note);
@@ -6871,6 +6863,70 @@
       : clip.buffer.duration / (240 / state.bpm);
   }
 
+  function getArrangementClipRepeatLength(type, clip) {
+    if (type === "pattern") return (getPattern(clip.patternId)?.steps || 16) / 16;
+    if (type === "mel") return getMelLengthBars(getMel(clip.melId) || { bars: 1, notes: [] });
+    return Math.max(0.01, clip.buffer.duration) / (240 / state.bpm);
+  }
+
+  function getAudioClipSegments(clip, fromBar = clip.startBar, toBar = Infinity) {
+    const secondsPerBar = 240 / state.bpm;
+    const sourceOffset = Math.max(0, clip.sourceOffsetSeconds || 0);
+    const sourceDuration = Math.max(0, clip.buffer.duration);
+    const segments = [];
+    if (!sourceDuration) return segments;
+    const clipDuration = getArrangementClipDuration("audio", clip);
+    const playableDuration = Math.min(clipDuration, sourceDuration * (clip.repeatCount || 1) - sourceOffset);
+    let elapsed = 0;
+    while (elapsed < playableDuration) {
+      const position = sourceOffset + elapsed;
+      const offsetInBuffer = position % sourceDuration;
+      const segmentDuration = Math.min(sourceDuration - offsetInBuffer, playableDuration - elapsed);
+      const segmentStart = clip.startBar + elapsed / secondsPerBar;
+      const segmentEnd = segmentStart + segmentDuration / secondsPerBar;
+      if (segmentEnd > fromBar && segmentStart < toBar) {
+        const audibleStart = Math.max(segmentStart, fromBar);
+        const audibleEnd = Math.min(segmentEnd, toBar);
+        segments.push({
+          startBar: audibleStart,
+          sourceOffsetSeconds: offsetInBuffer + (audibleStart - segmentStart) * secondsPerBar,
+          durationSeconds: (audibleEnd - audibleStart) * secondsPerBar,
+          loopIndex: Math.floor(position / sourceDuration),
+        });
+      }
+      elapsed += segmentDuration;
+    }
+    return segments;
+  }
+
+  function getMelClipNoteEvents(mel, clip) {
+    const melBars = getMelLengthBars(mel);
+    const sourceOffset = clip.sourceOffsetBars || 0;
+    const sourceEnd = Math.min(melBars * (clip.repeatCount || 1),
+      sourceOffset + getArrangementClipDuration("mel", clip));
+    const events = [];
+    mel.notes.forEach((note) => {
+      const noteStart = note.startTick / PIANO_TICKS_PER_BAR;
+      const noteEnd = noteStart + note.durationTicks / PIANO_TICKS_PER_BAR;
+      const firstLoop = Math.max(0, Math.floor(sourceOffset / melBars));
+      const lastLoop = Math.ceil(sourceEnd / melBars);
+      for (let loop = firstLoop; loop < lastLoop; loop += 1) {
+        const noteStartSource = loop * melBars + noteStart;
+        const noteEndSource = loop * melBars + noteEnd;
+        const audibleStart = Math.max(sourceOffset, noteStartSource);
+        const audibleEnd = Math.min(sourceEnd, noteEndSource);
+        if (audibleEnd <= audibleStart) continue;
+        events.push({
+          note,
+          loop,
+          startBar: clip.startBar + audibleStart - sourceOffset,
+          endBar: clip.startBar + audibleEnd - sourceOffset,
+        });
+      }
+    });
+    return events;
+  }
+
   function updateArrangementLength() {
     const secondsPerBar = 240 / state.bpm;
     const melEnd = state.melTracks.reduce((latest, track) =>
@@ -8231,6 +8287,7 @@
     track.clips.push({
       id: makeId(),
       melId,
+      repeatCount: 1,
       sourceOffsetBars: 0,
       startBar: clampArrangementStart(startBar, length),
     });
@@ -8622,23 +8679,28 @@
 
   function getMelActivityWaveform(mel, clip, durationBars) {
     const sourceOffset = clip.sourceOffsetBars || 0;
+    const melBars = getMelLengthBars(mel);
+    const playableBars = Math.min(durationBars, Math.max(0, melBars * (clip.repeatCount || 1) - sourceOffset));
     return Array.from({ length: 48 }, (_, index) => {
       const position = sourceOffset + (index + 0.5) / 48 * durationBars;
+      if (position >= sourceOffset + playableBars) return 0;
+      const sourcePosition = position % melBars;
       return mel.notes.reduce((level, note) => {
         const start = note.startTick / PIANO_TICKS_PER_BAR;
         const end = start + note.durationTicks / PIANO_TICKS_PER_BAR;
-        return position >= start && position < end ? Math.max(level, note.velocity || 0.8) : level;
+        return sourcePosition >= start && sourcePosition < end ? Math.max(level, note.velocity || 0.8) : level;
       }, 0);
     });
   }
 
-  function updatePatternClipRepeatMarkers(element, clip, pattern, durationBars) {
+  function updateArrangementClipRepeatMarkers(element, clip, repeatLengthBars, durationBars, sourceOffsetBars = 0) {
     element.querySelector(".pattern-repeat-overlay")?.remove();
     const overlay = document.createElement("span");
     overlay.className = "pattern-repeat-overlay";
-    const patternBars = pattern.steps / 16;
-    const playbackBars = Math.min(durationBars, Math.max(0, patternBars * (clip.repeatCount || 1) - (clip.sourceOffsetBars || 0)));
-    for (let boundary = patternBars - (clip.sourceOffsetBars || 0); boundary < playbackBars - 0.001; boundary += patternBars) {
+    const playbackBars = Math.min(durationBars, Math.max(0, repeatLengthBars * (clip.repeatCount || 1) - sourceOffsetBars));
+    const sourcePhase = sourceOffsetBars % repeatLengthBars;
+    for (let boundary = (sourcePhase ? repeatLengthBars - sourcePhase : repeatLengthBars);
+      boundary < playbackBars - 0.001; boundary += repeatLengthBars) {
       const divider = document.createElement("span");
       divider.className = "pattern-repeat-divider";
       divider.style.left = `${Math.max(0, boundary * BAR_WIDTH - 4)}px`;
@@ -8675,28 +8737,35 @@
     handle.className = `clip-resize-handle clip-${mode}-handle`;
     handle.setAttribute("aria-label", mode === "repeat" ? `Repeat ${name}` : `Resize ${name}`);
     handle.title = mode === "repeat"
-      ? "Drag to repeat the pattern"
+      ? `Drag to repeat ${name}`
       : "Drag to trim or extend; extension after the source is silent";
 
     const updateDuration = (durationBars) => {
       if (type === "audio") clip.durationSeconds = durationBars * (240 / state.bpm);
       else clip.durationBars = durationBars;
-      if (mode === "repeat" && type === "pattern") {
-        const pattern = getPattern(clip.patternId);
-        if (pattern) {
-          const patternBars = pattern.steps / 16;
-          clip.repeatCount = Math.max(1, Math.ceil(((clip.sourceOffsetBars || 0) + durationBars - 0.0001) / patternBars));
-        }
+      if (mode === "repeat") {
+        const repeatLength = getArrangementClipRepeatLength(type, clip);
+        const sourceOffset = type === "mel" ? clip.sourceOffsetBars || 0
+          : type === "audio" ? (clip.sourceOffsetSeconds || 0) / (240 / state.bpm) : clip.sourceOffsetBars || 0;
+        clip.repeatCount = Math.max(1, Math.ceil((sourceOffset + durationBars - 0.0001) / repeatLength));
       }
       const duration = getArrangementClipDuration(type, clip);
       element.style.width = `${Math.max(28, duration * BAR_WIDTH - 8)}px`;
+      if (type === "audio") {
+        element.style.setProperty("--pattern-color", track?.color || "var(--accent)");
+        updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength(type, clip), duration,
+          (clip.sourceOffsetSeconds || 0) / (240 / state.bpm));
+      }
       if (type === "mel") {
         const mel = getMel(clip.melId);
-        if (mel) labelElement.textContent = `${mel.name.toUpperCase()} · ${duration.toFixed(2)} BAR${duration === 1 ? "" : "S"}`;
+        if (mel) {
+          labelElement.textContent = `${mel.name.toUpperCase()} · ${duration.toFixed(2)} BAR${duration === 1 ? "" : "S"}`;
+          updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength(type, clip), duration, clip.sourceOffsetBars || 0);
+        }
       } else if (type === "pattern") {
         const pattern = getPattern(clip.patternId);
         labelElement.textContent = `${(pattern?.name || "DRUM PATTERN").toUpperCase()} · ${duration.toFixed(2)} BAR${duration === 1 ? "" : "S"}`;
-        if (pattern) updatePatternClipRepeatMarkers(element, clip, pattern, duration);
+        if (pattern) updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength(type, clip), duration, clip.sourceOffsetBars || 0);
       }
       element.setAttribute("aria-label", `${name}, bar ${clip.startBar + 1}, ${duration.toFixed(2)} bars; drag to move or resize`);
     };
@@ -8821,7 +8890,11 @@
     const name = document.createElement("span");
     name.className = "clip-name";
     name.textContent = clip.name;
+    element.style.setProperty("--pattern-color", track.color);
+    const repeatHandle = makeArrangementResizeHandle("audio", clip, track, element, name, "repeat");
     const resizeHandle = makeArrangementResizeHandle("audio", clip, track, element, name);
+    updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength("audio", clip), durationBars,
+      (clip.sourceOffsetSeconds || 0) / (240 / state.bpm));
     element.addEventListener("dragstart", (event) => {
       selectArrangementTrack(track.id);
       if (!(event.shiftKey && (event.ctrlKey || event.metaKey))) selectArrangementItem("audio", clip.id, event);
@@ -8836,7 +8909,7 @@
       if (!selectArrangementItem("audio", clip.id, event)) return;
       setArrangementCursor(clip.startBar);
     });
-    element.append(waveform, name, resizeHandle);
+    element.append(waveform, name, repeatHandle, resizeHandle);
     return element;
   }
 
@@ -8850,13 +8923,16 @@
     element.dataset.clipId = clip.id;
     element.dataset.selectableType = "mel";
     element.style.setProperty("--clip-color", track.color);
+    element.style.setProperty("--pattern-color", track.color);
     element.style.left = `${clip.startBar * BAR_WIDTH + 4}px`;
     element.style.width = `${Math.max(28, bars * BAR_WIDTH - 8)}px`;
     const name = document.createElement("span");
     name.className = "mel-clip-name";
     name.textContent = `${mel.name.toUpperCase()} · ${Number(bars.toFixed(2))} BAR${bars === 1 ? "" : "S"}`;
     element.setAttribute("aria-label", `${mel.name}, bar ${clip.startBar + 1}, ${bars.toFixed(2)} bars; drag to move or resize`);
+    const repeatHandle = makeArrangementResizeHandle("mel", clip, track, element, name, "repeat");
     const resizeHandle = makeArrangementResizeHandle("mel", clip, track, element, name);
+    updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength("mel", clip), bars, clip.sourceOffsetBars || 0);
     const waveform = makeActivityWaveform(getMelActivityWaveform(mel, clip, bars));
     element.addEventListener("dragstart", (event) => {
       selectArrangementTrack(track.id);
@@ -8872,7 +8948,7 @@
       if (!selectArrangementItem("mel", clip.id, event)) return;
       setArrangementCursor(clip.startBar);
     });
-    element.append(waveform, name, resizeHandle);
+    element.append(waveform, name, repeatHandle, resizeHandle);
     return element;
   }
 
@@ -8915,7 +8991,7 @@
       setArrangementCursor(clip.startBar);
     });
     element.append(waveform, icon, text, repeatHandle, resizeHandle);
-    if (pattern) updatePatternClipRepeatMarkers(element, clip, pattern, totalBars);
+    if (pattern) updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength("pattern", clip), totalBars, clip.sourceOffsetBars || 0);
     return element;
   }
 
@@ -9559,6 +9635,7 @@
       else if (!track.clips.length && /^Track \d+$/.test(track.name)) track.name = file.name;
       const clip = {
         id: makeId(), name: file.name, buffer,
+          repeatCount: 1,
         durationSeconds: buffer.duration,
         sourceOffsetSeconds: 0,
         startBar: 0,
@@ -10013,6 +10090,7 @@
         startBar: clip.startBar,
         durationSeconds: clip.durationSeconds,
         sourceOffsetSeconds: clip.sourceOffsetSeconds || 0,
+        repeatCount: clip.repeatCount || 1,
         audioMetadata: normalizeAudioMetadata(clip.audioMetadata),
         volume: track.volume,
         muted: track.muted,
@@ -10161,6 +10239,7 @@
             startBar: record.startBar,
             durationSeconds: Number.isFinite(record.durationSeconds) ? record.durationSeconds : buffer.duration,
             sourceOffsetSeconds: Number.isFinite(record.sourceOffsetSeconds) ? record.sourceOffsetSeconds : 0,
+            repeatCount: Number.isInteger(record.repeatCount) ? Math.max(1, record.repeatCount) : 1,
             buffer,
             blob: record.blob,
             audioMetadata: record.audioMetadata
@@ -10682,18 +10761,16 @@
     state.arrangementTracks.forEach((track) => {
       ensureArrangementTrackAudio(track);
       track.clips.forEach((clip) => {
-        const elapsed = Math.max(0, (startBar - clip.startBar) * secondsPerBar);
-        const offset = (clip.sourceOffsetSeconds || 0) + elapsed;
-        const clipDuration = clip.durationSeconds ?? clip.buffer.duration;
-        const remaining = clipDuration - elapsed;
-        if (offset >= clip.buffer.duration || remaining <= 0) return;
-        const when = startTime + Math.max(0, clip.startBar - startBar) * secondsPerBar;
-        const source = state.audioContext.createBufferSource();
-        source.buffer = clip.buffer;
-        source.connect(track.gainNode);
-        source.onended = () => state.arrangementSources.delete(source);
-        source.start(when, offset, Math.min(clip.buffer.duration - offset, remaining));
-        state.arrangementSources.add(source);
+        getAudioClipSegments(clip, startBar, clip.startBar + getArrangementClipDuration("audio", clip))
+          .forEach((segment) => {
+            const when = startTime + (segment.startBar - startBar) * secondsPerBar;
+            const source = state.audioContext.createBufferSource();
+            source.buffer = clip.buffer;
+            source.connect(track.gainNode);
+            source.onended = () => state.arrangementSources.delete(source);
+            source.start(when, segment.sourceOffsetSeconds, segment.durationSeconds);
+            state.arrangementSources.add(source);
+          });
       });
     });
     const hasMelSolo = state.melTracks.some((track) => track.solo);
@@ -10705,19 +10782,9 @@
       melTrack.clips.forEach((clip) => {
         const mel = getMel(clip.melId);
         if (!mel) return;
-        const sourceOffset = clip.sourceOffsetBars || 0;
-        const sourceEnd = sourceOffset + getArrangementClipDuration("mel", clip);
-        const melEnd = getMelLengthBars(mel);
-        mel.notes.forEach((note) => {
-          const noteStartSource = note.startTick / PIANO_TICKS_PER_BAR;
-          const noteEndSource = noteStartSource + note.durationTicks / PIANO_TICKS_PER_BAR;
-          const audibleSourceStart = Math.max(sourceOffset, noteStartSource);
-          const audibleSourceEnd = Math.min(sourceEnd, melEnd, noteEndSource);
-          const key = `${melTrack.id}:${clip.id}:${note.id}`;
+        getMelClipNoteEvents(mel, clip).forEach(({ note, loop, startBar: noteStartBar, endBar: noteEndBar }) => {
+          const key = `${melTrack.id}:${clip.id}:${loop}:${note.id}`;
           if (state.scheduledPianoNotes.has(key)) return;
-          if (audibleSourceEnd <= audibleSourceStart) return;
-          const noteStartBar = clip.startBar + audibleSourceStart - sourceOffset;
-          const noteEndBar = clip.startBar + audibleSourceEnd - sourceOffset;
           if (noteEndBar <= startBar) return;
           const audibleStartBar = Math.max(startBar, noteStartBar);
           const when = startTime + (audibleStartBar - startBar) * secondsPerBar;
@@ -11603,6 +11670,7 @@
                 return {
                   id: clip.id,
                   melId: clip.melId,
+                  repeatCount: Number.isInteger(clip.repeatCount) ? Math.max(1, clip.repeatCount) : 1,
                   ...(Number.isFinite(clip.durationBars) ? { durationBars } : {}),
                   sourceOffsetBars: Number.isFinite(clip.sourceOffsetBars) ? Math.max(0, clip.sourceOffsetBars) : 0,
                   startBar: Math.max(0, Math.min(MAX_ARRANGEMENT_BARS - durationBars, clip.startBar)),
@@ -11722,15 +11790,13 @@
 
       state.arrangementTracks.forEach((track) => {
         track.clips.forEach((clip) => {
-          const startTime = clip.startBar * secondsPerBar;
-          if (startTime >= duration) return;
-          const source = context.createBufferSource();
-          source.buffer = clip.buffer;
-          source.connect(track.gainNode);
-          const clipDuration = clip.durationSeconds ?? clip.buffer.duration;
-          const sourceOffset = clip.sourceOffsetSeconds || 0;
-          const playDuration = Math.min(clip.buffer.duration - sourceOffset, clipDuration, duration - startTime);
-          if (playDuration > 0) source.start(startTime, sourceOffset, playDuration);
+          getAudioClipSegments(clip, clip.startBar, duration / secondsPerBar).forEach((segment) => {
+            const startTime = segment.startBar * secondsPerBar;
+            const source = context.createBufferSource();
+            source.buffer = clip.buffer;
+            source.connect(track.gainNode);
+            source.start(startTime, segment.sourceOffsetSeconds, segment.durationSeconds);
+          });
         });
       });
 
@@ -11794,13 +11860,7 @@
         melTrack.clips.forEach((clip) => {
           const mel = getMel(clip.melId);
           if (!mel) return;
-          const sourceOffset = clip.sourceOffsetBars || 0;
-          const sourceEnd = Math.min(getMelLengthBars(mel), sourceOffset + getArrangementClipDuration("mel", clip));
-          mel.notes.forEach((note) => {
-            const noteStart = note.startTick / PIANO_TICKS_PER_BAR;
-            const noteEnd = noteStart + note.durationTicks / PIANO_TICKS_PER_BAR;
-            const startBar = clip.startBar + Math.max(sourceOffset, noteStart) - sourceOffset;
-            const endBar = clip.startBar + Math.min(sourceEnd, noteEnd) - sourceOffset;
+          getMelClipNoteEvents(mel, clip).forEach(({ note, startBar, endBar }) => {
             if (startBar >= duration / secondsPerBar || endBar <= startBar) return;
             const startTime = startBar * secondsPerBar;
             const noteDuration = Math.min((endBar - startBar) * secondsPerBar, duration - startTime);
