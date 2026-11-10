@@ -367,8 +367,11 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .timeline-scroll { overflow: auto; overscroll-behavior: contain; scrollbar-color: #45464a #1b1c1f; scrollbar-width: thin; }
 .timeline-content { position: relative; min-width: 100%; width: max-content; }
 .selection-marquee { position: absolute; z-index: 20; border: 1px solid rgba(211,243,107,.9); background: rgba(211,243,107,.12); pointer-events: none; }
-.timeline-ruler { height: 43px; display: grid; border-bottom: 1px solid var(--stroke); background: #1c1d20; cursor: pointer; }
-.timeline-bar { position: relative; display: flex; align-items: center; padding-left: 9px; border-right: 1px solid #303136; color: #9a9ba0; font-family: var(--mono); font-size: 9px; }
+.timeline-ruler { position: relative; height: 43px; display: grid; border-bottom: 1px solid var(--stroke); background: #1c1d20; cursor: pointer; }
+.arrangement-loop-range, .piano-roll-loop-range { position: absolute; z-index: 0; top: 0; bottom: 0; border-right: 1px solid #d3f36b; border-left: 1px solid #d3f36b; background: rgba(211,243,107,.16); pointer-events: none; }
+.arrangement-loop-range.is-disabled, .piano-roll-loop-range.is-disabled { border-style: dashed; background: rgba(211,243,107,.06); opacity: .7; }
+.loop-toggle-button[aria-pressed="true"] { border-color: #687641; color: var(--accent); }
+.timeline-bar { position: relative; z-index: 1; display: flex; align-items: center; padding-left: 9px; border-right: 1px solid #303136; color: #9a9ba0; font-family: var(--mono); font-size: 9px; }
 .timeline-bar::before { position: absolute; left: 0; bottom: 0; height: 7px; border-left: 1px solid #595a5f; content: ""; }
 .timeline-lane { position: relative; height: 74px; border-bottom: 1px solid #25262a; background-color: #191a1d; background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(var(--bar-width) - 1px), #292a2e calc(var(--bar-width) - 1px), #292a2e var(--bar-width)), repeating-linear-gradient(to right, transparent 0, transparent calc(var(--beat-width) - 1px), rgba(45,46,51,.55) calc(var(--beat-width) - 1px), rgba(45,46,51,.55) var(--beat-width)); }
 .timeline-lane.is-drop-target { background-color: rgba(211,243,107,.06); }
@@ -439,8 +442,8 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .piano-roll-key.is-black { background: #38393d; color: #ddd; }
 .piano-roll-key.is-octave { color: #9aab63; font-weight: 700; }
 .piano-roll-editor { position: relative; flex: 0 0 auto; }
-.piano-roll-ruler { height: 28px; display: flex; background: #202125; }
-.piano-roll-bar { width: var(--piano-bar-width, 512px); flex: 0 0 var(--piano-bar-width, 512px); display: grid; grid-template-columns: repeat(4, var(--piano-beat-width, 128px)); border-right: 1px solid #54565b; color: #aaa; font-family: var(--mono); font-size: 8px; }
+.piano-roll-ruler { position: relative; height: 28px; display: flex; background: #202125; }
+.piano-roll-bar { position: relative; z-index: 1; width: var(--piano-bar-width, 512px); flex: 0 0 var(--piano-bar-width, 512px); display: grid; grid-template-columns: repeat(4, var(--piano-beat-width, 128px)); border-right: 1px solid #54565b; color: #aaa; font-family: var(--mono); font-size: 8px; }
 .piano-roll-bar > span { display: flex; align-items: center; border-right: 1px solid #333439; padding-left: 5px; }
 .piano-roll-bar > span:first-child { color: var(--accent); }
 .piano-roll-grid { position: relative; overflow: hidden; background-color: #1a1b1e; background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(var(--piano-tick-width, 16px) - 1px), #2a2b30 calc(var(--piano-tick-width, 16px) - 1px), #2a2b30 var(--piano-tick-width, 16px)), repeating-linear-gradient(to right, transparent 0, transparent calc(var(--piano-beat-width, 128px) - 1px), #44454a calc(var(--piano-beat-width, 128px) - 1px), #44454a var(--piano-beat-width, 128px)), repeating-linear-gradient(to right, transparent 0, transparent calc(var(--piano-bar-width, 512px) - 1px), #707176 calc(var(--piano-bar-width, 512px) - 1px), #707176 var(--piano-bar-width, 512px)); touch-action: none; }

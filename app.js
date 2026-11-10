@@ -448,6 +448,10 @@
     pianoNotes: [],
     pianoStartBar: 0,
     pianoCursorTick: 0,
+    pianoLoopEnabled: false,
+    pianoLoopStartBar: 0,
+    pianoLoopEndBar: 4,
+    pianoPlaybackStartTick: 0,
     pianoBars: 4,
     pianoScale: 1,
     pianoDrawMode: false,
@@ -494,6 +498,9 @@
     swing: 0,
     arrangementBars: 32,
     arrangementCursor: 0,
+    arrangementLoopEnabled: false,
+    arrangementLoopStartBar: 0,
+    arrangementLoopEndBar: 4,
     arrangementSnap: true,
     arrangementSources: new Set(),
     isSchedulingArrangementVoice: false,
@@ -1768,7 +1775,7 @@
 
   function updatePianoPlayhead(keepVisible = false) {
     const marker = $("#piano-roll-playhead");
-    const maxTick = state.pianoBars * PIANO_TICKS_PER_BAR;
+    const maxTick = getPianoLoopRange().totalBars * PIANO_TICKS_PER_BAR;
     const visibleTick = Math.max(0, Math.min(maxTick - 0.001, state.pianoCursorTick));
     const tickWidth = getPianoTickWidth();
     const playheadX = visibleTick * tickWidth;
@@ -1797,32 +1804,49 @@
 
   function updatePianoCursorFromTime(startTime) {
     if (!state.audioContext) return;
-    const mel = getMel();
-    const loopTicks = Math.max(1, (mel ? getMelLengthBars(mel) : 1) * PIANO_TICKS_PER_BAR);
+    const loopTicks = Math.max(1, getPianoPlaybackSource().loopBars * PIANO_TICKS_PER_BAR);
     const elapsedTicks = Math.max(0, state.audioContext.currentTime - startTime) / (240 / state.bpm) * PIANO_TICKS_PER_BAR;
-    state.pianoCursorTick = elapsedTicks % loopTicks;
+    if (state.pianoLoopEnabled) {
+      const { startBar, endBar } = getPianoLoopRange();
+      const startTick = startBar * PIANO_TICKS_PER_BAR;
+      const endTick = Math.min(loopTicks, endBar * PIANO_TICKS_PER_BAR);
+      const loopTicksInRange = Math.max(1, endTick - startTick);
+      state.pianoCursorTick = elapsedTicks >= endTick
+        ? startTick + ((elapsedTicks - endTick) % loopTicksInRange)
+        : Math.max(startTick, Math.min(endTick - 0.001, elapsedTicks));
+    } else {
+      state.pianoCursorTick = elapsedTicks % loopTicks;
+    }
     updatePianoPlayhead(true);
   }
 
   function setPianoCursorTick(tick, seek = true, persist = true) {
-    const maxTick = state.pianoBars * PIANO_TICKS_PER_BAR;
-    state.pianoCursorTick = Math.max(0, Math.min(maxTick - 0.001, tick));
+    const loopTicks = Math.max(1, getPianoLoopRange().totalBars * PIANO_TICKS_PER_BAR);
+    const maxTick = loopTicks;
+    let cursorTick = Math.max(0, Math.min(maxTick - 0.001, tick));
+    if (state.pianoLoopEnabled) {
+      const { startBar, endBar } = getPianoLoopRange();
+      const startTick = startBar * PIANO_TICKS_PER_BAR;
+      const endTick = endBar * PIANO_TICKS_PER_BAR;
+      if (cursorTick < startTick || cursorTick >= endTick) cursorTick = startTick;
+    }
+    state.pianoCursorTick = cursorTick;
     updatePianoPlayhead(true);
     if (seek && state.audioContext) {
-      const mel = getMel();
-      const loopTicks = Math.max(1, (mel ? getMelLengthBars(mel) : 1) * PIANO_TICKS_PER_BAR);
-      const cursorTick = state.pianoCursorTick % loopTicks;
+      cursorTick = state.pianoCursorTick % loopTicks;
       const now = state.audioContext.currentTime;
       const startTime = now + 0.04 - cursorTick / PIANO_TICKS_PER_BAR * (240 / state.bpm);
       const player = state.workspacePlayers["piano-roll"];
       if (player) {
         player.startTime = startTime;
+        player.startTick = cursorTick;
         player.nextStepTime = now + 0.04;
         player.stepIndex = Math.floor(cursorTick) % PIANO_TICKS_PER_BAR;
         player.scheduledMelNotes.clear();
       }
       if (state.isPlaying && state.playbackMode === "piano-roll") {
         state.playbackStartTime = startTime;
+        state.pianoPlaybackStartTick = cursorTick;
         state.nextStepTime = now + 0.04;
         state.stepIndex = Math.floor(cursorTick) % PIANO_TICKS_PER_BAR;
         state.scheduledPianoNotes.clear();
@@ -1852,13 +1876,89 @@
     document.addEventListener("pointercancel", finish);
   }
 
+  function getPianoLoopRange() {
+    const totalBars = getPianoPlaybackSource().loopBars;
+    const startBar = Math.max(0, Math.min(totalBars - 1, state.pianoLoopStartBar));
+    const endBar = Math.max(startBar + 1, Math.min(totalBars, state.pianoLoopEndBar));
+    return { startBar, endBar, totalBars };
+  }
+
+  function getPianoPlaybackSource() {
+    const editContext = state.stepPianoEditContext;
+    const mel = editContext ? null : getMel();
+    const pattern = editContext ? getPattern(editContext.patternId) : null;
+    return {
+      notes: editContext ? state.pianoNotes : mel?.notes,
+      instrument: getPianoTrack(editContext?.trackId || mel?.instrumentId || state.selectedPianoTrackId),
+      loopBars: editContext
+        ? (pattern?.steps || 16) / 16
+        : mel ? getMelLengthBars(mel) : state.pianoBars,
+    };
+  }
+
+  function updatePianoLoopUI() {
+    const { startBar, endBar } = getPianoLoopRange();
+    const ruler = $("#piano-roll-ruler");
+    ruler.querySelector(".piano-roll-loop-range")?.remove();
+    const range = document.createElement("div");
+    range.className = `piano-roll-loop-range${state.pianoLoopEnabled ? "" : " is-disabled"}`;
+    const barWidth = getPianoTickWidth() * PIANO_TICKS_PER_BAR;
+    range.style.left = `${startBar * barWidth}px`;
+    range.style.width = `${(endBar - startBar) * barWidth}px`;
+    ruler.append(range);
+    const button = $("#piano-loop-button");
+    button.textContent = `LOOP ${state.pianoLoopEnabled ? "ON" : "OFF"}`;
+    button.setAttribute("aria-pressed", String(state.pianoLoopEnabled));
+    button.title = state.pianoLoopEnabled
+      ? `Loop bars ${startBar + 1}–${endBar}; drag the ruler to change the section`
+      : "Drag across the bar ruler to select a loop section";
+  }
+
   function seekPianoRollFromRuler(event) {
     if (event.button !== 0) return;
     event.preventDefault();
+    event.stopPropagation();
     const scroll = $("#piano-roll-scroll");
-    const ruler = $("#piano-roll-ruler-viewport");
-    const tick = (scroll.scrollLeft + event.clientX - ruler.getBoundingClientRect().left) / getPianoTickWidth();
-    setPianoCursorTick(tick);
+    const viewport = $("#piano-roll-ruler-viewport");
+    const rulerBounds = viewport.getBoundingClientRect();
+    const getTick = (clientX) => Math.max(0, Math.min(
+      getPianoLoopRange().totalBars * PIANO_TICKS_PER_BAR,
+      (scroll.scrollLeft + clientX - rulerBounds.left) / getPianoTickWidth(),
+    ));
+    const startX = event.clientX;
+    const startTick = getTick(startX);
+    let hasDragged = false;
+    const updateRange = (moveEvent) => {
+      if (Math.abs(moveEvent.clientX - startX) > 4) hasDragged = true;
+      if (!hasDragged) return;
+      const currentBar = getTick(moveEvent.clientX) / PIANO_TICKS_PER_BAR;
+      const anchorBar = startTick / PIANO_TICKS_PER_BAR;
+      const { totalBars } = getPianoLoopRange();
+      const startBar = Math.max(0, Math.min(totalBars - 1, Math.floor(Math.min(anchorBar, currentBar))));
+      const endBar = Math.max(startBar + 1, Math.min(totalBars, Math.ceil(Math.max(anchorBar, currentBar))));
+      state.pianoLoopStartBar = startBar;
+      state.pianoLoopEndBar = endBar;
+      state.pianoLoopEnabled = true;
+      updatePianoLoopUI();
+    };
+    const finish = () => {
+      document.removeEventListener("pointermove", updateRange);
+      document.removeEventListener("pointerup", finish);
+      document.removeEventListener("pointercancel", finish);
+      if (hasDragged) {
+        stopWorkspacePlayback("piano-roll");
+        if (state.isPlaying && state.playbackMode === "piano-roll") stopPlayback();
+        state.pianoCursorTick = state.pianoLoopStartBar * PIANO_TICKS_PER_BAR;
+        state.pianoPlaybackStartTick = state.pianoCursorTick;
+        updatePianoPlayhead(true);
+        saveState();
+      } else {
+        setPianoCursorTick(startTick);
+      }
+    };
+    document.addEventListener("pointermove", updateRange);
+    document.addEventListener("pointerup", finish);
+    document.addEventListener("pointercancel", finish);
   }
 
   function renderPianoRoll() {
@@ -1923,6 +2023,7 @@
       }
       ruler.append(marker);
     }
+    updatePianoLoopUI();
     for (let midi = PIANO_TOP_MIDI; midi >= PIANO_BOTTOM_MIDI; midi -= 1) {
       const row = document.createElement("div");
       const pitchClass = midi % 12;
@@ -6015,7 +6116,14 @@
     const pianoLoopPlayback = state.playbackMode === "piano-roll";
     if (arrangementPlayback && state.isPlaying) {
       if (state.audioContext.currentTime >= state.playbackEndTime) {
-        stopPlayback();
+        if (state.arrangementLoopEnabled) {
+          const { startBar } = getArrangementLoopRange();
+          stopPlayback();
+          state.arrangementCursor = startBar;
+          startArrangementLoopIteration(startBar);
+        } else {
+          stopPlayback();
+        }
         return;
       }
       const elapsed = Math.max(0, state.audioContext.currentTime - state.playbackStartTime);
@@ -6057,6 +6165,29 @@
       state.stepIndex = (clockStep + 1) % (state.steps * 2);
     }
     if (pianoLoopPlayback) scheduleCurrentMelLoop(lookAhead);
+  }
+
+  function startArrangementLoopIteration(startBar) {
+    const now = state.audioContext.currentTime;
+    state.isPlaying = true;
+    state.playbackMode = "arrangement";
+    state.playbackStartBar = startBar;
+    state.playbackStartTime = now + 0.02;
+    const { endBar } = getArrangementLoopRange();
+    state.playbackEndTime = state.playbackStartTime + (endBar - startBar) * (240 / state.bpm);
+    state.stepIndex = 0;
+    state.scheduledPianoNotes.clear();
+    state.scheduledArrangementSteps.clear();
+    state.nextStepTime = state.playbackStartTime;
+    updateTrackGains();
+    scheduleArrangementClips(state.playbackStartTime, startBar);
+    scheduler();
+    state.schedulerId = window.setInterval(scheduler, 25);
+    syncMixerMeters();
+    playButton.classList.add("is-playing");
+    playButton.setAttribute("aria-label", "Pause Track View");
+    $("#now-playing").classList.add("is-live");
+    $("#now-playing").innerHTML = '<span class="live-dot"></span>TRACK VIEW PLAYING';
   }
 
   function scheduleArrangementPatternClips(now, lookAhead) {
@@ -6122,25 +6253,71 @@
   }
 
   function scheduleCurrentMelLoop(lookAhead) {
-    const mel = getMel();
-    const instrument = getPianoTrack();
-    if (!mel || !instrument) return;
+    const { notes, instrument, loopBars } = getPianoPlaybackSource();
+    if (!notes || !instrument) return;
     const secondsPerBar = 240 / state.bpm;
     const now = state.audioContext.currentTime;
-    const loopSeconds = getMelLengthBars(mel) * secondsPerBar;
-    const firstLoop = Math.max(0, Math.floor((now - state.playbackStartTime) / loopSeconds));
-    mel.notes.forEach((note) => {
-      const noteOffset = note.startTick / PIANO_TICKS_PER_BAR * secondsPerBar;
-      const duration = note.durationTicks / PIANO_TICKS_PER_BAR * secondsPerBar;
-      for (let loop = firstLoop; loop <= firstLoop + 1; loop += 1) {
-        const key = `${note.id}:${loop}`;
-        if (state.scheduledPianoNotes.has(key)) continue;
-        const when = state.playbackStartTime + loop * loopSeconds + noteOffset;
+    schedulePianoMelLoopNotes(
+      notes, instrument, state.playbackStartTime, now, lookAhead, state.scheduledPianoNotes,
+      loopBars, state.pianoPlaybackStartTick,
+    );
+  }
+
+  function schedulePianoMelLoopNotes(notes, instrument, startTime, now, lookAhead, scheduledNotes, loopBars, startTick) {
+    const secondsPerBar = 240 / state.bpm;
+    const totalTicks = loopBars * PIANO_TICKS_PER_BAR;
+    if (!state.pianoLoopEnabled) {
+      const loopSeconds = loopBars * secondsPerBar;
+      const firstLoop = Math.max(0, Math.floor((now - startTime) / loopSeconds));
+      notes.forEach((note) => {
+        const noteOffset = note.startTick / PIANO_TICKS_PER_BAR * secondsPerBar;
+        const duration = note.durationTicks / PIANO_TICKS_PER_BAR * secondsPerBar;
+        for (let loop = firstLoop; loop <= firstLoop + 1; loop += 1) {
+          const key = `${note.id}:${loop}`;
+          if (scheduledNotes.has(key)) continue;
+          const when = startTime + loop * loopSeconds + noteOffset;
+          if (when < now || when >= now + lookAhead) continue;
+          playPianoNote(instrument, when, note.midi, duration, note.velocity ?? 0.8, instrument, null, note);
+          scheduledNotes.add(key);
+        }
+      });
+      return;
+    }
+
+    const { startBar, endBar } = getPianoLoopRange();
+    const rangeStartTick = Math.max(0, Math.min(totalTicks - 1, startBar * PIANO_TICKS_PER_BAR));
+    const rangeEndTick = Math.max(rangeStartTick + 1, Math.min(totalTicks, endBar * PIANO_TICKS_PER_BAR));
+    const firstPassStartTick = Math.max(rangeStartTick, Math.min(rangeEndTick - 1, startTick));
+    const rangeStartTime = startTime + rangeStartTick / PIANO_TICKS_PER_BAR * secondsPerBar;
+    const firstPassEndTime = startTime + rangeEndTick / PIANO_TICKS_PER_BAR * secondsPerBar;
+    const cycleDuration = (rangeEndTick - rangeStartTick) / PIANO_TICKS_PER_BAR * secondsPerBar;
+    const firstCycle = now < firstPassEndTime
+      ? 0
+      : 1 + Math.floor((now - firstPassEndTime) / cycleDuration);
+    notes.forEach((note) => {
+      for (let cycle = firstCycle; cycle <= firstCycle + 1; cycle += 1) {
+        const minimumTick = cycle === 0 ? firstPassStartTick : rangeStartTick;
+        if (note.startTick < minimumTick || note.startTick >= rangeEndTick) continue;
+        const key = `${note.id}:${cycle}`;
+        if (scheduledNotes.has(key)) continue;
+        const when = cycle === 0
+          ? startTime + note.startTick / PIANO_TICKS_PER_BAR * secondsPerBar
+          : firstPassEndTime + (cycle - 1) * cycleDuration +
+            (note.startTick - rangeStartTick) / PIANO_TICKS_PER_BAR * secondsPerBar;
         if (when < now || when >= now + lookAhead) continue;
-        playPianoNote(instrument, when, note.midi, duration, note.velocity ?? 0.8, instrument, null, note);
-        state.scheduledPianoNotes.add(key);
+        const durationTicks = Math.min(note.durationTicks, rangeEndTick - note.startTick);
+        playPianoNote(instrument, when, note.midi,
+          durationTicks / PIANO_TICKS_PER_BAR * secondsPerBar, note.velocity ?? 0.8, instrument, null, note);
+        scheduledNotes.add(key);
       }
     });
+    if (scheduledNotes.size > notes.length * 3) {
+      const nextCycle = firstCycle + 1;
+      scheduledNotes.forEach((key) => {
+        const cycle = Number(key.slice(key.lastIndexOf(":") + 1));
+        if (cycle !== firstCycle && cycle !== nextCycle) scheduledNotes.delete(key);
+      });
+    }
   }
 
   const WORKSPACE_PLAY_BUTTONS = {
@@ -6196,12 +6373,16 @@
       if (state.workspacePlayers[workspace] !== player) return;
       player.startTime = state.audioContext.currentTime + 0.04;
       if (workspace === "piano-roll") {
-        const mel = state.stepPianoEditContext ? null : getMel();
-        const editPattern = state.stepPianoEditContext ? getPattern(state.stepPianoEditContext.patternId) : null;
-        const loopTicks = state.stepPianoEditContext
-          ? (editPattern?.steps || 16) * 2
-          : mel ? getMelLengthBars(mel) * PIANO_TICKS_PER_BAR : PIANO_TICKS_PER_BAR;
-        const cursorTick = state.pianoCursorTick % loopTicks;
+        const loopTicks = Math.max(1, getPianoPlaybackSource().loopBars * PIANO_TICKS_PER_BAR);
+        const { startBar, endBar } = getPianoLoopRange();
+        const loopStartTick = state.pianoLoopEnabled ? startBar * PIANO_TICKS_PER_BAR : 0;
+        const loopEndTick = state.pianoLoopEnabled ? endBar * PIANO_TICKS_PER_BAR : loopTicks;
+        const cursorTick = state.pianoLoopEnabled &&
+          (state.pianoCursorTick < loopStartTick || state.pianoCursorTick >= loopEndTick)
+          ? loopStartTick
+          : state.pianoCursorTick % loopTicks;
+        state.pianoCursorTick = cursorTick;
+        player.startTick = cursorTick;
         player.startTime -= cursorTick / PIANO_TICKS_PER_BAR * (240 / state.bpm);
         player.nextStepTime = state.audioContext.currentTime + 0.04;
         player.stepIndex = Math.floor(cursorTick) % PIANO_TICKS_PER_BAR;
@@ -6277,30 +6458,10 @@
   }
 
   function scheduleWorkspaceMelLoop(player, now, lookAhead) {
-    const editContext = state.stepPianoEditContext;
-    const mel = editContext ? null : getMel();
-    const editPattern = editContext ? getPattern(editContext.patternId) : null;
-    const notes = editContext ? state.pianoNotes : mel?.notes;
-    const instrument = getPianoTrack(editContext?.trackId || mel?.instrumentId || state.selectedPianoTrackId);
+    const { notes, instrument, loopBars } = getPianoPlaybackSource();
     if (!notes || !instrument) return;
-    const secondsPerBar = 240 / state.bpm;
-    const loopBars = editContext ? (editPattern?.steps || 16) / 16 : getMelLengthBars(mel);
-    const loopSeconds = loopBars * secondsPerBar;
-    const firstLoop = Math.max(0, Math.floor((now - player.startTime) / loopSeconds));
-    notes.forEach((note) => {
-      for (let loop = firstLoop; loop <= firstLoop + 1; loop += 1) {
-        const key = `${note.id}:${loop}`;
-        const when = player.startTime + loop * loopSeconds + note.startTick / PIANO_TICKS_PER_BAR * secondsPerBar;
-        if (player.scheduledMelNotes.has(key) || when < now || when >= now + lookAhead) continue;
-        playPianoNote(instrument, when, note.midi, note.durationTicks / PIANO_TICKS_PER_BAR * secondsPerBar,
-          note.velocity ?? 0.8, instrument, null, note);
-        player.scheduledMelNotes.add(key);
-      }
-    });
-    const nextLoop = firstLoop + 1;
-    if (player.scheduledMelNotes.size > notes.length * 3) {
-      player.scheduledMelNotes = new Set([...player.scheduledMelNotes].filter((key) => key.endsWith(`:${firstLoop}`) || key.endsWith(`:${nextLoop}`)));
-    }
+    schedulePianoMelLoopNotes(notes, instrument, player.startTime, now, lookAhead,
+      player.scheduledMelNotes, loopBars, player.startTick || 0);
   }
 
   function setPlayhead(step) {
@@ -7097,6 +7258,71 @@
     return { actions, volume };
   }
 
+  function getArrangementLoopRange() {
+    const startBar = Math.max(0, Math.min(state.arrangementBars - 1, state.arrangementLoopStartBar));
+    const endBar = Math.max(startBar + 1, Math.min(state.arrangementBars, state.arrangementLoopEndBar));
+    return { startBar, endBar };
+  }
+
+  function updateArrangementLoopUI() {
+    const ruler = $("#timeline-content").querySelector(".timeline-ruler");
+    if (ruler) {
+      ruler.querySelector(".arrangement-loop-range")?.remove();
+      const { startBar, endBar } = getArrangementLoopRange();
+      const range = document.createElement("div");
+      range.className = `arrangement-loop-range${state.arrangementLoopEnabled ? "" : " is-disabled"}`;
+      range.style.left = `${startBar * BAR_WIDTH}px`;
+      range.style.width = `${(endBar - startBar) * BAR_WIDTH}px`;
+      ruler.append(range);
+    }
+    const button = $("#arrangement-loop-button");
+    button.textContent = `LOOP ${state.arrangementLoopEnabled ? "ON" : "OFF"}`;
+    button.setAttribute("aria-pressed", String(state.arrangementLoopEnabled));
+    const { startBar, endBar } = getArrangementLoopRange();
+    button.title = state.arrangementLoopEnabled
+      ? `Loop bars ${startBar + 1}-${Math.ceil(endBar)}; drag the ruler to change the section`
+      : "Drag across the bar ruler to select a loop section";
+  }
+
+  function startArrangementLoopRangeSelection(event) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const ruler = event.currentTarget;
+    const bounds = ruler.getBoundingClientRect();
+    const pointerBar = (clientX) => Math.max(0, Math.min(state.arrangementBars, (clientX - bounds.left) / BAR_WIDTH));
+    const anchorBar = pointerBar(event.clientX);
+    const startX = event.clientX;
+    let hasDragged = false;
+    const updateRange = (moveEvent) => {
+      if (Math.abs(moveEvent.clientX - startX) > 4) hasDragged = true;
+      if (!hasDragged) return;
+      const currentBar = pointerBar(moveEvent.clientX);
+      const startBar = Math.max(0, Math.min(state.arrangementBars - 1, Math.floor(Math.min(anchorBar, currentBar))));
+      const endBar = Math.max(startBar + 1,
+        Math.min(state.arrangementBars, Math.ceil(Math.max(anchorBar, currentBar))));
+      state.arrangementLoopStartBar = startBar;
+      state.arrangementLoopEndBar = endBar;
+      state.arrangementLoopEnabled = true;
+      updateArrangementLoopUI();
+    };
+    const finish = () => {
+      document.removeEventListener("pointermove", updateRange);
+      document.removeEventListener("pointerup", finish);
+      document.removeEventListener("pointercancel", finish);
+      if (!hasDragged) return;
+      state.suppressArrangementClick = true;
+      window.setTimeout(() => { state.suppressArrangementClick = false; }, 0);
+      if (state.isPlaying && state.playbackMode === "arrangement") stopPlayback();
+      state.arrangementCursor = state.arrangementLoopStartBar;
+      updateArrangementCursorMarker();
+      saveState();
+    };
+    document.addEventListener("pointermove", updateRange);
+    document.addEventListener("pointerup", finish);
+    document.addEventListener("pointercancel", finish);
+  }
+
   function selectArrangementTrack(trackId) {
     state.selectedMixerTrackId = trackId;
     document.querySelectorAll(".arrangement-label[data-track-id]").forEach((label) => {
@@ -7176,12 +7402,19 @@
     ruler.className = "timeline-ruler";
     ruler.style.width = `${width}px`;
     ruler.style.gridTemplateColumns = `repeat(${state.arrangementBars}, ${BAR_WIDTH}px)`;
+    ruler.addEventListener("pointerdown", startArrangementLoopRangeSelection);
     for (let bar = 0; bar < state.arrangementBars; bar += 1) {
       const marker = document.createElement("div");
       marker.className = "timeline-bar";
       marker.textContent = `BAR ${String(bar + 1).padStart(2, "0")}`;
       ruler.append(marker);
     }
+    const { startBar: loopStartBar, endBar: loopEndBar } = getArrangementLoopRange();
+    const loopRange = document.createElement("div");
+    loopRange.className = `arrangement-loop-range${state.arrangementLoopEnabled ? "" : " is-disabled"}`;
+    loopRange.style.left = `${loopStartBar * BAR_WIDTH}px`;
+    loopRange.style.width = `${(loopEndBar - loopStartBar) * BAR_WIDTH}px`;
+    ruler.append(loopRange);
     content.append(ruler);
 
     const arrangedPatternIds = new Set(state.patternClips.map((clip) => clip.trackId || clip.patternId));
@@ -7385,6 +7618,7 @@
     $("#arrangement-track-count").textContent = String(hasTimelineTracks
       ? patternTracks.length + state.melTracks.length + state.arrangementTracks.length
       : 1).padStart(2, "0");
+    updateArrangementLoopUI();
     updateArrangementCursorMarker();
     updateArrangementSelection();
     if (state.view === "mixer") renderMixer();
@@ -11021,17 +11255,31 @@
       state.isPlaying = true;
       state.playbackMode = mode;
       const arrangementPlayback = mode === "arrangement";
-      const startBar = arrangementPlayback ? Math.min(state.arrangementCursor, state.arrangementBars - 1) : 0;
+      const { startBar: loopStartBar, endBar: loopEndBar } = getArrangementLoopRange();
+      const startBar = arrangementPlayback
+        ? state.arrangementLoopEnabled &&
+          (state.arrangementCursor < loopStartBar || state.arrangementCursor >= loopEndBar)
+          ? loopStartBar
+          : Math.min(state.arrangementCursor, state.arrangementBars - 1)
+        : 0;
       state.playbackStartBar = startBar;
       state.playbackStartTime = state.audioContext.currentTime + 0.04;
       if (mode === "piano-roll") {
-        const mel = getMel();
-        const loopTicks = Math.max(1, (mel ? getMelLengthBars(mel) : 1) * PIANO_TICKS_PER_BAR);
-        const cursorTick = state.pianoCursorTick % loopTicks;
+        const loopTicks = Math.max(1, getPianoPlaybackSource().loopBars * PIANO_TICKS_PER_BAR);
+        const { startBar, endBar } = getPianoLoopRange();
+        const loopStartTick = state.pianoLoopEnabled ? startBar * PIANO_TICKS_PER_BAR : 0;
+        const loopEndTick = state.pianoLoopEnabled ? endBar * PIANO_TICKS_PER_BAR : loopTicks;
+        const cursorTick = state.pianoLoopEnabled &&
+          (state.pianoCursorTick < loopStartTick || state.pianoCursorTick >= loopEndTick)
+          ? loopStartTick
+          : state.pianoCursorTick % loopTicks;
+        state.pianoCursorTick = cursorTick;
+        state.pianoPlaybackStartTick = cursorTick;
         state.playbackStartTime -= cursorTick / PIANO_TICKS_PER_BAR * (240 / state.bpm);
       }
       state.playbackEndTime = arrangementPlayback
-        ? state.playbackStartTime + (state.arrangementBars - startBar) * (240 / state.bpm)
+        ? state.playbackStartTime + ((state.arrangementLoopEnabled ? loopEndBar : state.arrangementBars) - startBar) *
+          (240 / state.bpm)
         : Infinity;
       state.stepIndex = 0;
       state.scheduledPianoNotes.clear();
@@ -11056,10 +11304,16 @@
 
   function scheduleArrangementClips(startTime, startBar) {
     const secondsPerBar = 240 / state.bpm;
+    const arrangementEndBar = state.arrangementLoopEnabled
+      ? getArrangementLoopRange().endBar
+      : state.arrangementBars;
     state.arrangementTracks.forEach((track) => {
       ensureArrangementTrackAudio(track);
       track.clips.forEach((clip) => {
-        getAudioClipSegments(clip, startBar, clip.startBar + getArrangementClipDuration("audio", clip))
+        getAudioClipSegments(clip, startBar, Math.min(
+          arrangementEndBar,
+          clip.startBar + getArrangementClipDuration("audio", clip),
+        ))
           .forEach((segment) => {
             const when = startTime + (segment.startBar - startBar) * secondsPerBar;
             const source = state.audioContext.createBufferSource();
@@ -11086,7 +11340,7 @@
           if (noteEndBar <= startBar) return;
           const audibleStartBar = Math.max(startBar, noteStartBar);
           const when = startTime + (audibleStartBar - startBar) * secondsPerBar;
-          const duration = Math.max(0, noteEndBar - audibleStartBar) * secondsPerBar;
+          const duration = Math.max(0, Math.min(noteEndBar, arrangementEndBar) - audibleStartBar) * secondsPerBar;
           if (duration > 0) {
             scheduleArrangementVoice(() =>
               playPianoNote(instrument, when, note.midi, duration, note.velocity ?? 0.8, melTrack, null, note));
@@ -11485,6 +11739,9 @@
       pianoNotes: (savedMel?.notes || state.pianoNotes).map((note) => ({ ...note })),
       pianoStartBar: state.pianoStartBar,
       pianoCursorTick: stepEditContext?.previousCursorTick ?? state.pianoCursorTick,
+      pianoLoopEnabled: state.pianoLoopEnabled,
+      pianoLoopStartBar: state.pianoLoopStartBar,
+      pianoLoopEndBar: state.pianoLoopEndBar,
       pianoBars: savedMel?.bars || state.pianoBars,
       pianoScale: state.pianoScale,
       pianoSnap: state.pianoSnap,
@@ -11495,6 +11752,9 @@
       arrangementBars: state.arrangementBars,
       arrangementScale: state.arrangementScale,
       arrangementCursor: state.arrangementCursor,
+      arrangementLoopEnabled: state.arrangementLoopEnabled,
+      arrangementLoopStartBar: state.arrangementLoopStartBar,
+      arrangementLoopEndBar: state.arrangementLoopEndBar,
       arrangementSnap: state.arrangementSnap,
       workspaceRatio: state.workspaceRatio,
       sequencerScale: state.sequencerScale,
@@ -11635,7 +11895,14 @@
     }
     if (scope === "piano-roll") {
       return {
-        fingerprint: JSON.stringify({ pianoNotes: saved.pianoNotes, mels: saved.mels, selectedMelId: saved.selectedMelId }),
+        fingerprint: JSON.stringify({
+          pianoNotes: saved.pianoNotes,
+          mels: saved.mels,
+          selectedMelId: saved.selectedMelId,
+          pianoLoopEnabled: saved.pianoLoopEnabled,
+          pianoLoopStartBar: saved.pianoLoopStartBar,
+          pianoLoopEndBar: saved.pianoLoopEndBar,
+        }),
         serialized: saved,
         mels: state.mels.map(cloneHistoryMel),
       };
@@ -11671,6 +11938,9 @@
       })),
       arrangementBars: saved.arrangementBars,
       arrangementCursor: saved.arrangementCursor,
+      arrangementLoopEnabled: saved.arrangementLoopEnabled,
+      arrangementLoopStartBar: saved.arrangementLoopStartBar,
+      arrangementLoopEndBar: saved.arrangementLoopEndBar,
       bpm: saved.bpm,
       swing: saved.swing,
       selectedMixerTrackId: state.selectedMixerTrackId,
@@ -11751,6 +12021,9 @@
       state.pianoNotes = saved.pianoNotes.map((note) => ({ ...note }));
       state.pianoBars = saved.pianoBars;
       state.pianoCursorTick = saved.pianoCursorTick;
+      state.pianoLoopEnabled = saved.pianoLoopEnabled;
+      state.pianoLoopStartBar = saved.pianoLoopStartBar;
+      state.pianoLoopEndBar = saved.pianoLoopEndBar;
       state.selectedPianoTrackId = saved.selectedPianoTrackId;
       renderMelOptions();
       renderPianoRoll();
@@ -11794,6 +12067,9 @@
       state.selectedMixerTrackId = snapshot.selectedMixerTrackId;
       state.arrangementBars = saved.arrangementBars;
       state.arrangementCursor = saved.arrangementCursor;
+      state.arrangementLoopEnabled = saved.arrangementLoopEnabled;
+      state.arrangementLoopStartBar = saved.arrangementLoopStartBar;
+      state.arrangementLoopEndBar = saved.arrangementLoopEndBar;
       state.bpm = saved.bpm;
       state.swing = saved.swing;
       tempoValue.textContent = String(state.bpm);
@@ -11987,6 +12263,16 @@
       if (Number.isFinite(saved.sequencerScale)) state.sequencerScale = Math.max(0.5, Math.min(4, saved.sequencerScale));
       if (Number.isFinite(saved.arrangementBars)) state.arrangementBars = Math.max(32, Math.min(MAX_ARRANGEMENT_BARS, Math.round(saved.arrangementBars)));
       if (Number.isFinite(saved.arrangementCursor)) state.arrangementCursor = Math.max(0, Math.min(state.arrangementBars - 0.001, saved.arrangementCursor));
+      if (typeof saved.arrangementLoopEnabled === "boolean") state.arrangementLoopEnabled = saved.arrangementLoopEnabled;
+      if (Number.isFinite(saved.arrangementLoopStartBar)) {
+        state.arrangementLoopStartBar = Math.max(0, Math.min(state.arrangementBars - 1, saved.arrangementLoopStartBar));
+      }
+      if (Number.isFinite(saved.arrangementLoopEndBar)) {
+        state.arrangementLoopEndBar = Math.max(
+          state.arrangementLoopStartBar + 1,
+          Math.min(state.arrangementBars, saved.arrangementLoopEndBar),
+        );
+      }
       if (typeof saved.arrangementSnap === "boolean") state.arrangementSnap = saved.arrangementSnap;
       if (Number.isFinite(saved.workspaceRatio)) state.workspaceRatio = Math.max(20, Math.min(80, Math.round(saved.workspaceRatio)));
       if (typeof saved.workspaceHidden === "boolean") state.workspaceHidden = saved.workspaceHidden;
@@ -12164,6 +12450,13 @@
       }
       if (Number.isFinite(saved.pianoBars) && [1, 2, 4, 8].includes(saved.pianoBars)) state.pianoBars = saved.pianoBars;
       if (Number.isFinite(saved.pianoCursorTick)) state.pianoCursorTick = Math.max(0, Math.min(state.pianoBars * PIANO_TICKS_PER_BAR - 0.001, saved.pianoCursorTick));
+      if (typeof saved.pianoLoopEnabled === "boolean") state.pianoLoopEnabled = saved.pianoLoopEnabled;
+      if (Number.isFinite(saved.pianoLoopStartBar)) {
+        state.pianoLoopStartBar = Math.max(0, Math.min(7, saved.pianoLoopStartBar));
+      }
+      if (Number.isFinite(saved.pianoLoopEndBar)) {
+        state.pianoLoopEndBar = Math.max(state.pianoLoopStartBar + 1, Math.min(8, saved.pianoLoopEndBar));
+      }
       if (Number.isFinite(saved.pianoStartBar)) state.pianoStartBar = Math.max(0, Math.min(MAX_ARRANGEMENT_BARS - 1, Math.floor(saved.pianoStartBar)));
       if (Number.isInteger(saved.pianoSnap) && [1, 2, 4, 8].includes(saved.pianoSnap)) state.pianoSnap = saved.pianoSnap;
       if (typeof saved.pianoSnapEnabled === "boolean") state.pianoSnapEnabled = saved.pianoSnapEnabled;
@@ -12579,6 +12872,19 @@
       renderArrangement();
       saveState();
     });
+    $("#arrangement-loop-button").addEventListener("click", () => {
+      const resumePlayback = state.isPlaying && state.playbackMode === "arrangement";
+      const cursor = state.arrangementCursor;
+      if (resumePlayback) stopPlayback();
+      state.arrangementLoopEnabled = !state.arrangementLoopEnabled;
+      state.arrangementCursor = state.arrangementLoopEnabled
+        ? getArrangementLoopRange().startBar
+        : Math.min(cursor, state.arrangementBars - 1);
+      updateArrangementCursorMarker();
+      updateArrangementLoopUI();
+      saveState();
+      if (resumePlayback) void startPlayback("arrangement");
+    });
     $("#tempo-control").addEventListener("click", () => {
       const entry = window.prompt("Set tempo (60–180 BPM)", String(state.bpm));
       if (entry === null || !entry.trim()) return;
@@ -12706,6 +13012,13 @@
     $("#piano-snap-select").addEventListener("change", (event) => {
       state.pianoSnapEnabled = event.target.value !== "off";
       if (state.pianoSnapEnabled) state.pianoSnap = Number(event.target.value);
+      saveState();
+    });
+    $("#piano-loop-button").addEventListener("click", () => {
+      stopWorkspacePlayback("piano-roll");
+      if (state.isPlaying && state.playbackMode === "piano-roll") stopPlayback();
+      state.pianoLoopEnabled = !state.pianoLoopEnabled;
+      updatePianoLoopUI();
       saveState();
     });
     $("#piano-note-length-select").addEventListener("change", (event) => {
