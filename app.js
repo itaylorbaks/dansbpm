@@ -4188,12 +4188,22 @@
     let peak = 0;
     lanes.forEach((lane) => {
       if (Array.isArray(lane.cells) && lane.ticksPerStep) {
-        const step = Math.floor(tick / lane.ticksPerStep);
-        if (lane.cells[step]) peak = Math.max(peak, 0.82);
+        const stepPosition = tick / lane.ticksPerStep;
+        const step = Math.floor(stepPosition);
+        if (lane.cells[step]) {
+          const phase = stepPosition - step;
+          const envelope = 0.28 + 0.72 * Math.exp(-phase * 4);
+          const texture = 0.4 + 0.6 * Math.abs(Math.sin((phase * 3 + step) * Math.PI));
+          peak = Math.max(peak, 0.82 * envelope * texture);
+        }
       }
       (lane.notes || []).forEach((note) => {
-        if (tick >= note.startTick && tick < note.startTick + (note.durationTicks || 1)) {
-          peak = Math.max(peak, note.velocity ?? 0.8);
+        const duration = note.durationTicks || 1;
+        if (tick >= note.startTick && tick < note.startTick + duration) {
+          const phase = (tick - note.startTick) / duration;
+          const envelope = Math.min(1, phase * 12, (1 - phase) * 8);
+          const texture = 0.45 + 0.55 * Math.abs(Math.sin(phase * Math.PI * 8));
+          peak = Math.max(peak, (note.velocity ?? 0.8) * envelope * texture);
         }
       });
     });
@@ -8683,45 +8693,87 @@
     document.addEventListener("pointercancel", finish);
   }
 
-  function makeActivityWaveform(values) {
-    const waveform = document.createElement("span");
-    waveform.className = "clip-waveform clip-activity-waveform";
-    values.forEach((value) => {
-      const bar = document.createElement("i");
-      bar.style.height = `${Math.max(5, Math.round(value * 100))}%`;
-      waveform.append(bar);
-    });
-    return waveform;
+  function makeActivityWaveform(values, color, displayWidth) {
+    const canvas = document.createElement("canvas");
+    const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
+    const width = Math.min(16384, Math.max(1, Math.ceil(displayWidth * pixelRatio)));
+    const height = Math.ceil(46 * pixelRatio);
+    canvas.className = "clip-waveform-canvas";
+    canvas.setAttribute("aria-hidden", "true");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) return canvas;
+    context.strokeStyle = color;
+    context.lineWidth = Math.max(1, pixelRatio * 0.65);
+    context.globalAlpha = 0.88;
+    const center = height / 2;
+    for (let x = 0; x < width; x += 1) {
+      const value = values[Math.min(values.length - 1, Math.floor(x / width * values.length))] || 0;
+      const amplitude = Math.max(1, value * (height * 0.45));
+      context.beginPath();
+      context.moveTo(x + 0.5, center - amplitude);
+      context.lineTo(x + 0.5, center + amplitude);
+      context.stroke();
+    }
+    context.globalAlpha = 1;
+    return canvas;
   }
 
-  function getPatternActivityWaveform(pattern, clip, durationBars) {
+  function getActivityWaveformSampleCount(displayWidth) {
+    const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
+    return Math.min(4096, Math.max(1, Math.ceil(displayWidth * pixelRatio)));
+  }
+
+  function getPatternActivityWaveform(pattern, clip, durationBars, sampleCount) {
     const patternBars = pattern.steps / 16;
     const sourceOffset = clip.sourceOffsetBars || 0;
     const playableBars = Math.min(durationBars, Math.max(0, patternBars * (clip.repeatCount || 1) - sourceOffset));
-    const stepsPerLoop = getGridStepCount(pattern);
+    const stepCount = getGridStepCount(pattern);
     const tracks = getPatternTrackIds(pattern);
-    return Array.from({ length: 48 }, (_, index) => {
-      const position = (index + 0.5) / 48 * durationBars;
+    const pianoNotes = Object.values(pattern.stepPianoNotes || {}).flat();
+    return Array.from({ length: sampleCount }, (_, index) => {
+      const position = (index + 0.5) / sampleCount * durationBars;
       if (!tracks.length || position >= playableBars) return 0;
       const sourcePosition = (sourceOffset + position) % patternBars;
-      const step = Math.min(stepsPerLoop - 1, Math.floor(sourcePosition / patternBars * stepsPerLoop));
+      const stepPosition = sourcePosition / patternBars * stepCount;
+      const step = Math.min(stepCount - 1, Math.floor(stepPosition));
+      const phase = stepPosition - step;
       const active = tracks.reduce((count, trackId) => count + (pattern.cells?.[trackId]?.[step] ? 1 : 0), 0);
-      return active / tracks.length;
+      const drumLevel = active
+        ? Math.sqrt(active / tracks.length) * (0.28 + 0.72 * Math.exp(-phase * 4)) *
+          (0.4 + 0.6 * Math.abs(Math.sin((phase * 3 + step) * Math.PI)))
+        : 0;
+      const sourceTick = sourcePosition * PIANO_TICKS_PER_BAR;
+      const pianoLevel = pianoNotes.reduce((level, note) => {
+        const duration = note.durationTicks || 1;
+        if (sourceTick < note.startTick || sourceTick >= note.startTick + duration) return level;
+        const notePhase = (sourceTick - note.startTick) / duration;
+        const envelope = Math.min(1, notePhase * 12, (1 - notePhase) * 8);
+        const texture = 0.45 + 0.55 * Math.abs(Math.sin(notePhase * Math.PI * 8));
+        return Math.max(level, (note.velocity ?? 0.8) * envelope * texture);
+      }, 0);
+      return Math.max(drumLevel, pianoLevel);
     });
   }
 
-  function getMelActivityWaveform(mel, clip, durationBars) {
+  function getMelActivityWaveform(mel, clip, durationBars, sampleCount) {
     const sourceOffset = clip.sourceOffsetBars || 0;
     const melBars = getMelLengthBars(mel);
     const playableBars = Math.min(durationBars, Math.max(0, melBars * (clip.repeatCount || 1) - sourceOffset));
-    return Array.from({ length: 48 }, (_, index) => {
-      const position = sourceOffset + (index + 0.5) / 48 * durationBars;
+    return Array.from({ length: sampleCount }, (_, index) => {
+      const position = sourceOffset + (index + 0.5) / sampleCount * durationBars;
       if (position >= sourceOffset + playableBars) return 0;
       const sourcePosition = position % melBars;
       return mel.notes.reduce((level, note) => {
         const start = note.startTick / PIANO_TICKS_PER_BAR;
-        const end = start + note.durationTicks / PIANO_TICKS_PER_BAR;
-        return sourcePosition >= start && sourcePosition < end ? Math.max(level, note.velocity || 0.8) : level;
+        const duration = note.durationTicks / PIANO_TICKS_PER_BAR;
+        const end = start + duration;
+        if (sourcePosition < start || sourcePosition >= end) return level;
+        const phase = (sourcePosition - start) / duration;
+        const envelope = Math.min(1, phase * 12, (1 - phase) * 8);
+        const texture = 0.45 + 0.55 * Math.abs(Math.sin(phase * Math.PI * 8));
+        return Math.max(level, (note.velocity ?? 0.8) * envelope * texture);
       }, 0);
     });
   }
@@ -8966,7 +9018,11 @@
     const repeatHandle = makeArrangementResizeHandle("mel", clip, track, element, name, "repeat");
     const resizeHandle = makeArrangementResizeHandle("mel", clip, track, element, name);
     updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength("mel", clip), bars, clip.sourceOffsetBars || 0);
-    const waveform = makeActivityWaveform(getMelActivityWaveform(mel, clip, bars));
+    const waveform = makeActivityWaveform(
+      getMelActivityWaveform(mel, clip, bars, getActivityWaveformSampleCount(Math.max(1, bars * BAR_WIDTH - 16))),
+      track.color,
+      Math.max(1, bars * BAR_WIDTH - 16),
+    );
     element.addEventListener("dragstart", (event) => {
       selectArrangementTrack(track.id);
       if (!(event.shiftKey && (event.ctrlKey || event.metaKey))) selectArrangementItem("mel", clip.id, event);
@@ -9009,8 +9065,13 @@
     const repeatHandle = makeArrangementResizeHandle("pattern", clip, null, element, text, "repeat");
     const resizeHandle = makeArrangementResizeHandle("pattern", clip, null, element, text);
     const waveform = pattern
-      ? makeActivityWaveform(getPatternActivityWaveform(pattern, clip, totalBars))
-      : makeActivityWaveform([]);
+      ? makeActivityWaveform(
+        getPatternActivityWaveform(pattern, clip, totalBars,
+          getActivityWaveformSampleCount(Math.max(1, totalBars * BAR_WIDTH - 16))),
+        pattern.color || "var(--accent)",
+        Math.max(1, totalBars * BAR_WIDTH - 16),
+      )
+      : makeActivityWaveform([0], "#d3f36b", 1);
     element.addEventListener("dragstart", (event) => {
       if (!(event.shiftKey && (event.ctrlKey || event.metaKey))) selectArrangementItem("pattern", clip.id, event);
       event.dataTransfer?.setData("application/x-pulsegrid-pattern-clip", JSON.stringify({ clipId: clip.id }));
