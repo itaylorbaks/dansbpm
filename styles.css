@@ -853,8 +853,8 @@ body:not(.is-beat-grid-open) #export-button { display: none; }
 .view-panel-actions { display: flex; align-items: center; gap: 5px; }
 .view-panel-actions .quiet-button { height: 21px; padding: 0 8px; font-size: 8px; letter-spacing: 0; }
 .view-panel-actions [hidden], .track-view-controls [hidden] { display: none; }
-.view-resizer { display: grid; min-height: 0; grid-row: 2; place-items: center; border-top: 1px solid #242529; border-bottom: 1px solid #242529; background: #191a1d; cursor: ns-resize; touch-action: none; user-select: none; }
-.view-resizer > span { width: 40px; height: 3px; border-radius: 2px; background: #55565c; }
+.view-resizer { display: grid; min-height: 0; grid-row: 2; place-items: center; border-top: 1px solid #303136; border-bottom: 1px solid #303136; background: #202125; cursor: ns-resize; touch-action: none; user-select: none; }
+.view-resizer > span { width: 48px; height: 4px; border-radius: 2px; background: #85868c; }
 .view-resizer:hover > span, .view-resizer:focus-visible > span { background: var(--accent); }
 .view-resizer:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 .workspace-content { position: relative; min-height: 0; flex: 1; overflow: hidden; background: #17181b; }
@@ -912,6 +912,8 @@ body:not(.is-beat-grid-open) #export-button { display: none; }
   .arrangement-heading { align-items: flex-start; flex-direction: column; gap: 4px; padding: 6px 2px; }
   .arrangement-actions { width: 100%; justify-content: flex-start; }
   .arrangement-editor { grid-template-columns: 132px minmax(0, 1fr); }
+  .track-view-heading { height: auto; min-height: 30px; flex-basis: auto; align-items: flex-start; flex-direction: column; gap: 5px; padding: 5px 8px; }
+  .track-view-controls { width: 100%; min-width: 0; flex-wrap: wrap; justify-content: flex-start; gap: 5px; }
 }
 
 @media (max-width: 500px) {

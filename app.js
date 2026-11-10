@@ -1071,7 +1071,7 @@
     $("#view-resizer").hidden = state.workspaceHidden || state.trackViewHidden;
     if (state.workspaceHidden) main.style.gridTemplateRows = "0px 0px minmax(0, 1fr)";
     else if (state.trackViewHidden) main.style.gridTemplateRows = "minmax(0, 1fr) 0px 0px";
-    else main.style.gridTemplateRows = `minmax(0, ${state.workspaceRatio}fr) 9px minmax(0, ${100 - state.workspaceRatio}fr)`;
+    else main.style.gridTemplateRows = `minmax(0, ${state.workspaceRatio}fr) 12px minmax(0, ${100 - state.workspaceRatio}fr)`;
     $("#view-resizer").setAttribute("aria-valuenow", String(state.workspaceRatio));
     $("#view-resizer").setAttribute("aria-valuetext", `Workspace ${state.workspaceRatio}%, Track View ${100 - state.workspaceRatio}%`);
     $("#hide-workspace-button").hidden = state.workspaceHidden;
