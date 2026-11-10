@@ -12587,6 +12587,7 @@
         $("#step-instrument-dialog").open || $("#step-track-mix-dialog").open;
       const djControlFocused = state.view === "dj" && djViewExpanded &&
         target instanceof Element && target.closest("input, select, textarea, [contenteditable='true']");
+      const pianoRollSelectAll = state.view === "piano-roll" && !isTextEntry && event.key.toLowerCase() === "a";
       if (state.view === "dj" && djViewExpanded && event.code === "Space" &&
         (dialogOpen || (djControlFocused && !(event.ctrlKey || event.altKey || event.metaKey)))) return;
       if (event.code === "Space" && (event.ctrlKey || event.metaKey) && !event.altKey && !isTextEntry) {
@@ -12606,7 +12607,7 @@
           splitArrangementItemsAtCursor();
         }
       }
-      if (!isTyping && !dialogOpen && !event.repeat && (event.ctrlKey || event.metaKey) && !event.altKey) {
+      if ((!isTyping || pianoRollSelectAll) && !dialogOpen && !event.repeat && (event.ctrlKey || event.metaKey) && !event.altKey) {
         const key = event.key.toLowerCase();
         if (key === "a" && ["arrangement", "sequencer", "piano-roll", "mixer"].includes(state.view)) {
           event.preventDefault();
