@@ -12,7 +12,7 @@
   --accent: #d3f36b;
   --accent-soft: rgba(211, 243, 107, .11);
   --mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --sans: "Barlow", ui-sans-serif, system-ui, sans-serif;
+  --sans: "Momo Trust Display", ui-sans-serif, system-ui, sans-serif;
 }
 
 * { box-sizing: border-box; }
