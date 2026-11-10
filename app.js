@@ -9266,7 +9266,7 @@
       const pasted = clipboard.items
         .map((note) => ({
           id: makeId(),
-          trackId: state.tracks.some((track) => track.id === note.trackId) ? note.trackId : state.selectedPianoTrackId,
+          trackId: state.selectedPianoTrackId,
           midi: note.midi,
           startTick: note.startTick + offset,
           durationTicks: Math.min(note.durationTicks, totalTicks - note.startTick - offset),
