@@ -2600,6 +2600,8 @@
     renderStepInstrumentLibrary();
     $("#step-instrument-title").textContent = pickerMode === "piano-roll"
       ? "Choose a piano roll instrument"
+      : pickerMode === "mel-track"
+        ? "Choose an instrument for this track"
       : targetTrackId ? "Choose a row instrument" : "Choose an instrument";
     $("#step-instrument-dialog").showModal();
   }
@@ -2669,6 +2671,16 @@
     if (stepInstrumentPendingId !== instrument.id) return;
     if (stepInstrumentPickerMode === "piano-roll") {
       selectPianoInstrument(instrument.id);
+    } else if (stepInstrumentPickerMode === "mel-track") {
+      const melTrack = state.melTracks.find((track) => track.id === stepInstrumentTargetTrackId);
+      if (!melTrack) {
+        showToast("That instrument track no longer exists.");
+        return;
+      }
+      melTrack.instrumentId = instrument.id;
+      renderArrangement();
+      saveState();
+      showToast(`${instrument.name} assigned to ${melTrack.name}`);
     } else {
       const applied = stepInstrumentTargetTrackId
         ? replacePatternInstrument(stepInstrumentTargetTrackId, instrument.id)
@@ -7130,7 +7142,23 @@
       label.innerHTML = '<span class="track-color"></span><div class="arrangement-label-info"><div class="arrangement-label-name"></div><div class="arrangement-label-type"></div></div>';
       label.querySelector(".arrangement-label-name").textContent = track.name;
       const instrument = getPianoTrack(track.instrumentId);
-      label.querySelector(".arrangement-label-type").textContent = `Mel · ${instrument?.name || "Instrument"}`;
+      const type = label.querySelector(".arrangement-label-type");
+      type.classList.add("mel-track-type");
+      type.append("Mel · ");
+      const chooseInstrument = document.createElement("button");
+      chooseInstrument.className = "mel-track-instrument-button";
+      chooseInstrument.type = "button";
+      chooseInstrument.textContent = instrument?.name || "Choose instrument";
+      chooseInstrument.title = `Choose instrument for ${track.name}`;
+      chooseInstrument.setAttribute("aria-label", `Choose instrument for ${track.name}`);
+      chooseInstrument.setAttribute("aria-haspopup", "dialog");
+      chooseInstrument.setAttribute("aria-controls", "step-instrument-dialog");
+      chooseInstrument.addEventListener("click", (event) => {
+        event.stopPropagation();
+        selectArrangementTrack(track.id);
+        openStepInstrumentPicker(track.id, "mel-track");
+      });
+      type.append(chooseInstrument);
       label.addEventListener("click", (event) => {
         if (!event.target.closest(".mixer-track-button")) selectArrangementTrack(track.id);
       });
@@ -8027,7 +8055,7 @@
 
   function getStepPickerInstruments() {
     return state.tracks.filter((track) =>
-      !track.sourceId && (stepInstrumentPickerMode === "piano-roll" || track.kind !== "drumkit"));
+      !track.sourceId && (["piano-roll", "mel-track"].includes(stepInstrumentPickerMode) || track.kind !== "drumkit"));
   }
 
   function renderSoundSearchSuggestions(query) {
@@ -8329,6 +8357,35 @@
     state.melTracks.push(track);
     addMelClip(mel.id, track.id, startBar);
     return track;
+  }
+
+  function createEmptyMelTrack() {
+    const instrumentId = state.tracks.some((track) => track.id === state.selectedPianoTrackId)
+      ? state.selectedPianoTrackId
+      : state.tracks[0]?.id;
+    if (!instrumentId) {
+      showToast("Add an instrument before creating an instrument track.");
+      return;
+    }
+    let number = 1;
+    while (state.melTracks.some((track) => track.name === `Instrument Track ${number}`)) number += 1;
+    const track = {
+      id: makeId(),
+      name: `Instrument Track ${number}`,
+      kind: "mel",
+      instrumentId,
+      color: TRACK_COLORS[state.melTracks.length % TRACK_COLORS.length],
+      muted: false,
+      solo: false,
+      volume: 1,
+      gainNode: null,
+      effects: makeDefaultEffects(),
+      clips: [],
+    };
+    state.melTracks.push(track);
+    renderArrangement();
+    selectArrangementTrack(track.id);
+    saveState();
   }
 
   function addMelClip(melId, trackId, startBar) {
@@ -9334,7 +9391,8 @@
       } else if (item.type === "mel") {
         const melLength = getArrangementClipDuration("mel", item.clip);
         const clipStart = clampArrangementStart(startBar, melLength);
-        let track = state.melTracks.find((candidate) => candidate.id === item.sourceTrackId);
+        let track = state.melTracks.find((candidate) => candidate.id === state.selectedMixerTrackId)
+          || state.melTracks.find((candidate) => candidate.id === item.sourceTrackId);
         if (!track) {
           track = { ...item.track, muted: false, solo: false, clips: [], gainNode: null, effects: makeDefaultEffects(item.track.effects) };
           state.melTracks.push(track);
@@ -12463,6 +12521,7 @@
       renderArrangement();
       requestRecordingImport(track.id);
     });
+    $("#add-mel-track-button").addEventListener("click", createEmptyMelTrack);
     $("#add-bars-button").addEventListener("click", () => {
       if (state.arrangementBars >= MAX_ARRANGEMENT_BARS) {
         showToast(`Arrangements are limited to ${MAX_ARRANGEMENT_BARS} bars.`);

@@ -350,6 +350,9 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .arrangement-label-info { min-width: 0; flex: 1; }
 .arrangement-label-name { overflow: hidden; color: #d7d8d4; font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .arrangement-label-type { margin-top: 4px; color: #74757b; font-size: 9px; }
+.arrangement-label-type.mel-track-type { min-width: 0; display: flex; align-items: center; gap: 4px; }
+.mel-track-instrument-button { min-width: 0; overflow: hidden; border: 0; background: transparent; padding: 0; color: #a4a5aa; font: inherit; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.mel-track-instrument-button:hover { color: var(--accent); }
 .arrangement-label-actions { display: flex; align-items: center; gap: 2px; }
 .arrangement-label-actions button { width: 22px; height: 22px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #7a7b80; cursor: pointer; }
 .arrangement-label-actions button:hover, .arrangement-label-actions button.is-active { border-color: var(--stroke); background: #27282c; color: var(--text); }
