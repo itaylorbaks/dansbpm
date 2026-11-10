@@ -630,16 +630,53 @@
           <button class="dialog-close" aria-label="Close">×</button>
           <div class="eyebrow">Shortcuts & Commands</div>
           <h2>Quick Help</h2>
-          <p>Click squares to switch drum hits on or off. Press <kbd>Space</kbd> to play, then change the tempo or swing while it runs.</p>
-          <p>Use the <strong>+</strong> next to a row to load or replace its sample. Choose a row instrument with the arrow beside its name; use <strong>Add instrument</strong> below the rows to add an empty row. Each row’s <strong>MIX</strong> menu adjusts pitch, volume, swing, and EQ. Drum kits are available in Piano Roll, not Step.</p>
-          <p>Open <strong>Browser → Import drum sounds</strong> to add multiple samples as new sequencer rows.</p>
-          <p>Use the top-bar <strong>Step</strong> and <strong>Piano Roll</strong> buttons to open either editor in the workspace. In the piano roll, choose an instrument, click to add notes, and drag notes or their edges to edit them.</p>
-          <p><strong>Keyboard shortcuts</strong> (use <kbd>⌘</kbd> instead of <kbd>Ctrl</kbd> on Mac): <kbd>Space</kbd> play/stop; <kbd>Ctrl</kbd> + <kbd>A</kbd> select all in the active editor; <kbd>Ctrl</kbd> + <kbd>C</kbd>/<kbd>V</kbd> copy/paste selected Piano Roll notes or Track View clips; <kbd>Ctrl</kbd> + <kbd>X</kbd> cut them; <kbd>Delete</kbd>/<kbd>Backspace</kbd> remove selected notes or clips.</p>
-          <p>In <strong>Step</strong> or <strong>Piano Roll</strong>, press <kbd>P</kbd> to place a non-empty current pattern or Mel at the Track View playhead. In Track View, press <kbd>S</kbd> to split selected clips at the playhead (or all clips crossing it if none are selected). The <strong>Snap</strong> button toggles beat-grid snapping for the playhead and clip placement, movement, and resizing; turn it off for free positioning. Drag the top-right handle to repeat patterns, Mels, or audio; drag the bottom-right handle to trim or extend (extensions are silent). Press <kbd>Delete</kbd>/<kbd>Backspace</kbd> to remove selected Track View items.</p>
-          <p>In <strong>Step</strong>, <kbd>Shift</kbd>-click cells to select them, then <kbd>Delete</kbd> to clear the selected hits. In <strong>Piano Roll</strong> and <strong>Track View</strong>, <kbd>Alt</kbd>/<kbd>Option</kbd>-drag a marquee to deselect items inside it; <kbd>Shift</kbd>-drag adds to the selection. Piano Roll arrow keys move selected notes by one snap step or semitone; <kbd>Shift</kbd> + <kbd>←</kbd>/<kbd>→</kbd> changes note length by one snap step; <kbd>Ctrl</kbd> + <kbd>↑</kbd>/<kbd>↓</kbd> moves notes by an octave. In Track View, <kbd>←</kbd>/<kbd>→</kbd> nudges selected clips by one bar.</p>
-          <p>Open <strong>Arrangement</strong> to add vocal takes or loops on separate tracks. Drag clips to line them up with your beat; playback combines all tracks at the project tempo.</p>
-          <p>Open <strong>Mixer</strong>, or choose <strong>EQ</strong> beside a track, to adjust its level, three-band EQ, and effects.</p>
-          <p>Projects save in this browser. Use the project menu by the project name to save, rename, create, or switch projects. Export a full arrangement as WAV or download the drum pattern as JSON.</p>
+          <div class="help-sections">
+            <section class="help-section">
+              <h3>Step</h3>
+              <ul>
+                <li>Click cells to toggle hits. Press <kbd>Space</kbd> to play or stop; adjust tempo and swing while playing.</li>
+                <li>Use <strong>+</strong> to load a row sample, the arrow to change its instrument, and <strong>Add instrument</strong> to add a row. <strong>MIX</strong> controls row pitch, level, swing, and EQ.</li>
+                <li>Hold <kbd>Shift</kbd> and click cells to select them; press <kbd>Delete</kbd> to clear the selection. Use <strong>Browser → Import drum sounds</strong> to add samples as rows.</li>
+              </ul>
+            </section>
+            <section class="help-section">
+              <h3>Piano Roll</h3>
+              <ul>
+                <li>Choose an instrument, click to add notes, and drag notes or their edges to edit them. Drum kits are available here, not in Step.</li>
+                <li>Arrow keys move selected notes by a snap step or semitone. <kbd>Shift</kbd> + <kbd>←</kbd>/<kbd>→</kbd> changes note length; <kbd>Ctrl</kbd> + <kbd>↑</kbd>/<kbd>↓</kbd> moves notes by an octave.</li>
+                <li>Press <kbd>P</kbd> to place the current non-empty Mel or pattern at the Track View playhead.</li>
+              </ul>
+            </section>
+            <section class="help-section">
+              <h3>Arrangement / Track View</h3>
+              <ul>
+                <li>Import recordings or add audio tracks, then drag clips to arrange them. Playback combines tracks at the project tempo.</li>
+                <li>Use <strong>Snap</strong> for beat-grid placement, movement, and resizing. Drag the upper-right handle to repeat; the lower-right handle trims or extends (extensions are silent).</li>
+                <li>Press <kbd>P</kbd> in Step or Piano Roll to place content; press <kbd>S</kbd> to split clips at the playhead. Arrow keys nudge selected clips by one bar.</li>
+              </ul>
+            </section>
+            <section class="help-section">
+              <h3>DJ</h3>
+              <ul>
+                <li>Choose a source for Deck A or B, then use <strong>Play</strong>, <strong>Sync</strong>, and the nudge buttons to mix.</li>
+                <li>Drag a deck waveform to stage its entry; drag the arrangement ruler to seek. <kbd>Space</kbd> pauses or resumes.</li>
+              </ul>
+            </section>
+            <section class="help-section">
+              <h3>Mixer</h3>
+              <ul>
+                <li>Open <strong>Mixer</strong> or choose <strong>EQ</strong> beside a track to adjust level, three-band EQ, and effects.</li>
+              </ul>
+            </section>
+            <section class="help-section">
+              <h3>Projects & shortcuts</h3>
+              <ul>
+                <li>Projects save in this browser. Use the project menu to save, rename, create, or switch projects. Export an arrangement as WAV or a drum pattern as JSON.</li>
+                <li>Use <kbd>⌘</kbd> instead of <kbd>Ctrl</kbd> on Mac. <kbd>Ctrl</kbd> + <kbd>A</kbd> selects all in the active editor; <kbd>Ctrl</kbd> + <kbd>C</kbd>/<kbd>V</kbd> copies or pastes selected Piano Roll notes or Track View clips; <kbd>Ctrl</kbd> + <kbd>X</kbd> cuts; <kbd>Delete</kbd>/<kbd>Backspace</kbd> removes selected notes or clips.</li>
+                <li>In Piano Roll or Track View, hold <kbd>Alt</kbd>/<kbd>Option</kbd> and drag a marquee to deselect items inside it; hold <kbd>Shift</kbd> while dragging to add to the selection.</li>
+              </ul>
+            </section>
+          </div>
         </form>
       </dialog>
       <dialog class="project-dialog" id="project-dialog" aria-label="Projects">

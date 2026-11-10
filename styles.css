@@ -196,11 +196,16 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 
 .toast { position: fixed; left: 50%; bottom: 24px; z-index: 5; max-width: min(420px, calc(100vw - 32px)); padding: 10px 14px; border: 1px solid #3b3d39; border-radius: 7px; background: #232520; color: #e5e6df; font-size: 12px; opacity: 0; pointer-events: none; transform: translate(-50%, 8px); transition: opacity .16s, transform .16s; }
 .toast.is-visible { opacity: 1; transform: translate(-50%, 0); }
-.help-dialog { width: min(420px, calc(100vw - 30px)); border: 1px solid #3a3b40; border-radius: 10px; background: #1b1c1f; color: var(--text); box-shadow: 0 20px 60px #0009; }
+.help-dialog { width: min(640px, calc(100vw - 30px)); max-height: min(780px, calc(100dvh - 30px)); overflow: auto; border: 1px solid #3a3b40; border-radius: 10px; background: #1b1c1f; color: var(--text); box-shadow: 0 20px 60px #0009; }
 .help-dialog::backdrop { background: #0009; backdrop-filter: blur(3px); }
 .help-dialog form { position: relative; padding: 25px; }
-.help-dialog h2 { margin: 10px 0 15px; font-size: 21px; }
-.help-dialog p { color: #a6a7a9; font-size: 12px; line-height: 1.7; }
+.help-dialog h2 { margin: 10px 0 18px; font-size: 21px; }
+.help-sections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 22px; }
+.help-section { min-width: 0; border-top: 1px solid #303136; padding-top: 9px; }
+.help-section h3 { margin: 0 0 7px; color: var(--accent); font-family: var(--mono); font-size: 9px; font-weight: 500; letter-spacing: .65px; text-transform: uppercase; }
+.help-section ul { margin: 0; padding-left: 16px; }
+.help-section li { color: #a6a7a9; font-size: 11px; line-height: 1.55; }
+.help-section li + li { margin-top: 5px; }
 .help-dialog strong { color: var(--text); }
 .dialog-close { position: absolute; top: 12px; right: 12px; border: 0; background: transparent; color: #a5a6aa; font-size: 22px; cursor: pointer; }
 .step-instrument-dialog, .step-track-mix-dialog { width: min(660px, calc(100vw - 28px)); max-height: min(740px, calc(100dvh - 28px)); overflow: hidden; border: 1px solid #3a3b40; border-radius: 10px; background: #1b1c1f; padding: 20px; color: var(--text); box-shadow: 0 20px 60px #0009; }
@@ -752,6 +757,10 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 
 @media (max-width: 420px) {
   .dansbpm-synth-controls { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 560px) {
+  .help-sections { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (prefers-reduced-motion: reduce) {
