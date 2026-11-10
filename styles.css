@@ -389,6 +389,8 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .drum-arrangement-clip .clip-repeat-handle { top: 0; border-top: 1px solid currentColor; }
 .drum-arrangement-clip .clip-length-handle { bottom: 0; border-bottom: 1px solid currentColor; }
 .audio-clip { position: absolute; top: 11px; height: 52px; display: flex; align-items: center; overflow: hidden; border: 1px solid color-mix(in srgb, var(--clip-color), transparent 40%); border-radius: 5px; background: color-mix(in srgb, var(--clip-color), #17181a 83%); padding: 0 7px; color: #e4e4e1; cursor: grab; user-select: none; }
+.audio-clip.is-recording { border-color: #ff9a9f; background: rgba(209,75,82,.2); cursor: default; }
+.recording-waveform { position: absolute; z-index: 0; inset: 3px 4px; width: calc(100% - 8px); height: calc(100% - 6px); opacity: .7; pointer-events: none; }
 .audio-clip:hover { filter: brightness(1.16); }
 .audio-clip:active { cursor: grabbing; }
 .clip-waveform { position: absolute; z-index: 0; inset: 3px 4px; display: flex; align-items: center; justify-content: space-around; gap: 1px; opacity: .58; pointer-events: none; }

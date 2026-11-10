@@ -526,6 +526,8 @@
     recordingMetronomeTimer: null,
     recordingClickIndex: 0,
     nextRecordingClickTime: 0,
+    recordingPreview: null,
+    recordingPreviewTimer: null,
     workspacePlayers: {
       sequencer: null,
       "piano-roll": null,
@@ -7039,7 +7041,8 @@
       name.textContent = track.name;
       const type = document.createElement("div");
       type.className = "arrangement-label-type";
-      type.textContent = `${track.clips.length} recording${track.clips.length === 1 ? "" : "s"}`;
+      const isRecording = state.recordingPreview?.track === track;
+      type.textContent = `${track.clips.length} recording${track.clips.length === 1 ? "" : "s"}${isRecording ? " · recording" : ""}`;
       info.append(name, type);
       const actions = document.createElement("div");
       actions.className = "arrangement-label-actions";
@@ -9509,7 +9512,7 @@
     input.click();
   }
 
-  async function importRecording(file, trackId = null, startBar = state.arrangementCursor) {
+  async function importRecording(file, trackId = null, startBar = state.arrangementCursor, snapStart = true) {
     if (!isAudioFile(file)) {
       showToast(`"${file.name}" is not an audio file.`);
       return;
@@ -9528,7 +9531,9 @@
         blob: file,
         audioMetadata: detectAudioMetadata(buffer),
       };
-      clip.startBar = clampArrangementStart(startBar, getArrangementClipDuration("audio", clip));
+      clip.startBar = snapStart
+        ? clampArrangementStart(startBar, getArrangementClipDuration("audio", clip))
+        : Math.max(0, Math.min(MAX_ARRANGEMENT_BARS - getArrangementClipDuration("audio", clip), startBar));
       track.clips.push(clip);
       track.clips.sort((left, right) => left.startBar - right.startBar);
       updateArrangementLength();
@@ -9572,6 +9577,169 @@
     $("#record-button-label").textContent = "Record input";
   }
 
+  function extendArrangementForRecording(endBar) {
+    const previousBars = state.arrangementBars;
+    const nextBars = Math.min(MAX_ARRANGEMENT_BARS, Math.max(previousBars, Math.ceil(endBar)));
+    if (nextBars === previousBars) return;
+
+    state.arrangementBars = nextBars;
+    if (state.playbackStartTime && state.isPlaying && state.playbackMode === "arrangement") {
+      state.playbackEndTime = state.playbackStartTime +
+        (nextBars - state.playbackStartBar) * (240 / state.bpm);
+    }
+    const width = nextBars * BAR_WIDTH;
+    const content = $("#timeline-content");
+    const ruler = content.querySelector(".timeline-ruler");
+    content.style.width = `${width}px`;
+    ruler.style.width = `${width}px`;
+    ruler.style.gridTemplateColumns = `repeat(${nextBars}, ${BAR_WIDTH}px)`;
+    for (let bar = previousBars; bar < nextBars; bar += 1) {
+      const marker = document.createElement("div");
+      marker.className = "timeline-bar";
+      marker.textContent = `BAR ${String(bar + 1).padStart(2, "0")}`;
+      ruler.append(marker);
+    }
+    content.querySelectorAll(".timeline-lane").forEach((lane) => {
+      lane.style.width = `${width}px`;
+    });
+    $("#arrangement-bar-label").textContent = `${nextBars} BARS`;
+    updateArrangementCursorMarker();
+  }
+
+  function drawRecordingWaveform(preview) {
+    const bounds = preview.canvas.getBoundingClientRect();
+    if (!bounds.width || !bounds.height) return;
+    const pixelRatio = Math.max(1, window.devicePixelRatio || 1);
+    const width = Math.min(16384, Math.ceil(bounds.width * pixelRatio));
+    const height = Math.min(512, Math.ceil(bounds.height * pixelRatio));
+    if (preview.canvas.width !== width || preview.canvas.height !== height) {
+      preview.canvas.width = width;
+      preview.canvas.height = height;
+    }
+
+    const context = preview.canvas.getContext("2d");
+    if (!context) return;
+    context.clearRect(0, 0, width, height);
+    context.fillStyle = getComputedStyle(preview.element).getPropertyValue("--clip-color");
+    const barWidth = Math.max(1, width / Math.max(1, preview.waveform.length) * 0.55);
+    preview.waveform.forEach((value, index) => {
+      const barHeight = Math.max(2, value * height * 0.82);
+      const x = index / Math.max(1, preview.waveform.length) * width;
+      context.fillRect(x, (height - barHeight) / 2, barWidth, barHeight);
+    });
+  }
+
+  function updateRecordingPreview() {
+    const preview = state.recordingPreview;
+    if (!preview) return;
+
+    const elapsedSeconds = Math.min(
+      (performance.now() - preview.startedAt) / 1000,
+      (MAX_ARRANGEMENT_BARS - preview.startBar) * (240 / state.bpm),
+    );
+    const durationBars = elapsedSeconds / (240 / state.bpm);
+    const endBar = preview.startBar + durationBars;
+    extendArrangementForRecording(endBar);
+
+    preview.element.style.left = `${preview.startBar * BAR_WIDTH + 4}px`;
+    preview.element.style.width = `${Math.max(4, durationBars * BAR_WIDTH - 8)}px`;
+    preview.element.setAttribute("aria-label", `Recording from bar ${Math.floor(preview.startBar) + 1}`);
+    const lane = Array.from($("#timeline-content").querySelectorAll(".timeline-lane"))
+      .find((item) => item.dataset.trackId === preview.track.id);
+    if (lane && !preview.element.isConnected) {
+      lane.insertBefore(preview.element, lane.querySelector(".arrangement-cursor"));
+    }
+
+    const samples = new Uint8Array(preview.analyser.fftSize);
+    preview.analyser.getByteTimeDomainData(samples);
+    const rms = Math.sqrt(samples.reduce((sum, sample) => {
+      const value = (sample - 128) / 128;
+      return sum + value * value;
+    }, 0) / samples.length);
+    if (preview.waveform.length >= 4000) {
+      preview.waveform = preview.waveform.reduce((compressed, value, index, values) => {
+        if (index % 2 === 0) compressed.push(Math.max(value, values[index + 1] || value));
+        return compressed;
+      }, []);
+    }
+    preview.waveform.push(rms);
+    drawRecordingWaveform(preview);
+
+    const timeline = $("#timeline-scroll");
+    const recordingEndX = endBar * BAR_WIDTH;
+    if (timeline.clientWidth > 0) {
+      timeline.scrollLeft = Math.max(0, Math.min(
+        timeline.scrollWidth - timeline.clientWidth,
+        recordingEndX - timeline.clientWidth * 0.72,
+      ));
+    }
+
+    if (endBar >= MAX_ARRANGEMENT_BARS && state.mediaRecorder?.state === "recording") {
+      showToast(`Recording stopped at the ${MAX_ARRANGEMENT_BARS}-bar limit.`);
+      state.mediaRecorder.stop();
+    }
+  }
+
+  function startRecordingPreview(stream) {
+    let track = null;
+    let analyser = null;
+    let source = null;
+    try {
+      track = createArrangementTrack("Recording");
+      analyser = state.audioContext.createAnalyser();
+      analyser.fftSize = 512;
+      source = state.audioContext.createMediaStreamSource(stream);
+      source.connect(analyser);
+      const element = document.createElement("div");
+      element.className = "audio-clip is-recording";
+      element.setAttribute("role", "img");
+      const canvas = document.createElement("canvas");
+      canvas.className = "recording-waveform";
+      canvas.setAttribute("aria-hidden", "true");
+      const name = document.createElement("span");
+      name.className = "clip-name";
+      name.textContent = "RECORDING";
+      element.append(canvas, name);
+
+      const preview = {
+        track,
+        startBar: state.recordingStartBar,
+        startedAt: performance.now(),
+        analyser,
+        source,
+        element,
+        canvas,
+        waveform: [],
+      };
+      state.recordingPreview = preview;
+      renderArrangement();
+      updateRecordingPreview();
+      state.recordingPreviewTimer = window.setInterval(updateRecordingPreview, 100);
+    } catch (error) {
+      state.recordingPreview = null;
+      source?.disconnect();
+      analyser?.disconnect();
+      if (track) state.arrangementTracks = state.arrangementTracks.filter((item) => item !== track);
+      throw error;
+    }
+  }
+
+  function stopRecordingPreview() {
+    if (state.recordingPreviewTimer !== null) window.clearInterval(state.recordingPreviewTimer);
+    state.recordingPreviewTimer = null;
+    const preview = state.recordingPreview;
+    state.recordingPreview = null;
+    preview?.source.disconnect();
+    preview?.analyser.disconnect();
+    return preview;
+  }
+
+  function removeEmptyRecordingTrack(track) {
+    if (track.clips.length) return;
+    state.arrangementTracks = state.arrangementTracks.filter((item) => item !== track);
+    renderArrangement();
+  }
+
   function cancelRecordingCountdown() {
     if (state.recordingCountdownTimer !== null) window.clearTimeout(state.recordingCountdownTimer);
     state.recordingCountdownTimer = null;
@@ -9590,10 +9758,15 @@
       if (beatsRemaining === 0) {
         state.recordingCountdownTimer = null;
         try {
-          state.recordingStartBar = Math.ceil(state.arrangementCursor) + 1;
+          state.recordingStartBar = state.arrangementCursor;
           recorder.start();
+          try {
+            startRecordingPreview(state.recordingStream);
+          } catch (error) {
+            showToast(`Recording started, but the live track preview is unavailable: ${error.message || "unknown error"}`);
+          }
           $("#record-button-label").textContent = "Stop recording";
-          showToast(`Recording from bar ${state.recordingStartBar + 1}`);
+          showToast(`Recording from bar ${Math.floor(state.recordingStartBar) + 1}`);
         } catch (error) {
           stopRecordingMetronome();
           state.recordingStream?.getTracks().forEach((track) => track.stop());
@@ -9643,6 +9816,7 @@
       recorder.addEventListener("stop", async () => {
         state.recordingCountdownTimer = null;
         stopRecordingMetronome();
+        const preview = stopRecordingPreview();
         stream.getTracks().forEach((track) => track.stop());
         state.recordingStream = null;
         state.mediaRecorder = null;
@@ -9651,14 +9825,22 @@
         resetRecordingControls();
         const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
         if (!blob.size) {
+          if (preview) removeEmptyRecordingTrack(preview.track);
           showToast("No audio was captured.");
           return;
         }
         const extension = blob.type.includes("ogg") ? "ogg" : "webm";
         const name = `Recording-${new Date().toISOString().replace(/[:.]/g, "-")}.${extension}`;
         try {
-          await importRecording(new File([blob], name, { type: blob.type }), null, state.recordingStartBar);
+          await importRecording(
+            new File([blob], name, { type: blob.type }),
+            preview?.track.id || null,
+            state.recordingStartBar,
+            false,
+          );
+          if (preview && !preview.track.clips.length) removeEmptyRecordingTrack(preview.track);
         } catch (error) {
+          if (preview) removeEmptyRecordingTrack(preview.track);
           showToast(`Could not add recording: ${error.message || "unknown error"}`);
         }
       });
