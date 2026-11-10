@@ -872,7 +872,7 @@ body:not(.is-beat-grid-open) #export-button { display: none; }
 .track-view-controls .scale-control output { min-width: 27px; font-size: 7px; }
 .arrangement-editor { height: auto; min-height: 0; flex: 1; grid-template-columns: 158px minmax(0, 1fr); }
 .arrangement-track-column { display: flex; min-height: 0; flex-direction: column; overflow: hidden; }
-.arrangement-track-labels { min-height: 0; flex: 1; overflow: hidden; }
+.arrangement-track-labels { min-height: 0; flex: 1; overflow-x: hidden; overflow-y: auto; }
 .timeline-scroll { min-width: 0; height: 100%; min-height: 0; overflow: auto; }
 .timeline-ruler { position: sticky; top: 0; z-index: 4; }
 .arrangement-footer { min-height: 29px; flex: 0 0 29px; }
@@ -931,7 +931,11 @@ body:not(.is-beat-grid-open) #export-button { display: none; }
   .pattern-select-control > span { font-size: 6px; }
   .arrangement-title h1 { font-size: 14px; }
   .arrangement-editor { grid-template-columns: 108px minmax(0, 1fr); }
-  .arrangement-label { height: 64px; flex-basis: 64px; }
+  .arrangement-label { height: 64px; flex-basis: 64px; flex-wrap: wrap; align-content: center; gap: 3px; padding: 0 5px; }
+  .arrangement-label-info { flex: 1 1 58px; }
+  .arrangement-label-actions { gap: 0; }
+  .arrangement-label-actions button { width: 17px; height: 19px; }
+  .arrangement-volume { width: 28px; margin-left: auto; }
   .timeline-lane { height: 64px; }
   .arrangement-track-header, .timeline-ruler { height: 38px; }
   .arrangement-footer { font-size: 6px; }

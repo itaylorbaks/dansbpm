@@ -496,6 +496,9 @@
     arrangementCursor: 0,
     arrangementSnap: true,
     arrangementSources: new Set(),
+    isSchedulingArrangementVoice: false,
+    isStartingPlayback: false,
+    playbackRequestId: 0,
     playbackStartTime: 0,
     playbackStartBar: 0,
     playbackEndTime: 0,
@@ -538,6 +541,10 @@
   let stepSelectionAnchor = null;
   let arrangementMarqueeDeselectPending = false;
   let suppressStepClick = false;
+  const undoStacks = new Map();
+  const undoLatest = new Map();
+  let isApplyingUndo = false;
+  const MAX_UNDO_STEPS = 50;
 
   const $ = (selector) => document.querySelector(selector);
   const trackList = $("#track-list");
@@ -1126,6 +1133,8 @@
       variants,
       gridResolution: "1/16",
       volume: 1,
+      muted: false,
+      solo: false,
       effects: makeDefaultEffects(),
       effectSettings: makeDefaultEffectSettings(),
       effectChain: [],
@@ -3679,6 +3688,7 @@
   }
 
   function saveDjState() {
+    if (!isApplyingUndo) recordUndoSnapshot("dj");
     try {
       const saved = {
         activeDeck: djState.activeDeck,
@@ -5040,8 +5050,10 @@
     const secondsPerBar = 240 / state.bpm / deck.songRate;
     const currentBar = deck.songPositionBar + Math.max(0, now - deck.songAnchorTime) / secondsPerBar;
     const lookAheadBars = lookAhead / secondsPerBar;
-    const hasArrangementSolo = [...state.tracks, ...state.arrangementTracks].some((track) => track.solo);
-    const hasMelSolo = state.melTracks.some((track) => track.solo);
+    const hasArrangementSolo = [...state.tracks, ...state.patterns, ...state.melTracks, ...state.arrangementTracks]
+      .some((track) => track.solo);
+    const hasViewTrackSolo = [...state.patterns, ...state.melTracks, ...state.arrangementTracks]
+      .some((track) => track.solo);
     const hasInstrumentSolo = state.tracks.some((track) => track.solo);
     const isInLookAhead = (time) => time >= now && time < now + lookAhead && time < endTime;
 
@@ -5075,7 +5087,7 @@
       const pattern = getPattern(clip.patternId);
       if (!pattern) return;
       const patternTrack = state.patterns.find((item) => item.id === (clip.trackId || clip.patternId)) || pattern;
-      if (patternTrack.muted) return;
+      if (patternTrack.muted || (hasViewTrackSolo && !patternTrack.solo)) return;
       const stepsPerBar = getStepsPerBar(pattern);
       const sourceOffset = clip.sourceOffsetBars || 0;
       const sourceBars = pattern.steps / 16 * (clip.repeatCount || 1);
@@ -5119,7 +5131,8 @@
       Object.entries(pattern.stepPianoNotes || {}).forEach(([trackId, notes]) => {
         const track = state.tracks.find((item) => item.id === trackId);
         if (!track || !Array.isArray(notes) || !patternTrackIds.includes(trackId) ||
-          patternTrack.muted || track.muted || (hasInstrumentSolo && !track.solo)) return;
+          patternTrack.muted || (hasViewTrackSolo && !patternTrack.solo) ||
+          track.muted || (hasInstrumentSolo && !track.solo)) return;
         for (let loop = 0; loop < loopCount; loop += 1) {
           notes.forEach((note) => {
             const sourcePosition = loop * patternBars + note.startTick / PIANO_TICKS_PER_BAR;
@@ -5143,7 +5156,7 @@
 
     state.melTracks.forEach((melTrack) => {
       const instrument = getPianoTrack(melTrack.instrumentId);
-      if (!instrument || melTrack.muted || (hasMelSolo && !melTrack.solo) ||
+      if (!instrument || melTrack.muted || (hasViewTrackSolo && !melTrack.solo) ||
         instrument.muted || (hasInstrumentSolo && !instrument.solo)) return;
       melTrack.clips.forEach((clip) => {
         const mel = getMel(clip.melId);
@@ -5774,6 +5787,7 @@
         djState.decks[deckId].visualStartPosition = 0;
         djState.decks[deckId].visualPosition = 0;
         setActiveDjDeck(deckId);
+        saveDjState();
         renderDjLiveView();
       });
       $(`#dj-play-${suffix}`).addEventListener("click", () => {
@@ -6019,7 +6033,7 @@
       const swingOffset = Math.floor(clockStep / 2) % 2 === 1 ? getStepDuration() * (state.swing / 100) : 0;
       if (arrangementPlayback) {
         if (state.metronome && state.recordingMetronomeTimer === null && clockStep % 8 === 0) {
-          triggerClick(state.nextStepTime + swingOffset, clockStep % 32 === 0);
+          scheduleArrangementVoice(() => triggerClick(state.nextStepTime + swingOffset, clockStep % 32 === 0));
         }
       } else if (sequencerPlayback) {
         const pattern = getPattern();
@@ -6073,7 +6087,8 @@
         if (time < now || time >= now + lookAhead || time >= state.playbackEndTime) continue;
         const key = `${clip.id}:${sourceStep}`;
         if (state.scheduledArrangementSteps.has(key)) continue;
-        scheduleStep(patternStep, time, pattern, null, false, null, patternTrack);
+        scheduleArrangementVoice(() =>
+          scheduleStep(patternStep, time, pattern, null, false, null, patternTrack));
         state.scheduledArrangementSteps.add(key);
       }
       const hasSolo = state.tracks.some((track) => track.solo);
@@ -6095,8 +6110,9 @@
             const clipEnd = (sourceOffset + getArrangementClipDuration("pattern", clip) - sourcePosition) * secondsPerBar;
             const noteDuration = Math.min(note.durationTicks * getSchedulerTickDuration(), clipEnd);
             if (noteDuration > 0) {
-              playPianoNote(track, when, note.midi, noteDuration, note.velocity ?? 0.8,
-                patternTrack, getPatternSourceGain(patternTrack, track), note);
+              scheduleArrangementVoice(() =>
+                playPianoNote(track, when, note.midi, noteDuration, note.velocity ?? 0.8,
+                  patternTrack, getPatternSourceGain(patternTrack, track), note));
             }
             state.scheduledArrangementSteps.add(key);
           });
@@ -6665,6 +6681,7 @@
     if (!track.gainNode) {
       track.gainNode = state.audioContext.createGain();
       track.gainNode.gain.value = track.muted ? 0 : track.volume;
+      updateTrackGains();
     }
     if (!track.fxRuntime) rebuildTrackEffectChain(track);
   }
@@ -7024,6 +7041,62 @@
     return button;
   }
 
+  function makeArrangementTrackControls(track, includeRecordingButton = false) {
+    const actions = document.createElement("div");
+    actions.className = "arrangement-label-actions";
+    if (includeRecordingButton) {
+      const add = document.createElement("button");
+      add.type = "button";
+      add.title = "Add a recording to this track";
+      add.setAttribute("aria-label", `Add recording to ${track.name}`);
+      add.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12" /></svg>';
+      add.addEventListener("click", () => requestRecordingImport(track.id));
+      actions.append(add);
+    }
+    const mute = document.createElement("button");
+    mute.type = "button";
+    mute.className = track.muted ? "is-active" : "";
+    mute.title = track.muted ? "Unmute track" : "Mute track";
+    mute.setAttribute("aria-label", `${mute.title}: ${track.name}`);
+    mute.setAttribute("aria-pressed", String(Boolean(track.muted)));
+    mute.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 8v4h3l4 3V5L7 8H4Z" /><path d="m14 8 4 4m0-4-4 4" /></svg>';
+    mute.addEventListener("click", (event) => {
+      event.stopPropagation();
+      track.muted = !track.muted;
+      updateTrackGains();
+      renderArrangement();
+      saveState();
+    });
+    const solo = document.createElement("button");
+    solo.type = "button";
+    solo.className = track.solo ? "is-active" : "";
+    solo.textContent = "S";
+    solo.title = track.solo ? "Unsolo track" : "Solo track";
+    solo.setAttribute("aria-label", `${solo.title}: ${track.name}`);
+    solo.setAttribute("aria-pressed", String(Boolean(track.solo)));
+    solo.addEventListener("click", (event) => {
+      event.stopPropagation();
+      track.solo = !track.solo;
+      updateTrackGains();
+      renderArrangement();
+      saveState();
+    });
+    actions.append(mute, solo, makeOpenMixerButton(track));
+    const volume = document.createElement("input");
+    volume.className = "arrangement-volume";
+    volume.type = "range";
+    volume.min = "0";
+    volume.max = "100";
+    volume.value = String(Math.round(track.volume * 100));
+    volume.setAttribute("aria-label", `${track.name} volume`);
+    volume.addEventListener("input", () => {
+      track.volume = Number(volume.value) / 100;
+      updateTrackGains();
+    });
+    volume.addEventListener("change", saveState);
+    return { actions, volume };
+  }
+
   function selectArrangementTrack(trackId) {
     state.selectedMixerTrackId = trackId;
     document.querySelectorAll(".arrangement-label[data-track-id]").forEach((label) => {
@@ -7125,6 +7198,8 @@
         selectPattern(pattern.id);
         selectArrangementTrack(pattern.id);
       });
+      const controls = makeArrangementTrackControls(pattern);
+      label.append(controls.actions, controls.volume);
       labels.append(label);
 
       const lane = createTimelineLane(`pattern:${pattern.id}`, width);
@@ -7162,7 +7237,8 @@
       label.addEventListener("click", (event) => {
         if (!event.target.closest(".mixer-track-button")) selectArrangementTrack(track.id);
       });
-      label.append(makeOpenMixerButton(track));
+      const controls = makeArrangementTrackControls(track);
+      label.append(controls.actions, controls.volume);
       labels.append(label);
       const lane = createTimelineLane(`mel:${track.id}`, width);
       track.clips.forEach((clip) => lane.append(createMelClipElement(track, clip)));
@@ -7208,7 +7284,21 @@
         persistTrackClips(track);
         saveState();
       });
-      actions.append(add, mute, makeOpenMixerButton(track));
+      const solo = document.createElement("button");
+      solo.type = "button";
+      solo.className = track.solo ? "is-active" : "";
+      solo.textContent = "S";
+      solo.title = track.solo ? "Unsolo track" : "Solo track";
+      solo.setAttribute("aria-label", `${solo.title}: ${track.name}`);
+      solo.setAttribute("aria-pressed", String(Boolean(track.solo)));
+      solo.addEventListener("click", (event) => {
+        event.stopPropagation();
+        track.solo = !track.solo;
+        updateTrackGains();
+        renderArrangement();
+        saveState();
+      });
+      actions.append(add, mute, solo, makeOpenMixerButton(track));
       const volume = document.createElement("input");
       volume.className = "arrangement-volume";
       volume.type = "range";
@@ -7244,7 +7334,7 @@
     const rowsById = new Map(rows.map((row) => [row.id, row]));
     const childrenByParent = new Map();
     const childIds = new Set();
-    state.arrangementTracks.forEach((track) => {
+    [...state.melTracks, ...state.arrangementTracks].forEach((track) => {
       const parentId = track.insertAfterTrackId;
       if (!parentId || !rowsById.has(parentId) || parentId === track.id) return;
       const children = childrenByParent.get(parentId) || [];
@@ -8369,10 +8459,13 @@
     }
     let number = 1;
     while (state.melTracks.some((track) => track.name === `Instrument Track ${number}`)) number += 1;
+    const existingLabels = Array.from($("#arrangement-track-labels").children)
+      .filter((label) => label.dataset.trackId);
     const track = {
       id: makeId(),
       name: `Instrument Track ${number}`,
       kind: "mel",
+      insertAfterTrackId: existingLabels.at(-1)?.dataset.trackId || null,
       instrumentId,
       color: TRACK_COLORS[state.melTracks.length % TRACK_COLORS.length],
       muted: false,
@@ -10428,15 +10521,35 @@
       ...state.effectTracks, state.masterTrack,
     ].filter(Boolean);
     const hasSolo = [...state.tracks, ...state.arrangementTracks].some((track) => track.solo);
-    const hasMelSolo = state.melTracks.some((track) => track.solo);
+    const hasArrangementSolo = [...state.patterns, ...state.melTracks, ...state.arrangementTracks]
+      .some((track) => track.solo);
     allTracks.forEach((track) => {
       if (!track.gainNode) return;
       const isBus = track.kind === "mixer-master" || track.kind === "mixer-effects";
-      const isSilent = track.muted || (!isBus && (track.kind === "pattern" ? false : track.kind === "mel"
-        ? hasMelSolo && !track.solo
-        : hasSolo && !track.solo));
+      const isArrangementTrack = track.kind === "pattern" || track.kind === "mel" ||
+        state.arrangementTracks.includes(track);
+      const isSilent = track.muted ||
+        (isArrangementTrack && hasArrangementSolo && !track.solo) ||
+        (!isBus && !isArrangementTrack && hasSolo && !track.solo) ||
+        (state.arrangementTracks.includes(track) && hasSolo && !track.solo);
       track.gainNode.gain.setTargetAtTime(isSilent ? 0 : track.volume, state.audioContext.currentTime, 0.015);
     });
+  }
+
+  function registerArrangementPlaybackSource(source) {
+    if (!state.isSchedulingArrangementVoice) return;
+    state.arrangementSources.add(source);
+    source.addEventListener("ended", () => state.arrangementSources.delete(source), { once: true });
+  }
+
+  function scheduleArrangementVoice(schedule) {
+    const wasSchedulingArrangementVoice = state.isSchedulingArrangementVoice;
+    state.isSchedulingArrangementVoice = true;
+    try {
+      schedule();
+    } finally {
+      state.isSchedulingArrangementVoice = wasSchedulingArrangementVoice;
+    }
   }
 
   function triggerTrack(track, time, step, variant = track.variant, noteDuration = getStepDuration(), outputTrack = track, outputNode = null, pitchOffset = 0) {
@@ -10447,6 +10560,7 @@
     const output = outputNode || outputTrack.gainNode;
     if (track.sample) {
       const source = context.createBufferSource();
+      registerArrangementPlaybackSource(source);
       source.buffer = track.sample.buffer;
       const envelope = context.createGain();
       const sampleDetune = track.sampleHumanized ? (Math.random() - 0.5) * 8 : 0;
@@ -10491,6 +10605,7 @@
     if (track.sample) {
       const context = state.audioContext;
       const source = context.createBufferSource();
+      registerArrangementPlaybackSource(source);
       const envelope = context.createGain();
       const detune = Number.isFinite(noteOptions.detune) ? noteOptions.detune : 0;
       const rootMidi = Number.isFinite(track.sampleRootMidi) ? track.sampleRootMidi : 60;
@@ -10574,6 +10689,7 @@
     ];
     const activeOscillators = oscillators.filter((oscillator) => oscillator.level > 0).map((settings) => {
       const oscillator = context.createOscillator();
+      registerArrangementPlaybackSource(oscillator);
       const gain = context.createGain();
       oscillator.type = settings.type;
       oscillator.frequency.setValueAtTime(settings.rate, time);
@@ -10593,6 +10709,7 @@
     const lfoDepth = Math.max(0, Math.min(100, parameter("lfoDepth", 0)));
     if (activeOscillators.length && lfoRate > 0 && lfoDepth > 0) {
       const lfo = context.createOscillator();
+      registerArrangementPlaybackSource(lfo);
       const lfoGain = context.createGain();
       lfo.frequency.setValueAtTime(lfoRate, time);
       lfoGain.gain.setValueAtTime(lfoDepth, time);
@@ -10623,6 +10740,7 @@
     const envelope = context.createGain();
     const filter = context.createBiquadFilter();
     const oscillator = context.createOscillator();
+    registerArrangementPlaybackSource(oscillator);
     const peak = velocity * 0.42;
     filter.type = "lowpass";
     filter.frequency.setValueAtTime(Math.max(100, Number(patch.cutoff) || 5000), time);
@@ -10642,6 +10760,7 @@
     oscillator.stop(gateEnd + release + 0.02);
     if (patch.harmonic) {
       const overtone = context.createOscillator();
+      registerArrangementPlaybackSource(overtone);
       const overtoneGain = context.createGain();
       overtone.type = patch.wave || "sine";
       overtone.frequency.setValueAtTime(frequency * patch.harmonic, time);
@@ -10703,6 +10822,7 @@
     const baseDuration = { 75: 0.11, 76: 0.13, 77: 0.16 }[midi] || (kit === "industrial" ? 0.28 : 0.34);
     const duration = Math.min(0.75, baseDuration * scale);
     const oscillator = context.createOscillator();
+    registerArrangementPlaybackSource(oscillator);
     const envelope = context.createGain();
     oscillator.type = kit === "industrial" ? "triangle" : "sine";
     oscillator.frequency.setValueAtTime(startPitch, time);
@@ -10725,6 +10845,7 @@
     envelope.gain.exponentialRampToValueAtTime(0.0001, time + duration);
     [frequency, frequency * 1.48].forEach((partial, index) => {
       const oscillator = context.createOscillator();
+      registerArrangementPlaybackSource(oscillator);
       const partialGain = context.createGain();
       oscillator.type = "square";
       oscillator.frequency.setValueAtTime(partial, time);
@@ -10740,6 +10861,7 @@
   function playDrumKitTone(output, time, frequency, duration, velocity) {
     const context = state.audioContext;
     const oscillator = context.createOscillator();
+    registerArrangementPlaybackSource(oscillator);
     const envelope = context.createGain();
     oscillator.type = "sine";
     oscillator.frequency.setValueAtTime(frequency, time);
@@ -10754,6 +10876,7 @@
 
   function playKick(context, output, time, step, variant, durationScale, pitchRatio = 1) {
     const osc = context.createOscillator();
+    registerArrangementPlaybackSource(osc);
     const envelope = context.createGain();
     const legacy = {
       classic: [148, 43, 0.36],
@@ -10784,6 +10907,7 @@
 
   function playNoise(context, output, time, duration, cutoff, peak = 0.35, resonance = 0.7) {
     const source = context.createBufferSource();
+    registerArrangementPlaybackSource(source);
     source.buffer = state.noiseBuffer;
     const filter = context.createBiquadFilter();
     filter.type = "highpass";
@@ -10815,6 +10939,7 @@
     };
     playNoise(context, output, time, settings.noiseDuration * durationScale, settings.cutoff * pitchRatio, settings.noisePeak, settings.resonance);
     const body = context.createOscillator();
+    registerArrangementPlaybackSource(body);
     const envelope = context.createGain();
     body.type = settings.bodyWave || "triangle";
     body.frequency.setValueAtTime(settings.bodyHz * pitchRatio, time);
@@ -10853,6 +10978,7 @@
 
   function playRim(context, output, time, variant, durationScale, pitchRatio = 1) {
     const osc = context.createOscillator();
+    registerArrangementPlaybackSource(osc);
     const envelope = context.createGain();
     osc.type = "triangle";
     const pitch = { classic: [880, 420], low: [190, 110], high: [1450, 720], wood: [560, 250] }[variant] || [880, 420];
@@ -10868,6 +10994,7 @@
 
   function triggerClick(time, downbeat) {
     const osc = state.audioContext.createOscillator();
+    registerArrangementPlaybackSource(osc);
     const gain = state.audioContext.createGain();
     osc.frequency.setValueAtTime(downbeat ? 1350 : 950, time);
     gain.gain.setValueAtTime(0.0001, time);
@@ -10880,10 +11007,17 @@
   }
 
   async function startPlayback(mode = "arrangement") {
-    if (state.isPlaying || state.isExporting) return;
+    if (state.isPlaying || state.isStartingPlayback || state.isExporting) return;
+    const requestId = ++state.playbackRequestId;
+    state.isStartingPlayback = true;
+    playButton.classList.toggle("is-playing", mode === "arrangement");
+    playButton.setAttribute("aria-label", "Pause Track View");
     try {
       await ensureAudio();
+      if (requestId !== state.playbackRequestId) return;
       await loadLibrarySamplesForPlayback(mode);
+      if (requestId !== state.playbackRequestId) return;
+      state.isStartingPlayback = false;
       state.isPlaying = true;
       state.playbackMode = mode;
       const arrangementPlayback = mode === "arrangement";
@@ -10913,6 +11047,9 @@
       $("#now-playing").classList.add("is-live");
       $("#now-playing").innerHTML = `<span class="live-dot"></span>${arrangementPlayback ? "TRACK VIEW PLAYING" : "KEY RECORDING"}`;
     } catch (error) {
+      if (requestId !== state.playbackRequestId) return;
+      state.isStartingPlayback = false;
+      stopPlayback();
       showToast(error.message || "Audio could not start in this browser.");
     }
   }
@@ -10951,7 +11088,8 @@
           const when = startTime + (audibleStartBar - startBar) * secondsPerBar;
           const duration = Math.max(0, noteEndBar - audibleStartBar) * secondsPerBar;
           if (duration > 0) {
-            playPianoNote(instrument, when, note.midi, duration, note.velocity ?? 0.8, melTrack, null, note);
+            scheduleArrangementVoice(() =>
+              playPianoNote(instrument, when, note.midi, duration, note.velocity ?? 0.8, melTrack, null, note));
             state.scheduledPianoNotes.add(key);
           }
         });
@@ -10960,6 +11098,8 @@
   }
 
   function stopPlayback() {
+    state.playbackRequestId += 1;
+    state.isStartingPlayback = false;
     const stoppedPlaybackMode = state.playbackMode;
     if (stoppedPlaybackMode === "piano-roll" && state.isPlaying) updatePianoCursorFromTime(state.playbackStartTime);
     if (state.keyboardRecordingCountdown) cancelKeyboardRecordingCountdown();
@@ -10979,7 +11119,7 @@
     state.stepTimers.forEach((timerId) => window.clearTimeout(timerId));
     state.stepTimers.clear();
     state.arrangementSources.forEach((source) => {
-      try { source.stop(); } catch { /* The source may have ended between scheduler ticks. */ }
+      try { source.stop(state.audioContext?.currentTime || 0); } catch { /* The source may have ended between scheduler ticks. */ }
     });
     state.arrangementSources.clear();
     if (stoppedPlaybackMode === "arrangement" && state.view === "arrangement") state.arrangementCursor = 0;
@@ -11266,6 +11406,8 @@
           gridResolution: getPatternGridResolution(pattern),
           color: pattern.color,
           volume: pattern.volume,
+          muted: pattern.muted,
+          solo: pattern.solo,
           effects: makeDefaultEffects(pattern.effects),
           effectSettings: makeDefaultEffectSettings(pattern.effectSettings),
           effectChain: ensureTrackMixerState(pattern),
@@ -11313,6 +11455,7 @@
       melTracks: state.melTracks.map((track) => ({
         id: track.id,
         name: track.name,
+        insertAfterTrackId: track.insertAfterTrackId || null,
         instrumentId: track.instrumentId,
         color: track.color,
         volume: track.volume,
@@ -11411,11 +11554,286 @@
     $("#save-state").textContent = "Saving…";
     saveDot.style.background = "#c8a95a";
     const snapshot = createStateSnapshot();
+    if (!isApplyingUndo) recordUndoSnapshot(getUndoScope(), snapshot);
     const projectId = state.projectId;
     window.clearTimeout(saveState.timeout);
     saveState.timeout = window.setTimeout(() => {
       persistStateSnapshot(snapshot, projectId);
     }, 250);
+  }
+
+  function getUndoScope() {
+    if (state.view === "piano-roll") return "piano-roll";
+    if (state.view === "sequencer") return "step-grid";
+    if (state.view === "dj") return "dj";
+    return "track-view";
+  }
+
+  function cloneHistoryTrack(track) {
+    return {
+      ...track,
+      cells: Array.isArray(track.cells) ? [...track.cells] : track.cells,
+      clips: Array.isArray(track.clips) ? track.clips.map((clip) => ({ ...clip })) : track.clips,
+      effects: makeDefaultEffects(track.effects),
+      effectSettings: makeDefaultEffectSettings(track.effectSettings),
+      effectChain: Array.isArray(track.effectChain) ? track.effectChain.map((effect) => ({ ...effect })) : track.effectChain,
+    };
+  }
+
+  function cloneHistoryPattern(pattern) {
+    return {
+      ...cloneHistoryTrack(pattern),
+      trackIds: [...(pattern.trackIds || [])],
+      cells: Object.fromEntries(Object.entries(pattern.cells || {}).map(([trackId, cells]) =>
+        [trackId, Array.isArray(cells) ? [...cells] : []])),
+      variants: { ...(pattern.variants || {}) },
+      stepPianoNotes: pattern.stepPianoNotes
+        ? Object.fromEntries(Object.entries(pattern.stepPianoNotes).map(([trackId, notes]) =>
+          [trackId, notes.map((note) => ({ ...note }))]))
+        : undefined,
+    };
+  }
+
+  function cloneHistoryMel(mel) {
+    return { ...mel, notes: mel.notes.map((note) => ({ ...note })) };
+  }
+
+  function getDjUndoSnapshot() {
+    return {
+      activeDeck: djState.activeDeck,
+      crossfader: djState.crossfader,
+      masterVolume: djState.masterVolume,
+      masterLow: djState.masterLow,
+      masterMid: djState.masterMid,
+      masterHigh: djState.masterHigh,
+      masterFilter: djState.masterFilter,
+      arrangementViewStartBar: djState.arrangementViewStartBar,
+      liveSlots: djState.liveSlots.map((slot) => slot ? { ...slot } : null),
+      decks: Object.fromEntries(DJ_DECK_IDS.map((deckId) => {
+        const deck = djState.decks[deckId];
+        return [deckId, {
+          sourceKey: deck.sourceKey,
+          volume: deck.volume,
+          filter: deck.filter,
+          eqLow: deck.eqLow,
+          eqMid: deck.eqMid,
+          eqHigh: deck.eqHigh,
+          pitch: deck.pitch,
+          syncRate: deck.syncRate,
+          reverse: deck.reverse,
+          startOffsetBars: deck.startOffsetBars,
+        }];
+      })),
+    };
+  }
+
+  function createUndoSnapshot(scope, serialized = null) {
+    const saved = serialized || createStateSnapshot();
+    if (scope === "dj") {
+      const dj = getDjUndoSnapshot();
+      return { fingerprint: JSON.stringify(dj), dj };
+    }
+    if (scope === "piano-roll") {
+      return {
+        fingerprint: JSON.stringify({ pianoNotes: saved.pianoNotes, mels: saved.mels, selectedMelId: saved.selectedMelId }),
+        serialized: saved,
+        mels: state.mels.map(cloneHistoryMel),
+      };
+    }
+    if (scope === "step-grid") {
+      const patternGridState = saved.patterns.map(({ volume, muted, solo, ...pattern }) => pattern);
+      return {
+        fingerprint: JSON.stringify({
+          patterns: patternGridState,
+          tracks: saved.tracks,
+          steps: saved.steps,
+          selectedPatternId: saved.selectedPatternId,
+          bpm: saved.bpm,
+          swing: saved.swing,
+        }),
+        serialized: saved,
+        patterns: state.patterns.map(cloneHistoryPattern),
+        tracks: state.tracks.map(cloneHistoryTrack),
+      };
+    }
+    const audioClipState = state.arrangementTracks.map((track) => ({
+      id: track.id,
+      clips: track.clips.map(({ buffer, ...clip }) => clip),
+    }));
+    const patterns = state.patterns.map(({ id, volume, muted, solo }) => ({ id, volume, muted, solo }));
+    const trackViewState = {
+      patterns,
+      patternClips: state.patternClips,
+      melTracks: saved.melTracks,
+      arrangementTracks: saved.arrangementTracks.map((track) => ({
+        ...track,
+        clips: audioClipState.find((item) => item.id === track.id)?.clips || [],
+      })),
+      arrangementBars: saved.arrangementBars,
+      arrangementCursor: saved.arrangementCursor,
+      bpm: saved.bpm,
+      swing: saved.swing,
+      selectedMixerTrackId: state.selectedMixerTrackId,
+    };
+    return {
+      fingerprint: JSON.stringify(trackViewState),
+      serialized: saved,
+      patterns,
+      patternClips: state.patternClips.map((clip) => ({ ...clip })),
+      melTracks: state.melTracks.map(cloneHistoryTrack),
+      arrangementTracks: state.arrangementTracks.map(cloneHistoryTrack),
+      selectedMixerTrackId: state.selectedMixerTrackId,
+    };
+  }
+
+  function recordUndoSnapshot(scope, serialized = null) {
+    if (isApplyingUndo) return;
+    const next = createUndoSnapshot(scope, serialized);
+    const previous = undoLatest.get(scope);
+    if (previous && previous.fingerprint !== next.fingerprint) {
+      const history = undoStacks.get(scope) || [];
+      history.push(previous);
+      if (history.length > MAX_UNDO_STEPS) history.shift();
+      undoStacks.set(scope, history);
+    }
+    undoLatest.set(scope, next);
+  }
+
+  function seedUndoHistory() {
+    ["track-view", "piano-roll", "step-grid", "dj"].forEach((scope) => {
+      undoLatest.set(scope, createUndoSnapshot(scope));
+    });
+  }
+
+  function restoreDjUndoSnapshot(snapshot) {
+    const dj = snapshot.dj;
+    const restartDecks = [];
+    Object.assign(djState, {
+      activeDeck: dj.activeDeck,
+      crossfader: dj.crossfader,
+      masterVolume: dj.masterVolume,
+      masterLow: dj.masterLow,
+      masterMid: dj.masterMid,
+      masterHigh: dj.masterHigh,
+      masterFilter: dj.masterFilter,
+      arrangementViewStartBar: dj.arrangementViewStartBar,
+      liveSlots: dj.liveSlots.map((slot) => slot ? { ...slot } : null),
+    });
+    DJ_DECK_IDS.forEach((deckId) => {
+      const deck = djState.decks[deckId];
+      const savedDeck = dj.decks[deckId];
+      if (deck.playing && (deck.sourceKey !== savedDeck.sourceKey || deck.reverse !== savedDeck.reverse)) {
+        stopDjDeck(deckId);
+        restartDecks.push(deckId);
+      }
+      Object.assign(deck, savedDeck);
+    });
+    DJ_DECK_IDS.forEach((deckId) => {
+      const deck = djState.decks[deckId];
+      updateDjAudioRate(deck, () => {}, 0.015);
+      updateDjSongRate(deck);
+    });
+    applyDjMixer();
+    renderDjView();
+    restartDecks.forEach((deckId) => { void startDjDeck(deckId); });
+    saveDjState();
+  }
+
+  function applyUndoSnapshot(scope, snapshot) {
+    const saved = snapshot.serialized;
+    if (scope === "dj") {
+      restoreDjUndoSnapshot(snapshot);
+      return;
+    }
+    if (scope === "piano-roll") {
+      state.mels = snapshot.mels.map(cloneHistoryMel);
+      state.selectedMelId = saved.selectedMelId;
+      state.pianoNotes = saved.pianoNotes.map((note) => ({ ...note }));
+      state.pianoBars = saved.pianoBars;
+      state.pianoCursorTick = saved.pianoCursorTick;
+      state.selectedPianoTrackId = saved.selectedPianoTrackId;
+      renderMelOptions();
+      renderPianoRoll();
+    } else if (scope === "step-grid") {
+      const currentPatternControls = new Map(state.patterns.map((pattern) => [pattern.id, pattern]));
+      state.patterns = snapshot.patterns.map((pattern) => {
+        const current = currentPatternControls.get(pattern.id);
+        return {
+          ...cloneHistoryPattern(pattern),
+          volume: current?.volume ?? pattern.volume,
+          muted: current?.muted ?? pattern.muted,
+          solo: current?.solo ?? pattern.solo,
+        };
+      });
+      state.tracks = snapshot.tracks.map(cloneHistoryTrack);
+      state.steps = saved.steps;
+      state.bpm = saved.bpm;
+      state.swing = saved.swing;
+      state.selectedPatternId = saved.selectedPatternId;
+      applyPattern(getPattern());
+      tempoValue.textContent = String(state.bpm);
+      swingSlider.value = String(state.swing);
+      $("#swing-value").textContent = `${state.swing}%`;
+      swingSlider.style.setProperty("--range-progress", `${state.swing / 45 * 100}%`);
+      setLength(state.steps);
+      renderTracks();
+      renderPatternSelectors();
+      renderArrangement();
+    } else {
+      const savedPatternControls = new Map(snapshot.patterns.map((pattern) => [pattern.id, pattern]));
+      state.patterns.forEach((pattern) => {
+        const savedPattern = savedPatternControls.get(pattern.id);
+        if (!savedPattern) return;
+        pattern.volume = savedPattern.volume;
+        pattern.muted = savedPattern.muted;
+        pattern.solo = savedPattern.solo;
+      });
+      state.patternClips = snapshot.patternClips.map((clip) => ({ ...clip }));
+      state.melTracks = snapshot.melTracks.map(cloneHistoryTrack);
+      state.arrangementTracks = snapshot.arrangementTracks.map(cloneHistoryTrack);
+      state.selectedMixerTrackId = snapshot.selectedMixerTrackId;
+      state.arrangementBars = saved.arrangementBars;
+      state.arrangementCursor = saved.arrangementCursor;
+      state.bpm = saved.bpm;
+      state.swing = saved.swing;
+      tempoValue.textContent = String(state.bpm);
+      swingSlider.value = String(state.swing);
+      $("#swing-value").textContent = `${state.swing}%`;
+      swingSlider.style.setProperty("--range-progress", `${state.swing / 45 * 100}%`);
+      updateArrangementLength();
+      updateTrackGains();
+      renderArrangement();
+      renderMixer();
+      renderDjView();
+    }
+    recordUndoSnapshot(scope);
+    if (scope === "track-view") {
+      state.arrangementTracks.forEach(persistTrackClips);
+    }
+    saveState();
+  }
+
+  function undoCurrentView() {
+    const scope = getUndoScope();
+    const history = undoStacks.get(scope);
+    const snapshot = history?.pop();
+    if (!snapshot) {
+      showToast("Nothing to undo in this view.");
+      return;
+    }
+    isApplyingUndo = true;
+    let restored = false;
+    try {
+      applyUndoSnapshot(scope, snapshot);
+      undoLatest.set(scope, createUndoSnapshot(scope));
+      restored = true;
+    } catch (error) {
+      history.push(snapshot);
+      showToast(`Could not undo that action: ${error.message || "the previous state could not be restored"}`);
+    } finally {
+      isApplyingUndo = false;
+    }
+    if (!restored) return;
   }
 
   function renderProjectList() {
@@ -11697,6 +12115,8 @@
               } : {}),
               gridResolution,
               volume: Number.isFinite(pattern.volume) ? Math.max(0, Math.min(1, pattern.volume)) : 1,
+              muted: pattern.muted === true,
+              solo: pattern.solo === true,
               effects: makeDefaultEffects(pattern.effects),
               effectSettings: makeDefaultEffectSettings(pattern.effectSettings),
               effectChain: Array.isArray(pattern.effectChain) ? pattern.effectChain : undefined,
@@ -11811,6 +12231,7 @@
           .map((track) => ({
             id: track.id,
             name: track.name,
+            insertAfterTrackId: typeof track.insertAfterTrackId === "string" ? track.insertAfterTrackId : null,
             kind: "mel",
             instrumentId: state.tracks.some((item) => item.id === track.instrumentId) ? track.instrumentId : fallbackInstrumentId,
             color: isPatternColor(track.color) ? track.color : "#b5a0ff",
@@ -11932,13 +12353,17 @@
       state.masterGain.connect(context.destination);
       state.noiseBuffer = createNoiseBuffer(context);
       const hasSolo = [...state.tracks, ...state.arrangementTracks].some((track) => track.solo);
-      const hasMelSolo = state.melTracks.some((track) => track.solo);
+      const hasArrangementSolo = [...state.patterns, ...state.melTracks, ...state.arrangementTracks]
+        .some((track) => track.solo);
       allTracks.forEach((track) => {
         track.gainNode = context.createGain();
         const isBus = track.kind === "mixer-master" || track.kind === "mixer-effects";
-        const isSilent = track.muted || (!isBus && (track.kind === "pattern" ? false : track.kind === "mel"
-          ? hasMelSolo && !track.solo
-          : hasSolo && !track.solo));
+        const isArrangementTrack = track.kind === "pattern" || track.kind === "mel" ||
+          state.arrangementTracks.includes(track);
+        const isSilent = track.muted ||
+          (isArrangementTrack && hasArrangementSolo && !track.solo) ||
+          (!isBus && !isArrangementTrack && hasSolo && !track.solo) ||
+          (state.arrangementTracks.includes(track) && hasSolo && !track.solo);
         track.gainNode.gain.value = isSilent ? 0 : track.volume;
         track.fxRuntime = null;
         track.analyser = null;
@@ -12016,7 +12441,7 @@
       });
       state.melTracks.forEach((melTrack) => {
         const instrument = state.tracks.find((track) => track.id === melTrack.instrumentId);
-        if (!instrument || melTrack.muted || (hasMelSolo && !melTrack.solo) ||
+        if (!instrument || melTrack.muted || (hasArrangementSolo && !melTrack.solo) ||
           instrument.muted || (hasSolo && !instrument.solo)) return;
         melTrack.clips.forEach((clip) => {
           const mel = getMel(clip.melId);
@@ -12138,7 +12563,7 @@
     document.addEventListener("pointercancel", finishStepSelectionDrag);
     playButton.addEventListener("click", () => {
       if (state.keyboardRecordingCountdown) cancelKeyboardRecordingCountdown();
-      if (state.isPlaying && state.playbackMode === "arrangement") stopPlayback();
+      if (state.isStartingPlayback || state.isPlaying && state.playbackMode === "arrangement") stopPlayback();
       else {
         if (state.isPlaying) stopPlayback();
         startPlayback("arrangement");
@@ -12644,6 +13069,12 @@
       );
       const dialogOpen = $("#help-dialog").open || $("#project-dialog").open || $("#source-browser-dialog").open ||
         $("#step-instrument-dialog").open || $("#step-track-mix-dialog").open;
+      if (!isTextEntry && !dialogOpen && (event.ctrlKey || event.metaKey) && !event.altKey &&
+        !event.shiftKey && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        if (!event.repeat) undoCurrentView();
+        return;
+      }
       const djControlFocused = state.view === "dj" && djViewExpanded &&
         target instanceof Element && target.closest("input, select, textarea, [contenteditable='true']");
       const pianoRollSelectAll = state.view === "piano-roll" && !isTextEntry && event.key.toLowerCase() === "a";
@@ -12776,6 +13207,7 @@
     state.arrangementCursor = Math.min(state.arrangementCursor, state.arrangementBars - 0.001);
     setWorkspaceView(state.view, true);
     bindEvents();
+    seedUndoHistory();
     $("#login-screen").hidden = Boolean(state.currentUser);
     $("#active-user-label").textContent = getCurrentUserName();
   }
@@ -12784,7 +13216,12 @@
   updateStorageIndicator();
   window.addEventListener("focus", updateStorageIndicator);
   if (state.currentUser) {
-    restoreArrangement().then(renderDjView);
+    restoreArrangement().then(() => {
+      if (!undoStacks.get("track-view")?.length) {
+        undoLatest.set("track-view", createUndoSnapshot("track-view"));
+      }
+      renderDjView();
+    });
     try {
       if (window.sessionStorage.getItem(OPEN_PROJECTS_KEY) === "true") {
         window.sessionStorage.removeItem(OPEN_PROJECTS_KEY);
