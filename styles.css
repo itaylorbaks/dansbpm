@@ -346,18 +346,18 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .arrangement-track-header span { color: #68696f; }
 .arrangement-track-labels { min-height: 0; display: flex; flex: 1; flex-direction: column; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; }
 .arrangement-track-labels::-webkit-scrollbar { display: none; }
-.arrangement-label { height: 74px; flex: 0 0 74px; min-width: 0; display: flex; align-items: center; gap: 9px; border-bottom: 1px solid #25262a; padding: 0 10px 0 14px; }
-.arrangement-label-info { min-width: 0; flex: 1; }
+.arrangement-label { height: 74px; flex: 0 0 74px; min-width: 0; display: flex; flex-wrap: wrap; align-content: center; align-items: center; column-gap: 5px; row-gap: 3px; border-bottom: 1px solid #25262a; padding: 4px 8px 4px 10px; }
+.arrangement-label-info { min-width: 0; flex: 1 1 calc(100% - 20px); }
 .arrangement-label-name { overflow: hidden; color: #d7d8d4; font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .arrangement-label-type { margin-top: 4px; color: #74757b; font-size: 9px; }
 .arrangement-label-type.mel-track-type { min-width: 0; display: flex; align-items: center; gap: 4px; }
 .mel-track-instrument-button { min-width: 0; overflow: hidden; border: 0; background: transparent; padding: 0; color: #a4a5aa; font: inherit; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .mel-track-instrument-button:hover { color: var(--accent); }
-.arrangement-label-actions { display: flex; align-items: center; gap: 2px; }
-.arrangement-label-actions button { width: 22px; height: 22px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #7a7b80; cursor: pointer; }
+.arrangement-label-actions { min-width: 0; display: flex; flex: 0 0 auto; align-items: center; gap: 0; }
+.arrangement-label-actions button { width: 19px; height: 20px; flex: 0 0 19px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #7a7b80; cursor: pointer; }
 .arrangement-label-actions button:hover, .arrangement-label-actions button.is-active { border-color: var(--stroke); background: #27282c; color: var(--text); }
 .arrangement-label-actions svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-.arrangement-volume { width: 38px; height: 2px; margin: 0 0 0 5px; accent-color: var(--accent); }
+.arrangement-volume { width: 32px; max-width: 42px; height: 2px; flex: 1 1 32px; margin: 0 0 0 auto; accent-color: var(--accent); }
 .arrangement-track-context-menu { position: fixed; z-index: 80; min-width: 190px; border: 1px solid #424349; border-radius: 6px; background: #232428; padding: 4px; box-shadow: 0 8px 24px #0009; }
 .arrangement-track-context-menu[hidden] { display: none; }
 .arrangement-track-context-menu button { width: 100%; border: 0; border-radius: 4px; background: transparent; padding: 8px 10px; color: #d7d8d4; font-size: 10px; text-align: left; cursor: pointer; }
@@ -933,11 +933,13 @@ body:not(.is-beat-grid-open) #export-button { display: none; }
   .pattern-select-control > span { font-size: 6px; }
   .arrangement-title h1 { font-size: 14px; }
   .arrangement-editor { grid-template-columns: 108px minmax(0, 1fr); }
-  .arrangement-label { height: 64px; flex-basis: 64px; flex-wrap: wrap; align-content: center; gap: 3px; padding: 0 5px; }
-  .arrangement-label-info { flex: 1 1 58px; }
-  .arrangement-label-actions { gap: 0; }
-  .arrangement-label-actions button { width: 17px; height: 19px; }
-  .arrangement-volume { width: 28px; margin-left: auto; }
+  .arrangement-label { height: 64px; flex-basis: 64px; gap: 2px 3px; padding: 3px 4px; }
+  .arrangement-label-info { flex-basis: calc(100% - 17px); }
+  .arrangement-label-name { font-size: 10px; }
+  .arrangement-label-type { margin-top: 2px; font-size: 8px; }
+  .arrangement-label-actions button { width: 15px; height: 18px; flex-basis: 15px; }
+  .arrangement-label-actions svg { width: 11px; height: 11px; }
+  .arrangement-volume { width: 28px; min-width: 25px; flex-basis: 25px; margin-left: auto; }
   .timeline-lane { height: 64px; }
   .arrangement-track-header, .timeline-ruler { height: 38px; }
   .arrangement-footer { font-size: 6px; }
