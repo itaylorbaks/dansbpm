@@ -364,7 +364,7 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .timeline-scroll { overflow: auto; overscroll-behavior: contain; scrollbar-color: #45464a #1b1c1f; scrollbar-width: thin; }
 .timeline-content { position: relative; min-width: 100%; width: max-content; }
 .selection-marquee { position: absolute; z-index: 20; border: 1px solid rgba(211,243,107,.9); background: rgba(211,243,107,.12); pointer-events: none; }
-.timeline-ruler { height: 43px; display: grid; border-bottom: 1px solid var(--stroke); background: #1c1d20; }
+.timeline-ruler { height: 43px; display: grid; border-bottom: 1px solid var(--stroke); background: #1c1d20; cursor: pointer; }
 .timeline-bar { position: relative; display: flex; align-items: center; padding-left: 9px; border-right: 1px solid #303136; color: #9a9ba0; font-family: var(--mono); font-size: 9px; }
 .timeline-bar::before { position: absolute; left: 0; bottom: 0; height: 7px; border-left: 1px solid #595a5f; content: ""; }
 .timeline-lane { position: relative; height: 74px; border-bottom: 1px solid #25262a; background-color: #191a1d; background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(var(--bar-width) - 1px), #292a2e calc(var(--bar-width) - 1px), #292a2e var(--bar-width)), repeating-linear-gradient(to right, transparent 0, transparent calc(var(--beat-width) - 1px), rgba(45,46,51,.55) calc(var(--beat-width) - 1px), rgba(45,46,51,.55) var(--beat-width)); }
@@ -423,7 +423,7 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .piano-roll-toolbar #piano-draw-mode-button[aria-pressed="true"] { border-color: #687641; background: var(--accent-soft); color: var(--accent); }
 .piano-roll-scroll { min-height: 0; flex: 1; display: flex; overflow: auto; border: 1px solid #303136; background: #17181b; scrollbar-color: #45464a #1b1c1f; scrollbar-width: thin; }
 .piano-roll-ruler-spacer { height: 28px; min-height: 28px; flex: 0 0 28px; }
-.piano-roll-ruler-viewport { position: fixed; z-index: 25; height: 28px; overflow: hidden; background: #202125; pointer-events: none; }
+.piano-roll-ruler-viewport { position: fixed; z-index: 25; height: 28px; overflow: hidden; background: #202125; cursor: pointer; }
 .piano-roll-sticky-playhead { position: absolute; top: 0; bottom: 0; z-index: 6; width: 12px; transform: translateX(-6px); pointer-events: none; }
 .piano-roll-sticky-playhead::before { position: absolute; top: 0; left: 1px; width: 10px; height: 8px; background: #f3f4e8; clip-path: polygon(0 0, 100% 0, 50% 100%); content: ""; }
 .piano-roll-sticky-playhead::after { position: absolute; top: 6px; bottom: 0; left: 5px; width: 2px; background: #f3f4e8; box-shadow: 0 0 7px #fff8; content: ""; }

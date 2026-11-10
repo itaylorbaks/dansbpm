@@ -1843,6 +1843,15 @@
     document.addEventListener("pointercancel", finish);
   }
 
+  function seekPianoRollFromRuler(event) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const scroll = $("#piano-roll-scroll");
+    const ruler = $("#piano-roll-ruler-viewport");
+    const tick = (scroll.scrollLeft + event.clientX - ruler.getBoundingClientRect().left) / getPianoTickWidth();
+    setPianoCursorTick(tick);
+  }
+
   function renderPianoRoll() {
     updateStepPianoEditorControls();
     $("#piano-bars-select").value = String(state.pianoBars);
@@ -12240,6 +12249,7 @@
       if (!event.target.closest(".piano-roll-note")) addPianoNoteFromPointer(event);
     });
     $("#piano-roll-grid").addEventListener("pointerdown", startPianoSelection);
+    $("#piano-roll-ruler-viewport").addEventListener("pointerdown", seekPianoRollFromRuler);
     $("#piano-roll-scroll").addEventListener("scroll", () => {
       updatePianoRulerViewport();
       updatePianoPlayhead();
@@ -12292,6 +12302,12 @@
         label.dataset.trackId === track.id)?.scrollIntoView({ block: "nearest" });
     });
     $("#timeline-content").addEventListener("pointerdown", startArrangementSelection);
+    $("#timeline-content").addEventListener("click", (event) => {
+      const ruler = event.target.closest(".timeline-ruler");
+      if (!ruler) return;
+      const bounds = ruler.getBoundingClientRect();
+      setArrangementCursor((event.clientX - bounds.left) / BAR_WIDTH);
+    });
     $("#timeline-content").addEventListener("click", (event) => {
       if (!state.suppressArrangementClick) return;
       state.suppressArrangementClick = false;
