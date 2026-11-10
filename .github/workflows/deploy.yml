@@ -19,5 +19,5 @@ jobs:
         server: ${{ secrets.FTP_SERVER }}
         username: ${{ secrets.FTP_USERNAME }}
         password: ${{ secrets.FTP_PASSWORD }}
-        server-dir: /htdocs/    # This forces files to go into InfinityFree's public web folder. update
+        server-dir: bpm.site.je/htdocs/    # This forces files to go into InfinityFree's public web folder. update
         dangerous-clean-slate: false # Set to true ONLY if you want GitHub to delete old files on the server that aren't in your repo
