@@ -4184,6 +4184,22 @@
     context.stroke();
   }
 
+  function getDjTickWaveformPeak(lanes, tick) {
+    let peak = 0;
+    lanes.forEach((lane) => {
+      if (Array.isArray(lane.cells) && lane.ticksPerStep) {
+        const step = Math.floor(tick / lane.ticksPerStep);
+        if (lane.cells[step]) peak = Math.max(peak, 0.82);
+      }
+      (lane.notes || []).forEach((note) => {
+        if (tick >= note.startTick && tick < note.startTick + (note.durationTicks || 1)) {
+          peak = Math.max(peak, note.velocity ?? 0.8);
+        }
+      });
+    });
+    return peak;
+  }
+
   function drawDjLiveView() {
     updateDjArrangementAutoScroll();
     drawDjArrangementRuler();
@@ -4261,32 +4277,25 @@
             }
           }
           const loop = data.loopTicks;
-          const firstLoop = Math.floor(start / loop);
-          const lastLoop = Math.ceil((start + visibleSpan) / loop);
-          const events = [];
-          if (Array.isArray(lane.cells)) {
-            for (let step = 0; step < Math.min(lane.stepCount || lane.cells.length, lane.cells.length); step += 1) {
-              if (lane.cells[step]) events.push({ tick: step * lane.ticksPerStep, duration: Math.max(1, lane.ticksPerStep), color: lane.color });
-            }
+          const binCount = Math.max(48, Math.min(900, Math.floor(timelineWidth)));
+          const binWidth = timelineWidth / binCount;
+          context.strokeStyle = lane.color;
+          context.globalAlpha = 0.88;
+          context.lineWidth = Math.max(1, binWidth * 0.5);
+          for (let bin = 0; bin < binCount; bin += 1) {
+            const timelineTick = start + (bin + 0.5) / binCount * visibleSpan;
+            const phase = ((timelineTick % loop) + loop) % loop;
+            const sourceTick = deck.reverse ? loop - 1 - phase : phase;
+            const peak = getDjTickWaveformPeak([lane], sourceTick);
+            if (peak <= 0) continue;
+            const amplitude = Math.max(1.5, peak * (rowHeight - 12) / 2);
+            const x = labelWidth + (bin + 0.5) * binWidth;
+            context.beginPath();
+            context.moveTo(x, top + rowHeight / 2 - amplitude);
+            context.lineTo(x, top + rowHeight / 2 + amplitude);
+            context.stroke();
           }
-          (lane.notes || []).forEach((note) => events.push({
-            tick: note.startTick,
-            duration: note.durationTicks || 1,
-            color: lane.color,
-          }));
-          events.forEach((event) => {
-            for (let loopIndex = firstLoop; loopIndex <= lastLoop; loopIndex += 1) {
-              const eventTick = deck.reverse ? Math.max(0, loop - 1 - event.tick) : event.tick;
-              const absoluteTick = loopIndex * loop + eventTick;
-              if (absoluteTick + event.duration < start || absoluteTick > start + visibleSpan) continue;
-              const x = toX(absoluteTick);
-              const eventWidth = Math.max(3, event.duration / visibleSpan * timelineWidth);
-              context.globalAlpha = 0.86;
-              context.fillStyle = event.color;
-              context.fillRect(x, top + 11, Math.min(eventWidth, timelineWidth), 12);
-              context.globalAlpha = 1;
-            }
-          });
+          context.globalAlpha = 1;
         } else if (data.clip && data.loopSeconds > 0) {
           const clip = data.clip;
           const samples = clip.buffer.getChannelData(0);
@@ -4474,23 +4483,16 @@
           if (isSong && (timelineTick < 0 || timelineTick >= loopSpan)) continue;
           const phase = isSong ? timelineTick : ((timelineTick % loopSpan) + loopSpan) % loopSpan;
           const sourceTick = !isSong && deck.reverse ? loopSpan - 1 - phase : phase;
-          let peak = 0;
-          data.lanes.forEach((lane) => {
-            if (Array.isArray(lane.cells) && lane.ticksPerStep) {
-              const step = Math.floor(sourceTick / lane.ticksPerStep);
-              if (lane.cells[step]) peak = Math.max(peak, 0.82);
-            }
-            (lane.notes || []).forEach((note) => {
-              if (sourceTick >= note.startTick && sourceTick < note.startTick + note.durationTicks) {
-                peak = Math.max(peak, note.velocity ?? 0.8);
-              }
-            });
-          });
+          const peak = getDjTickWaveformPeak(data.lanes, sourceTick);
           if (peak <= 0) continue;
           const amplitude = Math.max(2, peak * (height * 0.43));
-          context.fillStyle = color;
-          context.globalAlpha = 0.82;
-          context.fillRect(8 + bin * stepWidth, center - amplitude, Math.max(1, stepWidth * 0.72), amplitude * 2);
+          context.strokeStyle = color;
+          context.globalAlpha = 0.9;
+          context.lineWidth = Math.max(1, stepWidth * 0.45);
+          context.beginPath();
+          context.moveTo(8 + (bin + 0.5) * stepWidth, center - amplitude);
+          context.lineTo(8 + (bin + 0.5) * stepWidth, center + amplitude);
+          context.stroke();
           context.globalAlpha = 1;
         }
       }
