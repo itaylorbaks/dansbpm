@@ -4239,7 +4239,7 @@
         visibleSpan = data.loopTicks * 2;
         start = Math.max(0, position - visibleSpan * 0.75);
       } else {
-        const playbackRate = deck.audioSource?.playbackRate.value || 1;
+        const playbackRate = getDjRate(deck);
         position = deck.playing ? Math.max(0, now - (deck.visualStartTime || now)) * playbackRate : 0;
         visibleSpan = Math.max(1, data.loopSeconds * 2);
         start = Math.max(0, position - visibleSpan * 0.75);
@@ -4382,7 +4382,7 @@
       const isSong = data.source.type === "song";
       const loopSpan = isAudio ? data.loopSeconds : data.loopTicks;
       const now = state.audioContext?.currentTime || 0;
-      const rate = isAudio ? (deck.audioSource?.playbackRate.value || getDjRate(deck)) : getDjRate(deck);
+      const rate = getDjRate(deck);
       const position = getDjVisualPosition(deck);
       const isLive = canvas.dataset.waveform === "live";
       const liveSpan = DJ_ARRANGEMENT_BARS * 240 / state.bpm;
@@ -4547,6 +4547,33 @@
       (deck.nudgeRate || 1) * (deck.syncRate || 1));
   }
 
+  function updateDjAudioRate(deck, updateRate, timeConstant = 0.015) {
+    const now = state.audioContext?.currentTime ?? 0;
+    const position = deck.playing && getDjSource(deck.sourceKey)?.type === "audio"
+      ? getDjVisualPosition(deck)
+      : null;
+    const fromRate = deck.audioSource ? getDjAudioRateAt(deck, now) : getDjRate(deck);
+    updateRate();
+    if (position === null || !deck.audioSource || !state.audioContext) return;
+    deck.visualPosition = position;
+    deck.visualStartPosition = position;
+    deck.visualStartTime = now;
+    deck.audioSource.playbackRate.setTargetAtTime(getDjRate(deck), now, timeConstant);
+    deck.audioRateFrom = fromRate;
+    deck.audioRateTarget = getDjRate(deck);
+    deck.audioRateStartTime = now;
+    deck.audioRateTimeConstant = timeConstant;
+  }
+
+  function getDjAudioRateAt(deck, time) {
+    const fromRate = Number.isFinite(deck.audioRateFrom) ? deck.audioRateFrom : getDjRate(deck);
+    const targetRate = Number.isFinite(deck.audioRateTarget) ? deck.audioRateTarget : getDjRate(deck);
+    const timeConstant = deck.audioRateTimeConstant || 0;
+    if (!timeConstant || !Number.isFinite(deck.audioRateStartTime)) return targetRate;
+    return targetRate + (fromRate - targetRate) *
+      Math.exp(-Math.max(0, time - deck.audioRateStartTime) / timeConstant);
+  }
+
   function getDjVisualPosition(deck) {
     const source = getDjSource(deck.sourceKey);
     const startPosition = Number.isFinite(deck.visualStartPosition) ? deck.visualStartPosition : 0;
@@ -4559,11 +4586,17 @@
       return Number.isFinite(deck.visualPosition) ? deck.visualPosition : startPosition;
     }
     const elapsed = Math.max(0, state.audioContext.currentTime - deck.visualStartTime);
-    const rate = source?.type === "audio"
-      ? (deck.audioSource?.playbackRate.value || getDjRate(deck))
-      : getDjRate(deck);
-    const unitsPerSecond = source?.type === "audio" ? 1 : state.bpm / 60 * 8;
-    return startPosition + elapsed * unitsPerSecond * rate;
+    if (source?.type === "audio") {
+      const timeConstant = deck.audioRateTimeConstant || 0;
+      const targetRate = Number.isFinite(deck.audioRateTarget) ? deck.audioRateTarget : getDjRate(deck);
+      const fromRate = Number.isFinite(deck.audioRateFrom) ? deck.audioRateFrom : targetRate;
+      const advance = timeConstant
+        ? targetRate * elapsed + (fromRate - targetRate) * timeConstant *
+          (1 - Math.exp(-elapsed / timeConstant))
+        : targetRate * elapsed;
+      return startPosition + advance;
+    }
+    return startPosition + elapsed * state.bpm / 60 * 8 * getDjRate(deck);
   }
 
   function getReversedDjBuffer(buffer) {
@@ -4854,6 +4887,10 @@
           : ((pausedContentPosition % duration) + duration) % duration;
         player.start(startTime, loopStart + resumePosition);
         deck.audioSource = player;
+        deck.audioRateFrom = getDjRate(deck);
+        deck.audioRateTarget = deck.audioRateFrom;
+        deck.audioRateStartTime = startTime;
+        deck.audioRateTimeConstant = 0;
         deck.visualStartTime = startTime;
         deck.visualStartPosition = resumePosition;
         deck.visualPosition = resumePosition;
@@ -5215,6 +5252,10 @@
       previousSource.stop(startTime);
     }
     deck.audioSource = player;
+    deck.audioRateFrom = getDjRate(deck);
+    deck.audioRateTarget = deck.audioRateFrom;
+    deck.audioRateStartTime = startTime;
+    deck.audioRateTimeConstant = 0;
     deck.visualStartTime = startTime;
     deck.visualStartPosition = position;
     deck.visualPosition = position;
@@ -5281,14 +5322,13 @@
 
     if (deck.nudgeTimer !== null) window.clearTimeout(deck.nudgeTimer);
     deck.nudgeTimer = null;
-    deck.nudgeRate = 1;
     const baseBpm = getDjSourceMetadata(source).bpm || state.bpm;
     const manualRate = (1 + deck.pitch / 100) * (deck.scratchRate || 1);
-    deck.syncRate = Math.max(0.25, Math.min(4, otherBpm / (baseBpm * manualRate)));
+    updateDjAudioRate(deck, () => {
+      deck.nudgeRate = 1;
+      deck.syncRate = Math.max(0.25, Math.min(4, otherBpm / (baseBpm * manualRate)));
+    });
     if (source.type === "song") updateDjSongRate(deck);
-    if (deck.audioSource) {
-      deck.audioSource.playbackRate.setTargetAtTime(getDjRate(deck), now, 0.015);
-    }
 
     if (deck.playing) {
       if (source.type === "audio") resyncDjAudio(deck, source, deckId, deltaBeats, now);
@@ -5318,12 +5358,12 @@
         deck.nudgeTimer = null;
       }, 250);
     } else if (deck.audioSource && state.audioContext) {
-      deck.audioSource.playbackRate.setTargetAtTime(getDjRate(deck) * (direction > 0 ? 1.02 : 0.98), state.audioContext.currentTime, 0.01);
+      updateDjAudioRate(deck, () => {
+        deck.nudgeRate = direction > 0 ? 1.02 : 0.98;
+      }, 0.01);
       if (deck.nudgeTimer !== null) window.clearTimeout(deck.nudgeTimer);
       deck.nudgeTimer = window.setTimeout(() => {
-        if (deck.audioSource && state.audioContext) {
-          deck.audioSource.playbackRate.setTargetAtTime(getDjRate(deck), state.audioContext.currentTime, 0.04);
-        }
+        updateDjAudioRate(deck, () => { deck.nudgeRate = 1; }, 0.04);
         deck.nudgeTimer = null;
       }, 250);
     } else if (deck.timerId !== null) {
@@ -5733,11 +5773,8 @@
       });
       $(`#dj-pitch-${suffix}`).addEventListener("input", (event) => {
         const deck = djState.decks[deckId];
-        deck.pitch = Number(event.target.value);
+        updateDjAudioRate(deck, () => { deck.pitch = Number(event.target.value); });
         updateDjSongRate(deck);
-        if (deck.audioSource && state.audioContext) {
-          deck.audioSource.playbackRate.setTargetAtTime(getDjRate(deck), state.audioContext.currentTime, 0.015);
-        }
         updateDjDeckUI(deckId);
       });
       $(`#dj-pitch-${suffix}`).addEventListener("change", saveDjState);
@@ -5792,11 +5829,10 @@
         if (delta > Math.PI) delta -= Math.PI * 2;
         else if (delta < -Math.PI) delta += Math.PI * 2;
         deck.scratchLastAngle = angle;
-        deck.scratchRate = Math.max(0.25, Math.min(2.5, 1 + delta * 1.5));
+        updateDjAudioRate(deck, () => {
+          deck.scratchRate = Math.max(0.25, Math.min(2.5, 1 + delta * 1.5));
+        }, 0.005);
         updateDjSongRate(deck);
-        if (deck.audioSource && state.audioContext) {
-          deck.audioSource.playbackRate.setTargetAtTime(getDjRate(deck), state.audioContext.currentTime, 0.005);
-        }
         updateDjDeckUI(deckId);
       });
       const finishScratch = (event) => {
@@ -5804,11 +5840,8 @@
         if (!deck.isScratching || deck.scratchPointerId !== event.pointerId) return;
         deck.isScratching = false;
         deck.scratchPointerId = null;
-        deck.scratchRate = 1;
+        updateDjAudioRate(deck, () => { deck.scratchRate = 1; }, 0.04);
         updateDjSongRate(deck);
-        if (deck.audioSource && state.audioContext) {
-          deck.audioSource.playbackRate.setTargetAtTime(getDjRate(deck), state.audioContext.currentTime, 0.04);
-        }
         updateDjDeckUI(deckId);
       };
       platter.addEventListener("pointerup", finishScratch);
