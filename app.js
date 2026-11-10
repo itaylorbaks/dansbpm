@@ -4442,9 +4442,13 @@
             peak = Math.max(peak, Math.abs(samples[Math.min(sample, samples.length - 1)]));
           }
           const amplitude = Math.max(1.5, peak * (height * 0.43));
-          context.fillStyle = color;
-          context.globalAlpha = 0.82;
-          context.fillRect(8 + bin * stepWidth, center - amplitude, Math.max(1, stepWidth * 0.72), amplitude * 2);
+          context.strokeStyle = color;
+          context.globalAlpha = 0.9;
+          context.lineWidth = Math.max(1, stepWidth * 0.45);
+          context.beginPath();
+          context.moveTo(8 + (bin + 0.5) * stepWidth, center - amplitude);
+          context.lineTo(8 + (bin + 0.5) * stepWidth, center + amplitude);
+          context.stroke();
           context.globalAlpha = 1;
         }
       } else {
@@ -8753,6 +8757,48 @@
     return handle;
   }
 
+  function drawAudioClipWaveform(canvas, clip, displayWidth, color) {
+    const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
+    const width = Math.min(16384, Math.max(1, Math.ceil(displayWidth * pixelRatio)));
+    const height = Math.ceil(46 * pixelRatio);
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+
+    const samples = clip.buffer.getChannelData(0);
+    const sourceOffset = clip.sourceOffsetSeconds || 0;
+    const playableDuration = Math.max(0, Math.min(
+      clip.buffer.duration - sourceOffset,
+      clip.durationSeconds ?? clip.buffer.duration,
+    ));
+    const firstSample = Math.floor(sourceOffset / clip.buffer.duration * samples.length);
+    const lastSample = Math.min(
+      samples.length,
+      firstSample + Math.floor(playableDuration / clip.buffer.duration * samples.length),
+    );
+    const playableWidth = Math.min(width, Math.ceil(playableDuration / (240 / state.bpm) * BAR_WIDTH * pixelRatio));
+    context.strokeStyle = color;
+    context.lineWidth = Math.max(1, pixelRatio * 0.65);
+    context.globalAlpha = 0.88;
+    const center = height / 2;
+    for (let x = 0; x < playableWidth; x += 1) {
+      const sampleStart = firstSample + Math.floor(x / playableWidth * (lastSample - firstSample));
+      const sampleEnd = Math.min(lastSample, Math.max(sampleStart + 1,
+        firstSample + Math.floor((x + 1) / playableWidth * (lastSample - firstSample))));
+      let peak = 0;
+      for (let sample = sampleStart; sample < sampleEnd; sample += 1) {
+        peak = Math.max(peak, Math.abs(samples[sample]));
+      }
+      const amplitude = Math.max(1, peak * (height * 0.45));
+      context.beginPath();
+      context.moveTo(x + 0.5, center - amplitude);
+      context.lineTo(x + 0.5, center + amplitude);
+      context.stroke();
+    }
+    context.globalAlpha = 1;
+  }
+
   function createAudioClip(track, clip) {
     const element = document.createElement("div");
     const durationBars = getArrangementClipDuration("audio", clip);
@@ -8762,28 +8808,14 @@
     element.dataset.selectableType = "audio";
     element.style.setProperty("--clip-color", track.color);
     element.style.left = `${clip.startBar * BAR_WIDTH + 4}px`;
-    element.style.width = `${Math.max(28, durationBars * BAR_WIDTH - 8)}px`;
+    const clipWidth = Math.max(28, durationBars * BAR_WIDTH - 8);
+    element.style.width = `${clipWidth}px`;
     element.setAttribute("aria-label", `${clip.name}, bar ${clip.startBar + 1}, ${durationBars.toFixed(2)} bars; drag to move or resize`);
 
-    const waveform = document.createElement("span");
-    waveform.className = "clip-waveform";
-    const samples = clip.buffer.getChannelData(0);
-    const sourceOffset = clip.sourceOffsetSeconds || 0;
-    const playableDuration = Math.max(0, Math.min(clip.buffer.duration - sourceOffset, clip.durationSeconds ?? clip.buffer.duration));
-    waveform.style.right = `${Math.max(4, durationBars * BAR_WIDTH - playableDuration / (240 / state.bpm) * BAR_WIDTH + 4)}px`;
-    const firstSample = Math.floor(sourceOffset / clip.buffer.duration * samples.length);
-    const lastSample = Math.min(samples.length, firstSample + Math.floor(playableDuration / clip.buffer.duration * samples.length));
-    const peakCount = Math.max(1, Math.min(48, Math.floor(playableDuration * 5)));
-    const stride = Math.max(1, Math.floor((lastSample - firstSample) / peakCount));
-    const sampleStride = Math.max(1, Math.floor(stride / 80));
-    for (let index = 0; index < peakCount; index += 1) {
-      let peak = 0;
-      const start = firstSample + index * stride;
-      for (let sample = start; sample < Math.min(lastSample, start + stride); sample += sampleStride) peak = Math.max(peak, Math.abs(samples[sample]));
-      const bar = document.createElement("i");
-      bar.style.height = `${Math.max(8, Math.round(peak * 82))}%`;
-      waveform.append(bar);
-    }
+    const waveform = document.createElement("canvas");
+    waveform.className = "clip-waveform-canvas";
+    waveform.setAttribute("aria-hidden", "true");
+    drawAudioClipWaveform(waveform, clip, Math.max(1, clipWidth - 8), track.color);
     const name = document.createElement("span");
     name.className = "clip-name";
     name.textContent = clip.name;
@@ -9692,6 +9724,7 @@
       source.connect(analyser);
       const element = document.createElement("div");
       element.className = "audio-clip is-recording";
+      element.style.setProperty("--clip-color", "#ff777f");
       element.setAttribute("role", "img");
       const canvas = document.createElement("canvas");
       canvas.className = "recording-waveform";
