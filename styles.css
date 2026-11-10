@@ -385,12 +385,9 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .midi-arrangement-clip { position: absolute; top: 12px; bottom: 12px; display: flex; align-items: center; overflow: hidden; border: 1px solid #7565b7; border-radius: 5px; background: repeating-linear-gradient(135deg, #5b4b8b88 0, #5b4b8b88 6px, #362e50 6px, #362e50 12px); padding: 0 8px; color: #ddd4ff; font-family: var(--mono); font-size: 8px; white-space: nowrap; }
 .clip-resize-handle { width: 9px; height: 28px; flex: 0 0 9px; align-self: center; margin-left: auto; border: 0; border-right: 2px solid currentColor; background: transparent; padding: 0; opacity: .65; cursor: ew-resize; touch-action: none; }
 .clip-resize-handle:hover, .clip-resize-handle:focus-visible { opacity: 1; }
-.drum-arrangement-clip .clip-resize-handle { position: absolute; right: 0; z-index: 2; width: 12px; height: 50%; flex: 0 0 12px; margin: 0; cursor: ew-resize; }
-.drum-arrangement-clip .clip-repeat-handle { top: 0; border-top: 1px solid currentColor; }
-.drum-arrangement-clip .clip-length-handle { bottom: 0; border-bottom: 1px solid currentColor; }
-.mel-arrangement-clip .clip-resize-handle, .audio-clip .clip-resize-handle { position: absolute; right: 0; z-index: 2; width: 12px; height: 50%; flex: 0 0 12px; margin: 0; cursor: ew-resize; }
-.mel-arrangement-clip .clip-repeat-handle, .audio-clip .clip-repeat-handle { top: 0; border-top: 1px solid currentColor; }
-.mel-arrangement-clip .clip-length-handle, .audio-clip .clip-length-handle { bottom: 0; border-bottom: 1px solid currentColor; }
+.drum-arrangement-clip .clip-resize-handle, .mel-arrangement-clip .clip-resize-handle, .audio-clip .clip-resize-handle { position: absolute; right: 0; z-index: 2; width: 12px; height: 50%; flex: 0 0 12px; margin: 0; cursor: ew-resize; }
+.drum-arrangement-clip .clip-repeat-handle, .mel-arrangement-clip .clip-repeat-handle, .audio-clip .clip-repeat-handle { top: 0; border-top: 1px solid currentColor; }
+.drum-arrangement-clip .clip-length-handle, .mel-arrangement-clip .clip-length-handle, .audio-clip .clip-length-handle { bottom: 0; border-bottom: 1px solid currentColor; }
 .audio-clip { position: absolute; top: 11px; height: 52px; display: flex; align-items: center; overflow: hidden; border: 0; border-radius: 0; background: transparent; padding: 0 7px; color: #e4e4e1; cursor: grab; user-select: none; }
 .audio-clip.is-recording { cursor: default; }
 .recording-waveform { position: absolute; z-index: 0; inset: 3px 4px; width: calc(100% - 8px); height: calc(100% - 6px); opacity: .7; pointer-events: none; }

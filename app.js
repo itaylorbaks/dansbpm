@@ -8768,7 +8768,7 @@
       : type === "mel" ? getMel(clip.melId)?.name || "Mel" : clip.name;
     handle.type = "button";
     handle.className = `clip-resize-handle clip-${mode}-handle`;
-    handle.setAttribute("aria-label", mode === "repeat" ? `Repeat ${name}` : `Resize ${name}`);
+    handle.setAttribute("aria-label", mode === "repeat" ? `Repeat ${name}` : `Trim or extend ${name}`);
     handle.title = mode === "repeat"
       ? `Drag to repeat ${name}`
       : "Drag to trim or extend; extension after the source is silent";
