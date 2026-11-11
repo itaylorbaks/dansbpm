@@ -701,15 +701,15 @@
         event.preventDefault();
         nudgeSelectedPianoNotes(0, event.key === "ArrowUp" ? 12 : -12);
       }
+      const hasArrangementSelection = state.selectedArrangementItems.size > 0;
       if (!isTyping && !dialogOpen && !event.ctrlKey && !event.metaKey && !event.altKey &&
-        state.view === "arrangement" && event.key === "ArrowLeft") {
+        state.view === "arrangement" && event.key === "ArrowLeft" && !hasArrangementSelection) {
         event.preventDefault();
         if (!event.repeat) setArrangementCursor(0);
       }
       if (!isTyping && !dialogOpen && !event.ctrlKey && !event.metaKey && !event.altKey &&
-        ["arrangement", "mixer"].includes(state.view) && state.selectedArrangementItems.size &&
-        (event.key === "ArrowLeft" || event.key === "ArrowRight") &&
-        !(state.view === "arrangement" && event.key === "ArrowLeft")) {
+        ["arrangement", "mixer"].includes(state.view) && hasArrangementSelection &&
+        (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
         event.preventDefault();
         nudgeSelectedArrangementItems(event.key === "ArrowRight" ? 1 : -1);
       }
