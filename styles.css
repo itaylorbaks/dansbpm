@@ -230,11 +230,23 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .step-piano-edit-button { grid-column: 1 / -1; justify-self: start; }
 .step-mix-group { display: grid; align-content: start; gap: 7px; }
 .step-mix-control { grid-template-columns: minmax(48px, .7fr) minmax(70px, 1.4fr) 42px; }
-.project-dialog, .export-dialog { position: fixed; width: min(440px, calc(100vw - 30px)); max-height: min(620px, calc(100vh - 32px)); overflow: auto; border: 1px solid #3a3b40; border-radius: 10px; background: #1b1c1f; padding: 22px; color: var(--text); box-shadow: 0 20px 60px #0009; }
-.project-dialog::backdrop, .export-dialog::backdrop { background: #0009; backdrop-filter: blur(3px); }
+.project-dialog, .export-dialog, .collaboration-dialog { position: fixed; width: min(440px, calc(100vw - 30px)); max-height: min(620px, calc(100vh - 32px)); overflow: auto; border: 1px solid #3a3b40; border-radius: 10px; background: #1b1c1f; padding: 22px; color: var(--text); box-shadow: 0 20px 60px #0009; }
+.project-dialog::backdrop, .export-dialog::backdrop, .collaboration-dialog::backdrop { background: #0009; backdrop-filter: blur(3px); }
 .export-dialog { width: min(340px, calc(100vw - 30px)); }
 .export-dialog-options { display: grid; gap: 8px; margin-top: 20px; }
 .export-dialog-options .quiet-button { justify-content: flex-start; }
+.collaboration-dialog { width: min(480px, calc(100vw - 30px)); }
+.collaboration-note, .collaboration-status, .collaboration-participants { color: var(--muted); font-size: 11px; line-height: 1.5; }
+.collaboration-note { margin: 14px 0; }
+.collaboration-status { min-height: 18px; margin: 12px 0; }
+.collaboration-field { display: grid; gap: 6px; color: #bdbec1; font-size: 10px; }
+.collaboration-field input { width: 100%; min-width: 0; border: 1px solid var(--stroke); border-radius: 6px; background: #141518; padding: 9px 10px; color: var(--text); font: 11px var(--mono); }
+.collaboration-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-top: 10px; }
+.collaboration-code-field { flex: 1 1 170px; }
+.collaboration-active-room { border-top: 1px solid var(--stroke-soft); margin-top: 16px; padding-top: 14px; }
+.collaboration-room-code { display: grid; gap: 5px; font-size: 10px; color: var(--muted); }
+.collaboration-room-code strong { color: var(--accent); font: 500 14px var(--mono); letter-spacing: .12em; overflow-wrap: anywhere; }
+.collaboration-participants { margin: 10px 0 0; }
 .project-dialog-heading { position: relative; display: flex; align-items: flex-start; justify-content: space-between; }
 .project-dialog-heading h2 { margin: 7px 0 0; font-size: 20px; }
 .project-user-label { margin: 7px 0 0; color: var(--muted); font-size: 10px; }

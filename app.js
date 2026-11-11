@@ -405,6 +405,8 @@
   const EFFECT_PRESETS_STORAGE_PREFIX = `${STORAGE_KEY}-effect-presets-`;
   const ACTIVE_USER_KEY = `${STORAGE_KEY}-active-user`;
   const OPEN_PROJECTS_KEY = `${STORAGE_KEY}-open-projects`;
+  const COLLABORATION_URL_KEY = `${STORAGE_KEY}-collaboration-url`;
+  const COLLABORATION_SESSION_KEY = `${STORAGE_KEY}-collaboration-room`;
   const DEFAULT_USERS = [
     { id: "taylor", name: "Taylor" },
     { id: "guest", name: "Guest" },
@@ -556,6 +558,17 @@
   const undoStacks = new Map();
   const undoLatest = new Map();
   let isApplyingUndo = false;
+  const collaboration = {
+    socket: null,
+    session: null,
+    revision: 0,
+    applyingRemote: false,
+    localDirty: false,
+    reconnectTimer: null,
+    manualLeave: false,
+    pendingCreate: null,
+    applyQueue: Promise.resolve(),
+  };
   const MAX_UNDO_STEPS = 50;
 
   const $ = (selector) => document.querySelector(selector);
@@ -10618,7 +10631,12 @@
         muted: track.muted,
         blob: clip.blob,
       });
-      transaction.oncomplete = () => { database.close(); resolve(); updateStorageIndicator(); };
+      transaction.oncomplete = () => {
+        database.close();
+        resolve();
+        updateStorageIndicator();
+        scheduleCollaborationAssetSync();
+      };
       transaction.onerror = () => { database.close(); reject(transaction.error || new Error("Could not save recording")); };
       transaction.onabort = () => { database.close(); reject(transaction.error || new Error("Recording save was cancelled")); };
     }));
@@ -10657,7 +10675,12 @@
           store.delete(record.id);
         }
       };
-      transaction.oncomplete = () => { database.close(); resolve(); updateStorageIndicator(); };
+      transaction.oncomplete = () => {
+        database.close();
+        resolve();
+        updateStorageIndicator();
+        scheduleCollaborationAssetSync();
+      };
       transaction.onerror = () => { database.close(); reject(transaction.error || new Error("Could not save drum sample")); };
       transaction.onabort = () => { database.close(); reject(transaction.error || new Error("Drum sample save was cancelled")); };
     }));
@@ -10676,7 +10699,12 @@
           store.delete(record.id);
         }
       };
-      transaction.oncomplete = () => { database.close(); resolve(); updateStorageIndicator(); };
+      transaction.oncomplete = () => {
+        database.close();
+        resolve();
+        updateStorageIndicator();
+        scheduleCollaborationAssetSync();
+      };
       transaction.onerror = () => { database.close(); reject(transaction.error || new Error("Could not remove drum sample")); };
       transaction.onabort = () => { database.close(); reject(transaction.error || new Error("Drum sample removal was cancelled")); };
     }));
@@ -10694,7 +10722,8 @@
       transaction.objectStore("recordings").delete(clipId);
       transaction.oncomplete = () => { database.close(); resolve(); updateStorageIndicator(); };
       transaction.onerror = () => { database.close(); reject(transaction.error || new Error("Could not remove recording")); };
-    })).catch(() => showToast("The clip was removed, but browser storage could not be updated."));
+    })).then(() => scheduleCollaborationAssetSync())
+      .catch(() => showToast("The clip was removed, but browser storage could not be updated."));
   }
 
   async function restoreArrangement() {
@@ -11296,7 +11325,7 @@
     osc.stop(time + 0.035);
   }
 
-  async function startPlayback(mode = "arrangement") {
+  async function startPlayback(mode = "arrangement", { startAtMs = null, remote = false } = {}) {
     if (state.isPlaying || state.isStartingPlayback || state.isExporting) return;
     const requestId = ++state.playbackRequestId;
     state.isStartingPlayback = true;
@@ -11308,6 +11337,11 @@
       await loadLibrarySamplesForPlayback(mode);
       if (requestId !== state.playbackRequestId) return;
       state.isStartingPlayback = false;
+      if (startAtMs === null && !remote && collaboration.session &&
+        collaboration.socket?.readyState === WebSocket.OPEN) {
+        startAtMs = Date.now() + 1500;
+        sendCollaborationMessage({ type: "transport", action: "play", mode, startAtMs });
+      }
       state.isPlaying = true;
       state.playbackMode = mode;
       const arrangementPlayback = mode === "arrangement";
@@ -11319,7 +11353,11 @@
           : Math.min(state.arrangementCursor, state.arrangementBars - 1)
         : 0;
       state.playbackStartBar = startBar;
-      state.playbackStartTime = state.audioContext.currentTime + 0.04;
+      const scheduledStartTime = state.audioContext.currentTime + Math.max(
+        0.04,
+        startAtMs === null ? 0 : (startAtMs - Date.now()) / 1000,
+      );
+      state.playbackStartTime = scheduledStartTime;
       if (mode === "piano-roll") {
         const loopTicks = Math.max(1, getPianoPlaybackSource().loopBars * PIANO_TICKS_PER_BAR);
         const { startBar, endBar } = getPianoLoopRange();
@@ -11340,7 +11378,7 @@
       state.stepIndex = 0;
       state.scheduledPianoNotes.clear();
       state.scheduledArrangementSteps.clear();
-      state.nextStepTime = state.audioContext.currentTime + 0.04;
+      state.nextStepTime = scheduledStartTime;
       updateTrackGains();
       if (arrangementPlayback) scheduleArrangementClips(state.playbackStartTime, startBar);
       scheduler();
@@ -11407,7 +11445,11 @@
     });
   }
 
-  function stopPlayback() {
+  function stopPlayback(remote = false) {
+    if ((state.isPlaying || state.isStartingPlayback) && !remote &&
+      !collaboration.applyingRemote && collaboration.session) {
+      sendCollaborationMessage({ type: "transport", action: "stop" });
+    }
     state.playbackRequestId += 1;
     state.isStartingPlayback = false;
     const stoppedPlaybackMode = state.playbackMode;
@@ -11821,6 +11863,545 @@
     };
   }
 
+  function renderCollaborationStatus(message = "Not connected") {
+    const status = $("#collaboration-status");
+    const activeRoom = $("#collaboration-active-room");
+    const roomActions = $("#collaboration-room-actions");
+    const code = $("#collaboration-room-code");
+    const participants = $("#collaboration-participants");
+    if (status) status.textContent = message;
+    if (activeRoom) activeRoom.hidden = !collaboration.session;
+    if (roomActions) roomActions.hidden = Boolean(collaboration.session);
+    if (code) code.textContent = collaboration.session?.roomCode || "";
+    if (participants) {
+      participants.textContent = collaboration.participantNames?.length
+        ? `In this room: ${collaboration.participantNames.join(", ")}`
+        : "";
+    }
+  }
+
+  function normalizeCollaborationServerUrl(value) {
+    const url = new URL(value.trim());
+    if (url.protocol === "https:") url.protocol = "wss:";
+    else if (url.protocol === "http:") url.protocol = "ws:";
+    if (!["ws:", "wss:"].includes(url.protocol)) {
+      throw new Error("Use a ws:// or wss:// collaboration server URL.");
+    }
+    if (url.pathname === "/") url.pathname = "/collaboration";
+    if (url.pathname !== "/collaboration" || url.search || url.hash) {
+      throw new Error("The collaboration server URL must end in /collaboration.");
+    }
+    if (url.protocol === "ws:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) {
+      throw new Error("Use wss:// for collaboration servers outside this device.");
+    }
+    return url.toString();
+  }
+
+  function saveCollaborationSession() {
+    try {
+      if (collaboration.session) {
+        window.sessionStorage.setItem(COLLABORATION_SESSION_KEY, JSON.stringify(collaboration.session));
+      } else {
+        window.sessionStorage.removeItem(COLLABORATION_SESSION_KEY);
+      }
+      return true;
+    } catch (error) {
+      showToast(`Could not save the room session: ${error.message || "session storage is unavailable"}`);
+      return false;
+    }
+  }
+
+  async function getCollaborationAssets(projectId = state.projectId) {
+    const records = window.indexedDB ? await getProjectRecordingRecords(projectId) : [];
+    return Promise.all(records.map(async (record) => {
+      if (!(record.blob instanceof Blob)) {
+        throw new Error(`Could not share ${record.name || record.trackName || "a project audio file"}.`);
+      }
+      const { blob, ...metadata } = record;
+      return { metadata, dataUrl: await blobToDataUrl(blob) };
+    }));
+  }
+
+  function isValidCollaborativeSnapshot(snapshot) {
+    return snapshot && typeof snapshot === "object" && !Array.isArray(snapshot) &&
+      Array.isArray(snapshot.tracks) && Array.isArray(snapshot.patterns) &&
+      Array.isArray(snapshot.patternClips) && Array.isArray(snapshot.mels) &&
+      Array.isArray(snapshot.melTracks) && Array.isArray(snapshot.arrangementTracks);
+  }
+
+  function deserializeCollaborationAssets(snapshot, assets) {
+    if (!isValidCollaborativeSnapshot(snapshot) || !Array.isArray(assets)) {
+      throw new Error("The shared project data is invalid.");
+    }
+    const trackIds = new Set(snapshot.tracks
+      .filter((track) => typeof track?.id === "string")
+      .map((track) => track.id));
+    return assets.map((asset) => {
+      const metadata = asset?.metadata;
+      if (!metadata || typeof metadata !== "object" || Array.isArray(metadata) ||
+        typeof metadata.trackId !== "string" || !metadata.trackId || typeof asset.dataUrl !== "string") {
+        throw new Error("The shared project contains an invalid audio attachment.");
+      }
+      if (metadata.recordType !== undefined && metadata.recordType !== "drum-sample") {
+        throw new Error("The shared project contains an unsupported audio attachment.");
+      }
+      if (metadata.recordType === "drum-sample" && !trackIds.has(metadata.trackId)) {
+        throw new Error("The shared project contains audio for a missing track.");
+      }
+      return { metadata, blob: dataUrlToBlob(asset.dataUrl) };
+    });
+  }
+
+  function sendCollaborationMessage(message) {
+    if (collaboration.socket?.readyState !== WebSocket.OPEN) return false;
+    collaboration.socket.send(JSON.stringify(message));
+    return true;
+  }
+
+  function sendCollaborationSnapshot(snapshot = createStateSnapshot()) {
+    if (!collaboration.session || collaboration.applyingRemote) return;
+    const updateId = (collaboration.lastUpdateId || 0) + 1;
+    collaboration.lastUpdateId = updateId;
+    sendCollaborationMessage({ type: "update", snapshot, updateId });
+    collaboration.localDirty = true;
+    collaboration.session.localDirty = true;
+    saveCollaborationSession();
+  }
+
+  async function sendCollaborationAssets() {
+    if (!collaboration.session || collaboration.applyingRemote) return;
+    try {
+      const assets = await getCollaborationAssets();
+      const updateId = (collaboration.lastUpdateId || 0) + 1;
+      collaboration.lastUpdateId = updateId;
+      const sent = sendCollaborationMessage({
+        type: "updateAssets",
+        snapshot: createStateSnapshot(),
+        assets,
+        updateId,
+      });
+      collaboration.localDirty = true;
+      collaboration.assetsDirty = !sent;
+      collaboration.session.localDirty = true;
+      collaboration.session.assetsDirty = !sent;
+      saveCollaborationSession();
+      if (!sent) renderCollaborationStatus("Offline — audio changes will sync when reconnected.");
+    } catch (error) {
+      showToast(`Could not share project audio: ${error.message || "audio storage is unavailable"}`);
+    }
+  }
+
+  function scheduleCollaborationAssetSync() {
+    if (!collaboration.session || collaboration.applyingRemote) return;
+    window.clearTimeout(collaboration.assetsTimer);
+    collaboration.assetsTimer = window.setTimeout(() => { void sendCollaborationAssets(); }, 500);
+  }
+
+  function connectCollaboration(serverUrl, onOpen) {
+    if (collaboration.socket) {
+      collaboration.socket.close();
+      collaboration.socket = null;
+    }
+    clearTimeout(collaboration.reconnectTimer);
+    renderCollaborationStatus("Connecting…");
+    let socket;
+    try {
+      socket = new WebSocket(serverUrl);
+    } catch (error) {
+      collaboration.pendingCreate = null;
+      collaboration.pendingJoin = null;
+      renderCollaborationStatus(`Could not connect: ${error.message || "invalid server URL"}`);
+      return;
+    }
+    collaboration.socket = socket;
+    socket.addEventListener("open", () => {
+      if (collaboration.socket !== socket) return;
+      onOpen(socket);
+    });
+    socket.addEventListener("message", (event) => {
+      if (collaboration.socket === socket) void handleCollaborationMessage(event.data);
+    });
+    socket.addEventListener("error", () => {
+      if (collaboration.socket === socket) renderCollaborationStatus("Could not reach the collaboration server.");
+    });
+    socket.addEventListener("close", () => {
+      if (collaboration.socket !== socket) return;
+      collaboration.socket = null;
+      if (collaboration.session && !collaboration.manualLeave) {
+        renderCollaborationStatus("Connection lost — retrying…");
+        collaboration.reconnectTimer = window.setTimeout(() => {
+          if (collaboration.session && !collaboration.manualLeave) resumeCollaborationSession();
+        }, 2000);
+      } else if (!collaboration.session) {
+        collaboration.pendingCreate = null;
+        collaboration.pendingJoin = null;
+        renderCollaborationStatus("Not connected");
+      }
+    });
+  }
+
+  async function createLocalCollaborationProject({ serverUrl, roomCode, revision, snapshot, assets, projectName: sharedProjectName }) {
+    if (!state.currentUser) throw new Error("Choose a profile before joining a room.");
+    const projectId = makeId();
+    const projectName = `${sharedProjectName || state.projectName} (Room ${roomCode.slice(0, 4)})`.slice(0, 64);
+    const project = { id: projectId, name: projectName, ownerId: state.currentUser, updatedAt: Date.now() };
+    const previousProjectId = state.projectId;
+    const previousProjectName = state.projectName;
+    const previousActiveProjectIds = { ...state.activeProjectIds };
+    const previousProjects = [...state.projects];
+    try {
+      collaboration.session = { serverUrl, roomCode, projectId, revision };
+      if (!saveCollaborationSession()) throw new Error("session storage is unavailable");
+      window.localStorage.setItem(getProjectStorageKey(projectId), JSON.stringify(snapshot));
+      state.projects.unshift(project);
+      state.projectId = projectId;
+      state.projectName = projectName;
+      state.activeProjectIds[state.currentUser] = projectId;
+      writeProjectCatalog();
+      const importedAssets = deserializeCollaborationAssets(snapshot, assets);
+      await persistImportedProjectAssets(projectId, importedAssets);
+      collaboration.session.projectId = projectId;
+      if (!saveCollaborationSession()) throw new Error("session storage is unavailable");
+      window.location.reload();
+    } catch (error) {
+      collaboration.session = null;
+      saveCollaborationSession();
+      state.projects = previousProjects;
+      state.projectId = previousProjectId;
+      state.projectName = previousProjectName;
+      state.activeProjectIds = previousActiveProjectIds;
+      try {
+        window.localStorage.removeItem(getProjectStorageKey(projectId));
+        writeProjectCatalog();
+      } catch {
+        // Keep the original project selected if local storage is unavailable.
+      }
+      sendCollaborationMessage({ type: "leave" });
+      showToast(`Could not create a local room copy: ${error.message || "browser storage is unavailable"}`);
+    }
+  }
+
+  async function applyCollaborationSnapshot(snapshot, assets, sender) {
+    if (!isValidCollaborativeSnapshot(snapshot)) {
+      showToast("The collaboration server sent an invalid project snapshot.");
+      return false;
+    }
+    if (saveState.timeout) {
+      flushSaveState();
+      return false;
+    }
+    if (collaboration.localDirty) {
+      if (collaboration.assetsDirty) void sendCollaborationAssets();
+      else sendCollaborationSnapshot(createStateSnapshot());
+      return false;
+    }
+    if (state.mediaRecorder?.state === "recording") {
+      if (collaboration.assetsDirty) void sendCollaborationAssets();
+      else sendCollaborationSnapshot(createStateSnapshot());
+      showToast("A room update arrived during recording; your local project was kept.");
+      return false;
+    }
+
+    collaboration.applyingRemote = true;
+    try {
+      stopPlayback();
+      stopAllWorkspacePlayers();
+      [...state.tracks, ...state.arrangementTracks, ...state.melTracks, ...state.patterns,
+        ...state.effectTracks, state.masterTrack].forEach(disconnectTrackAudio);
+      if (Array.isArray(assets) && (assets.length || window.indexedDB)) {
+        const importedAssets = deserializeCollaborationAssets(snapshot, assets);
+        await replaceProjectRecordingAssets(state.projectId, importedAssets);
+      } else if (Array.isArray(assets) && assets.length) {
+        throw new Error("This browser does not support shared project audio.");
+      }
+      window.localStorage.setItem(getProjectStorageKey(state.projectId), JSON.stringify(snapshot));
+      state.tracks = makeTracks();
+      const initialPattern = makePatternSnapshot(makeId(), "Pattern 1");
+      state.patterns = [initialPattern];
+      state.selectedPatternId = initialPattern.id;
+      state.arrangementTracks = [];
+      state.patternClips = [];
+      state.mels = [];
+      state.melTracks = [];
+      state.pianoNotes = [];
+      state.effectTracks = [];
+      state.masterTrack = makeMixerBusTrack("mixer-master");
+      state.selectedMelId = "";
+      state.selectedPianoNoteId = null;
+      state.selectedPianoNoteIds.clear();
+      state.selectedArrangementItems.clear();
+      state.selectedStepCells.clear();
+      state.selectedMixerTrackId = null;
+      state.selectedMixerEffectId = null;
+      state.clipboard = null;
+      state.stepPianoEditContext = null;
+      state.pianoSelectionFromMarquee = false;
+      state.arrangementSelectionFromMarquee = false;
+      restoreState();
+      ensureMels();
+      tempoValue.textContent = String(state.bpm);
+      swingSlider.value = String(state.swing);
+      $("#swing-value").textContent = `${state.swing}%`;
+      swingSlider.style.setProperty("--range-progress", `${state.swing / 45 * 100}%`);
+      renderHeader();
+      renderPresets();
+      setLength(state.steps);
+      renderTracks();
+      renderArrangement();
+      renderMelOptions();
+      state.arrangementCursor = Math.min(state.arrangementCursor, state.arrangementBars - 0.001);
+      setWorkspaceView(state.view, true);
+      if (state.audioContext) initializeAudio();
+      await restoreArrangement();
+      undoStacks.clear();
+      undoLatest.clear();
+      seedUndoHistory();
+      updateProjectNameLabel();
+      updateStorageIndicator();
+      showToast(`${sender || "A collaborator"} updated the shared project.`);
+      return true;
+    } catch (error) {
+      showToast(`Could not apply the room update: ${error.message || "project data is unavailable"}`);
+      return false;
+    } finally {
+      collaboration.applyingRemote = false;
+    }
+  }
+
+  async function handleCollaborationMessage(raw) {
+    let message;
+    try {
+      message = JSON.parse(typeof raw === "string" ? raw : await raw.text());
+    } catch {
+      renderCollaborationStatus("The collaboration server sent an invalid message.");
+      return;
+    }
+    if (!message || typeof message !== "object") return;
+    if (message.type === "error") {
+      collaboration.pendingCreate = null;
+      collaboration.pendingJoin = null;
+      if (!collaboration.session && collaboration.socket) {
+        const socket = collaboration.socket;
+        collaboration.socket = null;
+        socket.close();
+      }
+      renderCollaborationStatus(message.message || "The collaboration server reported an error.");
+      return;
+    }
+    if (message.type === "roomCreated") {
+      const pending = collaboration.pendingCreate;
+      if (!pending) return;
+      collaboration.pendingCreate = null;
+      collaboration.session = {
+        serverUrl: pending.serverUrl,
+        roomCode: message.roomCode,
+        projectId: "",
+        revision: message.revision,
+      };
+      collaboration.participantNames = message.participants || [];
+      renderCollaborationStatus("Room created. Preparing a shared project copy…");
+      await createLocalCollaborationProject({
+        ...pending,
+        roomCode: message.roomCode,
+        revision: message.revision,
+      });
+      return;
+    }
+    if (message.type === "roomState") {
+      collaboration.participantNames = message.participants || collaboration.participantNames || [];
+      if (!collaboration.session) {
+        const pending = collaboration.pendingJoin;
+        if (!pending) return;
+        collaboration.pendingJoin = null;
+        renderCollaborationStatus("Joined. Preparing a shared project copy…");
+        await createLocalCollaborationProject({
+          serverUrl: pending.serverUrl,
+          roomCode: message.roomCode,
+          revision: message.revision,
+          snapshot: message.snapshot,
+          assets: message.assets || [],
+          projectName: message.projectName,
+        });
+        return;
+      }
+      renderCollaborationStatus(`Connected to room ${collaboration.session.roomCode}.`);
+    }
+    if (message.type === "presence") {
+      collaboration.participantNames = message.participants || [];
+      renderCollaborationStatus(`Connected to room ${collaboration.session?.roomCode || ""}.`);
+    }
+    if (message.type === "snapshotAck") {
+      if (message.updateId === collaboration.lastUpdateId) {
+        collaboration.localDirty = false;
+        collaboration.assetsDirty = false;
+        if (collaboration.session) {
+          collaboration.session.localDirty = false;
+          collaboration.session.assetsDirty = false;
+        }
+      }
+      if (Number.isInteger(message.revision)) {
+        collaboration.revision = message.revision;
+        if (collaboration.session) {
+          collaboration.session.revision = message.revision;
+          saveCollaborationSession();
+        }
+      }
+      renderCollaborationStatus(`Connected to room ${collaboration.session?.roomCode || ""}.`);
+    }
+    if (message.type === "transport") {
+      if (message.action === "stop") {
+        stopPlayback(true);
+      } else if (message.action === "play" &&
+        ["arrangement", "sequencer", "piano-roll"].includes(message.mode) &&
+        Number.isInteger(message.startAtMs)) {
+        if (state.isPlaying || state.isStartingPlayback) stopPlayback(true);
+        void startPlayback(message.mode, { startAtMs: message.startAtMs, remote: true });
+      }
+    }
+    if (message.type === "snapshot" || message.type === "roomState") {
+      const revision = Number.isInteger(message.revision) ? message.revision : 0;
+      if (collaboration.session && revision > collaboration.revision) {
+        collaboration.applyQueue = collaboration.applyQueue.then(async () => {
+          if (revision <= collaboration.revision) return;
+          const applied = await applyCollaborationSnapshot(message.snapshot, message.assets, message.sender);
+          if (applied && !collaboration.localDirty) {
+            collaboration.assetsDirty = false;
+            collaboration.revision = revision;
+            collaboration.session.revision = revision;
+            collaboration.session.localDirty = false;
+            collaboration.session.assetsDirty = false;
+            saveCollaborationSession();
+          }
+          renderCollaborationStatus(`Connected to room ${collaboration.session?.roomCode || ""}.`);
+        });
+      }
+    }
+  }
+
+  function beginCollaborationConnection(action, serverUrl, roomCode = "") {
+    collaboration.manualLeave = false;
+    if (action === "create") {
+      collaboration.pendingCreate = {
+        serverUrl,
+        projectId: state.projectId,
+        projectName: state.projectName,
+        snapshot: createStateSnapshot(),
+        assets: [],
+      };
+      renderCollaborationStatus("Packing project audio…");
+      void getCollaborationAssets(collaboration.pendingCreate.projectId).then((assets) => {
+        if (!collaboration.pendingCreate) return;
+        collaboration.pendingCreate.assets = assets;
+        connectCollaboration(serverUrl, (socket) => {
+          socket.send(JSON.stringify({
+            type: "create",
+            name: getCurrentUserName(),
+            projectName: collaboration.pendingCreate.projectName,
+            snapshot: collaboration.pendingCreate.snapshot,
+            assets: collaboration.pendingCreate.assets,
+          }));
+        });
+      }).catch((error) => {
+        collaboration.pendingCreate = null;
+        renderCollaborationStatus(`Could not prepare this project: ${error.message || "audio storage is unavailable"}`);
+      });
+      return;
+    }
+    collaboration.pendingJoin = { serverUrl };
+    connectCollaboration(serverUrl, (socket) => {
+      socket.send(JSON.stringify({
+        type: "join",
+        roomCode: roomCode.trim().toUpperCase(),
+        name: getCurrentUserName(),
+      }));
+    });
+  }
+
+  function startCollaborationRoom(action) {
+    if (!state.currentUser) {
+      showToast("Choose a profile before starting collaboration.");
+      return;
+    }
+    void ensureAudio().catch((error) => {
+      renderCollaborationStatus(`Room editing is available, but audio could not be unlocked: ${error.message || "audio is unavailable"}`);
+    });
+    let serverUrl;
+    try {
+      serverUrl = normalizeCollaborationServerUrl($("#collaboration-server-url").value);
+      window.localStorage.setItem(COLLABORATION_URL_KEY, serverUrl);
+    } catch (error) {
+      renderCollaborationStatus(error.message || "Enter a valid collaboration server URL.");
+      return;
+    }
+    if (collaboration.session) {
+      renderCollaborationStatus("Leave the current room before joining another.");
+      return;
+    }
+    if (collaboration.socket || collaboration.pendingCreate || collaboration.pendingJoin) {
+      renderCollaborationStatus("A room connection is already in progress.");
+      return;
+    }
+    if (!flushSaveState()) {
+      renderCollaborationStatus("Could not save the current project; collaboration was not started.");
+      return;
+    }
+    if (action === "join") {
+      const roomCode = $("#collaboration-room-code-input").value.trim().toUpperCase();
+      if (!/^[0-9A-F]{20}$/.test(roomCode)) {
+        renderCollaborationStatus("Enter the 20-character room code.");
+        return;
+      }
+      beginCollaborationConnection("join", serverUrl, roomCode);
+      return;
+    }
+    beginCollaborationConnection("create", serverUrl);
+  }
+
+  function resumeCollaborationSession() {
+    let session;
+    try {
+      session = JSON.parse(window.sessionStorage.getItem(COLLABORATION_SESSION_KEY) || "null");
+    } catch {
+      renderCollaborationStatus("Room sessions are unavailable in this browser.");
+      return;
+    }
+    if (!session || session.projectId !== state.projectId || !session.serverUrl || !session.roomCode) {
+      if (session) {
+        try { window.sessionStorage.removeItem(COLLABORATION_SESSION_KEY); } catch { /* Session storage may be unavailable. */ }
+      }
+      return;
+    }
+    collaboration.session = session;
+    collaboration.revision = Number.isInteger(session.revision) ? session.revision : 0;
+    collaboration.localDirty = session.localDirty === true;
+    collaboration.assetsDirty = session.assetsDirty === true;
+    collaboration.manualLeave = false;
+    $("#collaboration-dialog").showModal();
+    const serverUrl = session.serverUrl;
+    connectCollaboration(serverUrl, (socket) => {
+      socket.send(JSON.stringify({
+        type: "join",
+        roomCode: session.roomCode,
+        name: getCurrentUserName(),
+      }));
+      if (collaboration.assetsDirty) void sendCollaborationAssets();
+      else if (collaboration.localDirty) sendCollaborationSnapshot(createStateSnapshot());
+    });
+  }
+
+  function leaveCollaborationRoom() {
+    if (!collaboration.session) return;
+    flushSaveState();
+    collaboration.manualLeave = true;
+    sendCollaborationMessage({ type: "leave" });
+    collaboration.socket?.close();
+    collaboration.socket = null;
+    collaboration.session = null;
+    collaboration.localDirty = false;
+    saveCollaborationSession();
+    renderCollaborationStatus("Room left. This project's local copy is saved.");
+  }
+
   function persistStateSnapshot(snapshot, projectId = state.projectId) {
     if (!state.currentUser) {
       saveState.lastError = "No active profile is selected.";
@@ -11848,6 +12429,9 @@
         writeProjectCatalog();
       } catch {
         showToast("Project saved, but its saved-project list could not be updated.");
+      }
+      if (collaboration.session && !collaboration.applyingRemote && projectId === state.projectId) {
+        sendCollaborationSnapshot(snapshot);
       }
     }
     $("#save-state").textContent = "All changes saved";
@@ -12283,6 +12867,7 @@
       transaction.oncomplete = () => {
         database.close();
         resolve();
+        if (projectId === state.projectId) scheduleCollaborationAssetSync();
       };
       transaction.onerror = () => {
         database.close();
@@ -12307,6 +12892,47 @@
         try { transaction.abort(); } catch { database.close(); }
         reject(error);
       }
+    }));
+  }
+
+  function replaceProjectRecordingAssets(projectId, assets) {
+    return openRecordingDb().then((database) => new Promise((resolve, reject) => {
+      const transaction = database.transaction("recordings", "readwrite");
+      const store = transaction.objectStore("recordings");
+      transaction.oncomplete = () => {
+        database.close();
+        resolve();
+      };
+      transaction.onerror = () => {
+        database.close();
+        reject(transaction.error || new Error("Could not update shared project audio."));
+      };
+      transaction.onabort = () => {
+        database.close();
+        reject(transaction.error || new Error("Shared project audio update was cancelled."));
+      };
+      const request = store.getAll();
+      request.onerror = () => {
+        try { transaction.abort(); } catch { database.close(); }
+      };
+      request.onsuccess = () => {
+        try {
+          request.result.filter((record) => record.projectId === projectId).forEach((record) => store.delete(record.id));
+          assets.forEach(({ metadata, blob }) => {
+            store.put({
+              ...metadata,
+              id: metadata.recordType === "drum-sample"
+                ? getDrumSampleRecordId(metadata.trackId, projectId)
+                : makeId(),
+              projectId,
+              blob,
+            });
+          });
+        } catch (error) {
+          try { transaction.abort(); } catch { database.close(); }
+          reject(error);
+        }
+      };
     }));
   }
 
@@ -13096,7 +13722,7 @@
     return new Blob([bytes], { type: mediaType });
   }
 
-  async function getProjectRecordingRecords() {
+  async function getProjectRecordingRecords(projectId = state.projectId) {
     const database = await openRecordingDb();
     return new Promise((resolve, reject) => {
       let records = [];
@@ -13110,7 +13736,7 @@
       transaction.oncomplete = () => {
         database.close();
         resolve(records.filter((record) =>
-          record.projectId === state.projectId || (!record.projectId && state.projectId === "default")));
+          record.projectId === projectId || (!record.projectId && projectId === "default")));
       };
       transaction.onerror = () => {
         database.close();
@@ -13662,6 +14288,39 @@
       }
     });
     $("#switch-user-button").addEventListener("click", switchUser);
+    $("#collaborate-button").addEventListener("click", () => {
+      $("#project-dialog").close();
+      try {
+        $("#collaboration-server-url").value = window.localStorage.getItem(COLLABORATION_URL_KEY) || "";
+      } catch {
+        $("#collaboration-server-url").value = "";
+      }
+      renderCollaborationStatus(collaboration.session
+        ? `Connected to room ${collaboration.session.roomCode}.`
+        : "Not connected");
+      $("#collaboration-dialog").showModal();
+    });
+    $("#collaboration-dialog-close").addEventListener("click", () => $("#collaboration-dialog").close());
+    $("#collaboration-create-room").addEventListener("click", () => startCollaborationRoom("create"));
+    $("#collaboration-join-room").addEventListener("click", () => startCollaborationRoom("join"));
+    $("#collaboration-copy-code").addEventListener("click", async () => {
+      if (!collaboration.session) return;
+      try {
+        await navigator.clipboard.writeText(collaboration.session.roomCode);
+        showToast("Room code copied");
+      } catch {
+        showToast("Select and copy the room code above.");
+      }
+    });
+    $("#collaboration-enable-audio").addEventListener("click", async () => {
+      try {
+        await ensureAudio();
+        showToast("Audio is ready for synchronized playback.");
+      } catch (error) {
+        showToast(`Could not enable audio: ${error.message || "audio is unavailable"}`);
+      }
+    });
+    $("#collaboration-leave-room").addEventListener("click", leaveCollaborationRoom);
     $("#login-options").addEventListener("click", (event) => {
       const option = event.target instanceof Element ? event.target.closest("[data-user-id]") : null;
       if (option instanceof HTMLButtonElement) selectUser(option.dataset.userId);
@@ -13896,6 +14555,7 @@
         undoLatest.set("track-view", createUndoSnapshot("track-view"));
       }
       renderDjView();
+      resumeCollaborationSession();
     });
     try {
       if (window.sessionStorage.getItem(OPEN_PROJECTS_KEY) === "true") {

@@ -680,7 +680,7 @@
             <section class="help-section">
               <h3>Projects & shortcuts</h3>
               <ul>
-                <li>Projects save in this browser. Use the project menu to save, import, rename, create, or switch projects. Export a song as WAV, MP3, or a portable BPM project; export patterns and Mels from their editors.</li>
+                <li>Projects save in this browser. Use the project menu to save, import, rename, create, or switch projects. Choose <strong>Collaborate</strong> to create or join a shared room; enable audio in the room to follow synchronized playback. Export a song as WAV, MP3, or a portable BPM project; export patterns and Mels from their editors.</li>
                 <li>Use <kbd>⌘</kbd> instead of <kbd>Ctrl</kbd> on Mac. <kbd>Ctrl</kbd> + <kbd>A</kbd> selects all in the active editor; <kbd>Ctrl</kbd> + <kbd>C</kbd>/<kbd>V</kbd> copies or pastes selected Piano Roll notes or Track View clips; <kbd>Ctrl</kbd> + <kbd>X</kbd> cuts; <kbd>Delete</kbd>/<kbd>Backspace</kbd> removes selected notes or clips.</li>
                 <li><kbd>Ctrl</kbd> + <kbd>Z</kbd> undoes the last action in the active editor.</li>
                 <li>In Piano Roll or Track View, hold <kbd>Alt</kbd>/<kbd>Option</kbd> and drag a marquee to deselect items inside it; hold <kbd>Shift</kbd> while dragging to add to the selection.</li>
@@ -703,9 +703,42 @@
           <button class="quiet-button" id="rename-project-button" type="button">Rename</button>
           <button class="quiet-button" id="new-project-button" type="button">＋ New project</button>
           <button class="quiet-button" id="import-project-button" type="button">Import project</button>
+          <button class="quiet-button" id="collaborate-button" type="button">Collaborate</button>
           <button class="quiet-button" id="switch-user-button" type="button">Switch user</button>
         </div>
         <div class="project-list" id="project-list" aria-label="Saved projects"></div>
+      </dialog>
+      <dialog class="collaboration-dialog" id="collaboration-dialog" aria-label="Live collaboration">
+        <div class="project-dialog-heading">
+          <div>
+            <div class="eyebrow">LIVE COLLABORATION</div>
+            <h2>Project room</h2>
+          </div>
+          <button class="dialog-close" id="collaboration-dialog-close" type="button" aria-label="Close collaboration">×</button>
+        </div>
+        <p class="collaboration-note">Creating or joining uploads a project copy and its audio to the configured server. Anyone with the room code can edit; simultaneous edits use last-write-wins.</p>
+        <label class="collaboration-field">
+          <span>Collaboration server</span>
+          <input id="collaboration-server-url" type="url" autocomplete="url" placeholder="wss://your-server.example" />
+        </label>
+        <p class="collaboration-status" id="collaboration-status" role="status" aria-live="polite">Not connected</p>
+        <div class="collaboration-actions" id="collaboration-room-actions">
+          <button class="quiet-button" id="collaboration-create-room" type="button">Create room</button>
+          <label class="collaboration-field collaboration-code-field">
+            <span>Room code</span>
+            <input id="collaboration-room-code-input" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="20" placeholder="Paste a room code" />
+          </label>
+          <button class="quiet-button" id="collaboration-join-room" type="button">Join room</button>
+        </div>
+        <section class="collaboration-active-room" id="collaboration-active-room" hidden>
+          <div class="collaboration-room-code"><span>Room code</span><strong id="collaboration-room-code"></strong></div>
+          <div class="collaboration-actions">
+            <button class="quiet-button" id="collaboration-copy-code" type="button">Copy code</button>
+            <button class="quiet-button" id="collaboration-enable-audio" type="button">Enable audio</button>
+            <button class="quiet-button" id="collaboration-leave-room" type="button">Leave room</button>
+          </div>
+          <p class="collaboration-participants" id="collaboration-participants"></p>
+        </section>
       </dialog>
       <dialog class="export-dialog" id="export-song-dialog" aria-labelledby="export-song-title">
         <div class="project-dialog-heading">
