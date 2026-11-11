@@ -118,7 +118,9 @@
       audioSlice.durationSeconds,
     ));
     if (!sourceDuration) return;
-    const rate = Math.pow(2, (midi - 60) / 12);
+    const rootMidi = Number.isInteger(audioSlice.rootMidi) ? audioSlice.rootMidi : 60;
+    const detune = Number.isFinite(noteOptions.detune) ? noteOptions.detune : 0;
+    const rate = Math.pow(2, (midi - rootMidi + detune / 100) / 12);
     const bufferDuration = Math.min(sourceDuration, Math.max(0.005, duration));
     const outputDuration = bufferDuration / rate;
     const dropOff = Math.max(0, Math.min(90, audioSlice.dropOff ?? 10)) / 100;

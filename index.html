@@ -261,6 +261,13 @@
                             <span>SOURCE</span>
                             <select id="piano-audio-source-select" aria-label="Select audio from Track View"></select>
                           </label>
+                          <label class="pattern-select-control">
+                            <span>MODE</span>
+                            <select id="piano-audio-mode-select" aria-label="Transcription mode">
+                              <option value="instrument">Instrument</option>
+                              <option value="audio">Audio pitch</option>
+                            </select>
+                          </label>
                           <button class="quiet-button" id="piano-audio-transcribe-button" type="button">Transcribe</button>
                           <button class="quiet-button" id="piano-audio-chop-button" type="button" disabled>Chop audio</button>
                           <span class="piano-audio-source-label" id="piano-audio-source-label">No audio source</span>
@@ -361,7 +368,7 @@
                           <div class="piano-roll-grid" id="piano-roll-grid" aria-label="Piano roll note grid"></div>
                         </div>
                       </div>
-                      <div class="piano-roll-footer">Choose or import audio to transcribe pitches or chop it into movable slices. Audio slices play from their source; MIDI notes use the selected instrument.</div>
+                      <div class="piano-roll-footer">Transcribe as Instrument to create MIDI notes, or Audio pitch to keep the original sound and edit detected pitches. Right-click a note for fine-tuning; Chop audio makes movable slices.</div>
                       <div class="piano-note-context-menu" id="piano-note-context-menu" role="group" aria-label="Selected note controls" hidden>
                         <div class="piano-note-context-heading">
                           <span>NOTE CONTROLS</span>

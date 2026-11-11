@@ -576,6 +576,7 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .piano-chopper-preview, .piano-chopper-help { margin: 8px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
 .piano-chopper-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 .piano-roll-note.is-audio-slice { display: flex; align-items: center; justify-content: center; min-width: 12px; border-style: dashed; padding: 0 2px; color: #17181a; font-family: var(--mono); font-weight: 700; }
+.piano-roll-note.is-audio-pass-through { opacity: .48; }
 .piano-scale-lock-control { display: flex; height: 30px; align-items: center; gap: 5px; border: 1px solid var(--stroke); border-radius: 5px; background: #1a1b1e; padding: 0 7px; color: #a7a8ad; font-size: 9px; white-space: nowrap; }
 .piano-scale-lock-control input { accent-color: var(--accent); }
 .piano-roll-scroll { min-height: 0; flex: 1; display: flex; overflow: auto; border: 1px solid #303136; background: #17181b; scrollbar-color: #45464a #1b1c1f; scrollbar-width: thin; }

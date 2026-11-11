@@ -8,6 +8,10 @@
       durationSeconds: Math.max(0.001, slice.durationSeconds),
       dropOff: Number.isFinite(slice.dropOff) ? Math.max(0, Math.min(90, slice.dropOff)) : 10,
       sliceNumber: Number.isInteger(slice.sliceNumber) ? Math.max(1, Math.min(4096, slice.sliceNumber)) : 1,
+      rootMidi: Number.isInteger(slice.rootMidi)
+        ? Math.max(PIANO_BOTTOM_MIDI, Math.min(PIANO_TOP_MIDI, slice.rootMidi)) : 60,
+      pitchEdited: slice.pitchEdited === true,
+      pitchEditable: slice.pitchEditable === true,
     };
   }
 
@@ -492,6 +496,7 @@
               startTick,
               durationTicks: Math.max(0.5, Math.min(8 * PIANO_TICKS_PER_BAR - startTick, note.durationTicks)),
               velocity: Number.isFinite(note.velocity) ? Math.max(0.1, Math.min(1, note.velocity)) : 0.8,
+              detune: Number.isFinite(note.detune) ? Math.max(-100, Math.min(100, note.detune)) : 0,
               pan: Number.isFinite(note.pan) ? Math.max(-1, Math.min(1, note.pan)) : 0,
               audioSlice: normalizePianoAudioSlice(note.audioSlice),
             };
@@ -517,6 +522,7 @@
                   startTick,
                   durationTicks: Math.max(0.5, Math.min(8 * PIANO_TICKS_PER_BAR - startTick, note.durationTicks)),
                   velocity: Number.isFinite(note.velocity) ? Math.max(0.1, Math.min(1, note.velocity)) : 0.8,
+                  detune: Number.isFinite(note.detune) ? Math.max(-100, Math.min(100, note.detune)) : 0,
                   pan: Number.isFinite(note.pan) ? Math.max(-1, Math.min(1, note.pan)) : 0,
                   audioSlice: normalizePianoAudioSlice(note.audioSlice),
                 };

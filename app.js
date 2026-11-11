@@ -1896,6 +1896,10 @@
     return nearestPianoPitchInScale(midi);
   }
 
+  function isPianoAudioPassThrough(note) {
+    return note.audioSlice?.pitchEdited === true && note.audioSlice.pitchEditable === false;
+  }
+
   function nearestPianoPitchInScale(midi) {
     if (isPianoPitchInScale(midi)) return midi;
     for (let distance = 1; distance < 12; distance += 1) {
@@ -1908,7 +1912,8 @@
   function tunePianoNotesToScale() {
     const selectedIds = new Set(state.selectedPianoNoteIds);
     if (state.selectedPianoNoteId) selectedIds.add(state.selectedPianoNoteId);
-    const notes = state.pianoNotes.filter((note) => !selectedIds.size || selectedIds.has(note.id));
+    const notes = state.pianoNotes.filter((note) =>
+      (!selectedIds.size || selectedIds.has(note.id)) && !isPianoAudioPassThrough(note));
     if (!notes.length) {
       showToast("Import audio or add notes before tuning to a key.");
       return;
@@ -1968,6 +1973,45 @@
       return;
     }
     await transcribeAudioClipToPianoRoll(clip);
+  }
+
+  function getAudioPitchEditSegments(detectedNotes, durationSeconds) {
+    const candidates = detectedNotes.map((note) => ({
+      startSeconds: Math.max(0, note.startSeconds),
+      endSeconds: Math.min(durationSeconds, note.endSeconds),
+      midi: Math.max(PIANO_BOTTOM_MIDI, Math.min(PIANO_TOP_MIDI, note.midi)),
+      velocity: note.velocity,
+    })).filter((note) => note.endSeconds > note.startSeconds);
+    const boundaries = [...new Set([
+      0,
+      durationSeconds,
+      ...candidates.flatMap((note) => [note.startSeconds, note.endSeconds]),
+    ])].sort((left, right) => left - right);
+    const segments = [];
+    for (let index = 0; index < boundaries.length - 1; index += 1) {
+      const startSeconds = boundaries[index];
+      const endSeconds = boundaries[index + 1];
+      if (endSeconds <= startSeconds) continue;
+      const midpoint = (startSeconds + endSeconds) / 2;
+      const pitch = candidates
+        .filter((note) => note.startSeconds <= midpoint && note.endSeconds >= midpoint)
+        .sort((left, right) => right.velocity - left.velocity)[0];
+      const midi = pitch?.midi ?? 60;
+      const pitchEditable = Boolean(pitch);
+      const previous = segments.at(-1);
+      if (previous && previous.midi === midi && previous.pitchEditable === pitchEditable) {
+        previous.endSeconds = endSeconds;
+      } else {
+        segments.push({
+          startSeconds,
+          endSeconds,
+          midi,
+          velocity: pitch?.velocity ?? 0.8,
+          pitchEditable,
+        });
+      }
+    }
+    return segments;
   }
 
   function getPianoChopperDivisionTicks() {
@@ -2095,31 +2139,55 @@
   async function transcribeAudioClipToPianoRoll(clip) {
     if (state.isPlaying) stopPlayback();
     state.pianoRollAudioClipId = clip.id;
+    const mode = $("#piano-audio-mode-select").value === "audio" ? "audio" : "instrument";
     try {
       const detectedNotes = estimateAudioPitchNotes(clip.buffer, clip.sourceOffsetSeconds || 0,
         clip.durationSeconds ?? clip.buffer.duration);
       const secondsPerBar = 240 / state.bpm;
       const maxTicks = 8 * PIANO_TICKS_PER_BAR;
-      const notes = detectedNotes
-        .map((note) => {
-          const startTick = note.startSeconds / secondsPerBar * PIANO_TICKS_PER_BAR;
-          if (startTick >= maxTicks) return null;
-          return {
-            id: makeId(),
-            trackId: state.selectedPianoTrackId,
-            midi: Math.max(PIANO_BOTTOM_MIDI, Math.min(PIANO_TOP_MIDI, note.midi)),
-            startTick: Math.max(0, startTick),
-            durationTicks: Math.max(0.5, Math.min(maxTicks - startTick,
-              (note.endSeconds - note.startSeconds) / secondsPerBar * PIANO_TICKS_PER_BAR)),
-            velocity: note.velocity,
-          };
-        })
-        .filter(Boolean)
-        .slice(0, 4096);
       const clipSourceDuration = Math.max(0, Math.min(
         clip.buffer.duration - (clip.sourceOffsetSeconds || 0),
         clip.durationSeconds ?? clip.buffer.duration,
       ));
+      const analyzedDuration = Math.min(clipSourceDuration, secondsPerBar * 8);
+      const sourceNotes = mode === "audio"
+        ? getAudioPitchEditSegments(detectedNotes, analyzedDuration)
+        : detectedNotes.map((note) => ({
+          startSeconds: note.startSeconds,
+          endSeconds: note.endSeconds,
+          midi: note.midi,
+          velocity: note.velocity,
+        }));
+      const notes = sourceNotes
+        .map((note) => {
+          const startTick = note.startSeconds / secondsPerBar * PIANO_TICKS_PER_BAR;
+          if (startTick >= maxTicks) return null;
+          const midi = Math.max(PIANO_BOTTOM_MIDI, Math.min(PIANO_TOP_MIDI, note.midi));
+          const startSeconds = Math.max(0, note.startSeconds);
+          const endSeconds = Math.max(startSeconds, note.endSeconds);
+          return {
+            id: makeId(),
+            trackId: state.selectedPianoTrackId,
+            midi,
+            startTick: Math.max(0, startTick),
+            durationTicks: Math.max(0.5, Math.min(maxTicks - startTick,
+              (endSeconds - startSeconds) / secondsPerBar * PIANO_TICKS_PER_BAR)),
+            velocity: note.velocity,
+            ...(mode === "audio" ? {
+              audioSlice: {
+                clipId: clip.id,
+                offsetSeconds: Math.max(0, clip.sourceOffsetSeconds || 0) + startSeconds,
+                durationSeconds: endSeconds - startSeconds,
+                dropOff: 10,
+                rootMidi: note.pitchEditable ? midi : 60,
+                pitchEdited: true,
+                pitchEditable: note.pitchEditable === true,
+              },
+            } : {}),
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 4096);
       const clipDurationBars = clipSourceDuration / secondsPerBar;
       const bars = [1, 2, 4, 8].find((bar) => bar * PIANO_TICKS_PER_BAR >=
         Math.min(maxTicks, clipDurationBars * PIANO_TICKS_PER_BAR)) || 8;
@@ -2143,11 +2211,15 @@
       renderPianoRoll();
       renderArrangement();
       saveState();
-      if (!notes.length) {
-        showToast("No stable pitches were detected; use the waveform as a reference for manual note entry.");
+      if (!detectedNotes.length) {
+        showToast(mode === "audio"
+          ? `Kept the original audio, but found no stable pitches to edit in ${clip.name}.`
+          : "No stable pitches were detected; use the waveform as a reference for manual note entry.");
       } else {
         const analysisLimit = clipSourceDuration > secondsPerBar * 8 ? " Only the first 8 bars were analyzed." : "";
-        showToast(`Created ${notes.length} editable pitch notes from ${clip.name}.${analysisLimit}`);
+        const noteType = mode === "audio"
+          ? "audio-backed segments; drag pitched notes to tune them" : "editable instrument notes";
+        showToast(`Created ${notes.length} ${noteType} from ${clip.name}.${analysisLimit}`);
       }
     } catch (error) {
       showToast(`Could not transcribe ${clip.name}: ${error.message || "unknown error"}`);
@@ -2468,19 +2540,31 @@
         const track = getPianoTrack(note.trackId);
         if (!track) return;
         const element = document.createElement("div");
-        element.className = `piano-roll-note${note.audioSlice ? " is-audio-slice" : ""}${state.selectedPianoNoteIds.has(note.id) || note.id === state.selectedPianoNoteId ? " is-selected" : ""}`;
+        const isAudioPitchNote = note.audioSlice?.pitchEdited === true;
+        const canEditAudioPitch = isAudioPitchNote && note.audioSlice.pitchEditable !== false;
+        const isAudioPassThrough = isAudioPitchNote && !canEditAudioPitch;
+        element.className = `piano-roll-note${note.audioSlice ? " is-audio-slice" : ""}${canEditAudioPitch ? " is-audio-pitch-note" : ""}${isAudioPassThrough ? " is-audio-pass-through" : ""}${state.selectedPianoNoteIds.has(note.id) || note.id === state.selectedPianoNoteId ? " is-selected" : ""}`;
         element.dataset.noteId = note.id;
         element.style.setProperty("--note-color", track.color);
         element.style.left = `${note.startTick * tickWidth + 1}px`;
         element.style.top = `${(PIANO_TOP_MIDI - note.midi) * PIANO_ROW_HEIGHT + 1}px`;
         element.style.width = `${Math.max(getPianoSnapStep() * tickWidth, note.durationTicks * tickWidth - 2)}px`;
-        element.textContent = note.audioSlice ? `S${note.audioSlice.sliceNumber}` : midiNoteName(note.midi);
-        element.title = note.audioSlice
+        element.textContent = isAudioPassThrough ? "A"
+          : note.audioSlice && !isAudioPitchNote ? `S${note.audioSlice.sliceNumber}` : midiNoteName(note.midi);
+        element.title = canEditAudioPitch
+          ? `Original audio · ${midiNoteName(note.midi)} · drag vertically to change pitch · right-click for fine-tuning`
+          : isAudioPassThrough
+            ? "Original audio segment · retained between detected notes"
+          : note.audioSlice
           ? `Audio slice ${note.audioSlice.sliceNumber} · ${midiNoteName(note.midi)} · ${note.durationTicks}/32`
           : `${track.name} · ${midiNoteName(note.midi)} · ${note.durationTicks}/32`;
         element.setAttribute("role", "button");
         element.setAttribute("tabindex", "0");
-        element.setAttribute("aria-label", note.audioSlice
+        element.setAttribute("aria-label", canEditAudioPitch
+          ? `Original audio pitch ${midiNoteName(note.midi)}, start ${note.startTick}/32, duration ${note.durationTicks}/32`
+          : isAudioPassThrough
+            ? `Original audio segment, start ${note.startTick}/32, duration ${note.durationTicks}/32`
+          : note.audioSlice
           ? `Audio slice ${note.audioSlice.sliceNumber}, ${midiNoteName(note.midi)}, start ${note.startTick}/32, duration ${note.durationTicks}/32`
           : `${track.name}, ${midiNoteName(note.midi)}, start ${note.startTick}/32, duration ${note.durationTicks}/32`);
         element.addEventListener("focus", () => {
@@ -2525,10 +2609,15 @@
   function openPianoNoteContextMenu(event, note) {
     event.preventDefault();
     event.stopPropagation();
+    if (isPianoAudioPassThrough(note)) {
+      closePianoNoteContextMenu();
+      showToast("This segment has no detected pitch and stays at its original pitch.");
+      return;
+    }
     if (!state.selectedPianoNoteIds.has(note.id)) selectPianoNote(note.id);
     state.selectedPianoNoteId = note.id;
     pianoNoteContextTargetIds = state.pianoNotes
-      .filter((item) => state.selectedPianoNoteIds.has(item.id))
+      .filter((item) => state.selectedPianoNoteIds.has(item.id) && !isPianoAudioPassThrough(item))
       .map((item) => item.id);
     const menu = $("#piano-note-context-menu");
     ["volume", "attack", "velocity", "detune", "pan"].forEach((property) => {
@@ -2905,7 +2994,8 @@
         const minPitch = Math.min(...originals.map((item) => item.midi));
         const maxPitch = Math.max(...originals.map((item) => item.midi));
         const deltaTicks = Math.max(-minStart, Math.min(totalTicks - maxEnd, delta));
-        const deltaPitch = Math.max(PIANO_BOTTOM_MIDI - minPitch, Math.min(PIANO_TOP_MIDI - maxPitch,
+        const hasLockedAudio = originals.some((original) => isPianoAudioPassThrough(original.note));
+        const deltaPitch = hasLockedAudio ? 0 : Math.max(PIANO_BOTTOM_MIDI - minPitch, Math.min(PIANO_TOP_MIDI - maxPitch,
           -Math.round((moveEvent.clientY - startY) / PIANO_ROW_HEIGHT)));
         originals.forEach((original) => {
           original.note.startTick = original.startTick + deltaTicks;
@@ -3016,7 +3106,8 @@
       const minPitch = Math.min(...selected.map((note) => note.midi));
       const maxPitch = Math.max(...selected.map((note) => note.midi));
       const deltaTicks = Math.max(-minStart, Math.min(totalTicks - maxEnd, horizontal * snapStep));
-      const deltaPitch = Math.max(PIANO_BOTTOM_MIDI - minPitch,
+      const hasLockedAudio = selected.some(isPianoAudioPassThrough);
+      const deltaPitch = hasLockedAudio ? 0 : Math.max(PIANO_BOTTOM_MIDI - minPitch,
         Math.min(PIANO_TOP_MIDI - maxPitch, vertical));
       if (!deltaTicks && !deltaPitch) return false;
       selected.forEach((note) => {
@@ -12402,7 +12493,9 @@
       audioSlice.durationSeconds,
     ));
     if (!sourceDuration) return;
-    const rate = Math.pow(2, (midi - 60) / 12);
+    const rootMidi = Number.isInteger(audioSlice.rootMidi) ? audioSlice.rootMidi : 60;
+    const detune = Number.isFinite(noteOptions.detune) ? noteOptions.detune : 0;
+    const rate = Math.pow(2, (midi - rootMidi + detune / 100) / 12);
     const bufferDuration = Math.min(sourceDuration, Math.max(0.005, duration));
     const outputDuration = bufferDuration / rate;
     const dropOff = Math.max(0, Math.min(90, audioSlice.dropOff ?? 10)) / 100;
@@ -14731,6 +14824,10 @@
       durationSeconds: Math.max(0.001, slice.durationSeconds),
       dropOff: Number.isFinite(slice.dropOff) ? Math.max(0, Math.min(90, slice.dropOff)) : 10,
       sliceNumber: Number.isInteger(slice.sliceNumber) ? Math.max(1, Math.min(4096, slice.sliceNumber)) : 1,
+      rootMidi: Number.isInteger(slice.rootMidi)
+        ? Math.max(PIANO_BOTTOM_MIDI, Math.min(PIANO_TOP_MIDI, slice.rootMidi)) : 60,
+      pitchEdited: slice.pitchEdited === true,
+      pitchEditable: slice.pitchEditable === true,
     };
   }
 
@@ -15215,6 +15312,7 @@
               startTick,
               durationTicks: Math.max(0.5, Math.min(8 * PIANO_TICKS_PER_BAR - startTick, note.durationTicks)),
               velocity: Number.isFinite(note.velocity) ? Math.max(0.1, Math.min(1, note.velocity)) : 0.8,
+              detune: Number.isFinite(note.detune) ? Math.max(-100, Math.min(100, note.detune)) : 0,
               pan: Number.isFinite(note.pan) ? Math.max(-1, Math.min(1, note.pan)) : 0,
               audioSlice: normalizePianoAudioSlice(note.audioSlice),
             };
@@ -15240,6 +15338,7 @@
                   startTick,
                   durationTicks: Math.max(0.5, Math.min(8 * PIANO_TICKS_PER_BAR - startTick, note.durationTicks)),
                   velocity: Number.isFinite(note.velocity) ? Math.max(0.1, Math.min(1, note.velocity)) : 0.8,
+                  detune: Number.isFinite(note.detune) ? Math.max(-100, Math.min(100, note.detune)) : 0,
                   pan: Number.isFinite(note.pan) ? Math.max(-1, Math.min(1, note.pan)) : 0,
                   audioSlice: normalizePianoAudioSlice(note.audioSlice),
                 };
