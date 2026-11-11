@@ -12858,13 +12858,19 @@
     const rootMidi = Number.isInteger(audioSlice.rootMidi) ? audioSlice.rootMidi : 60;
     const detune = Number.isFinite(noteOptions.detune) ? noteOptions.detune : 0;
     const rate = Math.pow(2, (midi - rootMidi + detune / 100) / 12);
-    const bufferDuration = Math.min(sourceDuration, Math.max(0.005, duration));
+    const pitchEdited = audioSlice.pitchEdited === true;
+    const requestedOutputDuration = Math.max(0.005, duration);
+    const bufferDuration = pitchEdited
+      ? Math.min(clip.buffer.duration - offset, requestedOutputDuration * rate)
+      : Math.min(sourceDuration, requestedOutputDuration);
     const outputDuration = bufferDuration / rate;
     const dropOff = Math.max(0, Math.min(90, audioSlice.dropOff ?? 10)) / 100;
-    const fadeDuration = Math.min(outputDuration, Math.max(0.003, outputDuration * dropOff));
+    const fadeDuration = pitchEdited
+      ? Math.min(outputDuration, Math.max(0.001, Math.min(0.005, outputDuration * dropOff)))
+      : Math.min(outputDuration, Math.max(0.003, outputDuration * dropOff));
     const fadeStart = Math.max(0, outputDuration - fadeDuration);
     const attack = Math.max(0, Math.min(
-      Number.isFinite(noteOptions.attack) ? noteOptions.attack : 0,
+      pitchEdited ? 0.002 : Number.isFinite(noteOptions.attack) ? noteOptions.attack : 0,
       fadeStart,
     ));
     const source = state.audioContext.createBufferSource();
