@@ -444,13 +444,24 @@
   function normalizeTrackAutomation(automation) {
     const result = {};
     [["volume", 0, 1], ["pan", -1, 1]].forEach(([property, minimum, maximum]) => {
+      const usedIds = new Set();
       const points = Array.isArray(automation?.[property]) ? automation[property]
         .filter((point) => Number.isFinite(point?.bar) && Number.isFinite(point?.value))
         .slice(0, 512)
-        .map((point) => ({
-          bar: Math.max(0, Math.min(MAX_ARRANGEMENT_BARS, point.bar)),
-          value: Math.max(minimum, Math.min(maximum, point.value)),
-        }))
+        .map((point, index) => {
+          let id = typeof point.id === "string" && point.id.length <= 128 ? point.id : "";
+          if (!id || usedIds.has(id)) {
+            id = `automation-${property}-${index}`;
+            let suffix = 1;
+            while (usedIds.has(id)) id = `automation-${property}-${index}-${suffix++}`;
+          }
+          usedIds.add(id);
+          return {
+            id,
+            bar: Math.max(0, Math.min(MAX_ARRANGEMENT_BARS, point.bar)),
+            value: Math.max(minimum, Math.min(maximum, point.value)),
+          };
+        })
         .sort((left, right) => left.bar - right.bar)
         : [];
       result[property] = points.reduce((unique, point) => {
@@ -7964,7 +7975,7 @@
           activeIndex = existingIndex;
           automation[property][activeIndex].value = point.value;
         } else {
-          automation[property].push(point);
+          automation[property].push({ ...point, id: makeId() });
           automation[property].sort((left, right) => left.bar - right.bar);
           activeIndex = automation[property].findIndex((item) => item.bar === point.bar);
         }
@@ -12679,6 +12690,11 @@
       "",
       conflicts,
     );
+    ["patterns", "arrangementTracks", "melTracks"].forEach((collection) => {
+      mergedSnapshot[collection].forEach((track) => {
+        track.automation = normalizeTrackAutomation(track.automation);
+      });
+    });
     const localAssetsChanged = !collaborationValuesEqual(localAssets, collaboration.sharedAssets);
     const remoteAssetsChanged = !collaborationValuesEqual(remoteAssets, collaboration.sharedAssets);
     if (localAssetsChanged && remoteAssetsChanged &&

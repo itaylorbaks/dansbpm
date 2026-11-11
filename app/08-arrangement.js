@@ -403,7 +403,7 @@
           activeIndex = existingIndex;
           automation[property][activeIndex].value = point.value;
         } else {
-          automation[property].push(point);
+          automation[property].push({ ...point, id: makeId() });
           automation[property].sort((left, right) => left.bar - right.bar);
           activeIndex = automation[property].findIndex((item) => item.bar === point.bar);
         }

@@ -325,6 +325,11 @@
       "",
       conflicts,
     );
+    ["patterns", "arrangementTracks", "melTracks"].forEach((collection) => {
+      mergedSnapshot[collection].forEach((track) => {
+        track.automation = normalizeTrackAutomation(track.automation);
+      });
+    });
     const localAssetsChanged = !collaborationValuesEqual(localAssets, collaboration.sharedAssets);
     const remoteAssetsChanged = !collaborationValuesEqual(remoteAssets, collaboration.sharedAssets);
     if (localAssetsChanged && remoteAssetsChanged &&

@@ -3,13 +3,24 @@
   function normalizeTrackAutomation(automation) {
     const result = {};
     [["volume", 0, 1], ["pan", -1, 1]].forEach(([property, minimum, maximum]) => {
+      const usedIds = new Set();
       const points = Array.isArray(automation?.[property]) ? automation[property]
         .filter((point) => Number.isFinite(point?.bar) && Number.isFinite(point?.value))
         .slice(0, 512)
-        .map((point) => ({
-          bar: Math.max(0, Math.min(MAX_ARRANGEMENT_BARS, point.bar)),
-          value: Math.max(minimum, Math.min(maximum, point.value)),
-        }))
+        .map((point, index) => {
+          let id = typeof point.id === "string" && point.id.length <= 128 ? point.id : "";
+          if (!id || usedIds.has(id)) {
+            id = `automation-${property}-${index}`;
+            let suffix = 1;
+            while (usedIds.has(id)) id = `automation-${property}-${index}-${suffix++}`;
+          }
+          usedIds.add(id);
+          return {
+            id,
+            bar: Math.max(0, Math.min(MAX_ARRANGEMENT_BARS, point.bar)),
+            value: Math.max(minimum, Math.min(maximum, point.value)),
+          };
+        })
         .sort((left, right) => left.bar - right.bar)
         : [];
       result[property] = points.reduce((unique, point) => {
