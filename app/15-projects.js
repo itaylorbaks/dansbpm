@@ -259,7 +259,7 @@
         : 0;
       if (Number.isFinite(saved.swing)) state.swing = Math.max(0, Math.min(45, Math.round(saved.swing)));
       if (Number.isFinite(saved.steps)) state.steps = normalizePatternSteps(saved.steps);
-      if (Number.isFinite(saved.arrangementScale)) state.arrangementScale = Math.max(0.5, Math.min(4, saved.arrangementScale));
+      if (Number.isFinite(saved.arrangementScale)) state.arrangementScale = Math.max(0.1, Math.min(4, saved.arrangementScale));
       if (Number.isFinite(saved.pianoScale)) state.pianoScale = Math.max(0.5, Math.min(4, saved.pianoScale));
       if (Number.isFinite(saved.sequencerScale)) state.sequencerScale = Math.max(0.5, Math.min(4, saved.sequencerScale));
       if (Number.isFinite(saved.arrangementBars)) state.arrangementBars = Math.max(32, Math.min(MAX_ARRANGEMENT_BARS, Math.round(saved.arrangementBars)));

@@ -514,7 +514,7 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .midi-arrangement-clip { position: absolute; top: 12px; bottom: 12px; display: flex; align-items: center; overflow: hidden; border: 1px solid #7565b7; border-radius: 5px; background: repeating-linear-gradient(135deg, #5b4b8b88 0, #5b4b8b88 6px, #362e50 6px, #362e50 12px); padding: 0 8px; color: #ddd4ff; font-family: var(--mono); font-size: 8px; white-space: nowrap; }
 .clip-resize-handle { width: 9px; height: 28px; flex: 0 0 9px; align-self: center; margin-left: auto; border: 0; border-right: 2px solid currentColor; background: transparent; padding: 0; opacity: .65; cursor: ew-resize; touch-action: none; }
 .clip-resize-handle:hover, .clip-resize-handle:focus-visible { opacity: 1; }
-.drum-arrangement-clip .clip-resize-handle, .mel-arrangement-clip .clip-resize-handle, .audio-clip .clip-resize-handle { position: absolute; right: 0; z-index: 2; width: 12px; height: 50%; flex: 0 0 12px; margin: 0; cursor: ew-resize; }
+.drum-arrangement-clip .clip-resize-handle, .mel-arrangement-clip .clip-resize-handle, .audio-clip .clip-resize-handle { position: absolute; right: 0; z-index: 2; height: 50%; margin: 0; cursor: ew-resize; }
 .drum-arrangement-clip .clip-repeat-handle, .mel-arrangement-clip .clip-repeat-handle, .audio-clip .clip-repeat-handle { top: 0; border-top: 1px solid currentColor; }
 .drum-arrangement-clip .clip-length-handle, .mel-arrangement-clip .clip-length-handle, .audio-clip .clip-length-handle { bottom: 0; border-bottom: 1px solid currentColor; }
 .audio-clip { position: absolute; top: 11px; height: 52px; display: flex; align-items: center; overflow: hidden; border: 0; border-radius: 0; background: transparent; padding: 0 7px; color: #e4e4e1; cursor: grab; user-select: none; }
@@ -526,6 +526,7 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .clip-name { position: relative; z-index: 1; overflow: hidden; max-width: calc(100% - 24px); text-shadow: 0 1px 5px #000; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; font-weight: 600; }
 .audio-clip-reverse-badge { position: relative; z-index: 1; flex: 0 0 auto; margin-left: 5px; border: 1px solid #d3f36b88; border-radius: 3px; background: #1b1c1f99; padding: 1px 3px; color: var(--accent); font-family: var(--mono); font-size: 7px; }
 .audio-clip .clip-resize-handle { color: var(--clip-color); }
+.audio-clip .clip-start-handle { top: 25%; right: auto; left: 0; border-right: 0; border-left: 2px solid currentColor; }
 .audio-clip-edit-dialog { width: min(360px, calc(100vw - 28px)); border: 1px solid #3a3b40; border-radius: 10px; background: #1b1c1f; padding: 18px; color: var(--text); box-shadow: 0 20px 60px #0009; }
 .audio-clip-edit-dialog::backdrop { background: #0009; backdrop-filter: blur(3px); }
 .audio-clip-edit-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
@@ -538,7 +539,8 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .audio-clip-edit-control output { color: var(--accent); font-family: var(--mono); }
 .audio-clip-edit-control input { width: 100%; accent-color: var(--accent); }
 .audio-clip-edit-hint { margin: 16px 0 0; color: #85868b; font-size: 9px; line-height: 1.45; }
-.track-view-controls #arrangement-snap-button[aria-pressed="true"] { border-color: #687641; color: var(--accent); }
+.track-view-controls #arrangement-snap-button[aria-pressed="true"], .track-view-controls #arrangement-slice-button[aria-pressed="true"] { border-color: #687641; color: var(--accent); }
+.is-arrangement-slicing .timeline-content [data-selectable-type] { cursor: crosshair; }
 .arrangement-cursor { position: absolute; top: 0; bottom: 0; z-index: 5; width: 12px; margin-left: -6px; border: 0; background: transparent; padding: 0; cursor: ew-resize; touch-action: none; }
 .arrangement-cursor::before { position: absolute; top: 0; left: 1px; width: 10px; height: 8px; background: #f3f4e8; clip-path: polygon(0 0, 100% 0, 50% 100%); content: ""; }
 .arrangement-cursor::after { position: absolute; top: 6px; bottom: 0; left: 5px; width: 2px; background: #f3f4e8; box-shadow: 0 0 7px #fff8; content: ""; }

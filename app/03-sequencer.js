@@ -274,7 +274,7 @@
   function setArrangementScale(scale) {
     const timeline = $("#timeline-scroll");
     const barOffset = timeline.scrollLeft / BAR_WIDTH;
-    state.arrangementScale = Math.max(0.5, Math.min(4, scale));
+    state.arrangementScale = Math.max(0.1, Math.min(4, scale));
     BAR_WIDTH = BASE_BAR_WIDTH * state.arrangementScale;
     renderArrangement();
     timeline.scrollLeft = barOffset * BAR_WIDTH;

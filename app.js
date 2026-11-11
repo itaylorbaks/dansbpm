@@ -1074,7 +1074,7 @@
   function setArrangementScale(scale) {
     const timeline = $("#timeline-scroll");
     const barOffset = timeline.scrollLeft / BAR_WIDTH;
-    state.arrangementScale = Math.max(0.5, Math.min(4, scale));
+    state.arrangementScale = Math.max(0.1, Math.min(4, scale));
     BAR_WIDTH = BASE_BAR_WIDTH * state.arrangementScale;
     renderArrangement();
     timeline.scrollLeft = barOffset * BAR_WIDTH;
@@ -10484,7 +10484,7 @@
     }
     const startBar = arrangementDropStartAtPointer(event, lane);
     preview.style.left = `${startBar * BAR_WIDTH + 4}px`;
-    preview.style.width = `${Math.max(28, drag.durationBars * BAR_WIDTH - 8)}px`;
+    preview.style.width = `${Math.max(12, drag.durationBars * BAR_WIDTH - 8)}px`;
   }
 
   function clearArrangementDragPreview() {
@@ -10831,9 +10831,106 @@
       element.append(indicator);
     }
     if (mode === "repeat") indicator.textContent = `REPEAT ×${clip.repeatCount || 1}`;
+    else if (mode === "start") indicator.textContent = durationBars < initialDuration - 0.001 ? "TRIM START" : "EXTEND START";
     else indicator.textContent = durationBars > initialDuration + 0.001
       ? "EXTEND · SILENT"
       : durationBars < initialDuration - 0.001 ? "TRIM" : "LENGTH";
+  }
+
+  function makeAudioClipStartTrimHandle(track, clip, element) {
+    const handle = document.createElement("button");
+    handle.type = "button";
+    handle.className = "clip-resize-handle clip-start-handle";
+    handle.setAttribute("aria-label", `Trim the beginning of ${clip.name}`);
+    handle.title = "Drag to trim the beginning of this audio clip";
+    const handleWidth = Math.max(4, Math.min(12, BAR_WIDTH * 0.1));
+    handle.style.width = `${handleWidth}px`;
+    handle.style.flexBasis = `${handleWidth}px`;
+
+    const applyTrim = (deltaBars, initial) => {
+      const secondsPerBar = 240 / state.bpm;
+      const minDuration = Math.min(state.arrangementSnap ? 0.25 : 0.01, initial.durationBars);
+      const minDelta = -Math.min(initial.sourceOffsetSeconds / secondsPerBar, initial.startBar);
+      const maxDelta = Math.max(0, initial.durationBars - minDuration);
+      const delta = Math.max(minDelta, Math.min(maxDelta, snapArrangementBar(deltaBars)));
+      const durationBars = initial.durationBars - delta;
+      const startBar = initial.startBar + delta;
+      const sourceOffsetSeconds = Math.max(0, initial.sourceOffsetSeconds + delta * secondsPerBar);
+      const changed = Math.abs(startBar - clip.startBar) > 0.0001 ||
+        Math.abs(sourceOffsetSeconds - (clip.sourceOffsetSeconds || 0)) > 0.0001 ||
+        Math.abs(durationBars - getArrangementClipDuration("audio", clip)) > 0.0001;
+      if (!changed) return false;
+
+      clip.startBar = startBar;
+      clip.sourceOffsetSeconds = sourceOffsetSeconds;
+      clip.durationSeconds = durationBars * secondsPerBar;
+      const repeatLength = getArrangementClipRepeatLength("audio", clip);
+      clip.repeatCount = Math.max(1, Math.ceil((sourceOffsetSeconds / secondsPerBar + durationBars - 0.0001) / repeatLength));
+      const width = Math.max(12, durationBars * BAR_WIDTH - 8);
+      element.style.left = `${startBar * BAR_WIDTH + 4}px`;
+      element.style.width = `${width}px`;
+      drawAudioClipWaveform(element.querySelector(".clip-waveform-canvas"), clip, Math.max(1, width - 8), track.color);
+      updateArrangementClipRepeatMarkers(element, clip, repeatLength, durationBars, sourceOffsetSeconds / secondsPerBar);
+      element.setAttribute("aria-label",
+        `${clip.name}, bar ${startBar + 1}, ${durationBars.toFixed(2)} bars; drag to move or resize`);
+      return true;
+    };
+
+    const finishTrim = (changed) => {
+      if (!changed) return;
+      updateArrangementLength();
+      state.suppressArrangementClick = true;
+      window.setTimeout(() => { state.suppressArrangementClick = false; }, 0);
+      renderArrangement();
+      saveState();
+      persistClip(track, clip).catch(() => showToast("Clip trim changed, but browser storage could not be updated."));
+    };
+
+    handle.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      event.stopPropagation();
+      const initial = {
+        startBar: clip.startBar,
+        sourceOffsetSeconds: clip.sourceOffsetSeconds || 0,
+        durationBars: getArrangementClipDuration("audio", clip),
+      };
+      const delta = event.key === "ArrowRight" ? 0.25 : -0.25;
+      finishTrim(applyTrim(delta, initial));
+    });
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (state.isPlaying && state.playbackMode === "arrangement") stopPlayback();
+      const startX = event.clientX;
+      const initial = {
+        startBar: clip.startBar,
+        sourceOffsetSeconds: clip.sourceOffsetSeconds || 0,
+        durationBars: getArrangementClipDuration("audio", clip),
+      };
+      let changed = false;
+      element.draggable = false;
+      updateClipResizeIndicator(element, "start", clip, initial.durationBars, initial.durationBars);
+      const onMove = (moveEvent) => {
+        const nextDelta = (moveEvent.clientX - startX) / BAR_WIDTH;
+        const moved = applyTrim(nextDelta, initial);
+        changed = moved || changed;
+        updateClipResizeIndicator(element, "start", clip, getArrangementClipDuration("audio", clip), initial.durationBars);
+      };
+      const onEnd = () => {
+        document.removeEventListener("pointermove", onMove);
+        document.removeEventListener("pointerup", onEnd);
+        document.removeEventListener("pointercancel", onEnd);
+        element.draggable = true;
+        element.querySelector(".clip-resize-indicator")?.remove();
+        finishTrim(changed);
+      };
+      document.addEventListener("pointermove", onMove);
+      document.addEventListener("pointerup", onEnd);
+      document.addEventListener("pointercancel", onEnd);
+    });
+    return handle;
   }
 
   function makeArrangementResizeHandle(type, clip, track, element, labelElement, mode = "length") {
@@ -10842,6 +10939,9 @@
       : type === "mel" ? getMel(clip.melId)?.name || "Mel" : clip.name;
     handle.type = "button";
     handle.className = `clip-resize-handle clip-${mode}-handle`;
+    const handleWidth = Math.max(4, Math.min(12, BAR_WIDTH * 0.1));
+    handle.style.width = `${handleWidth}px`;
+    handle.style.flexBasis = `${handleWidth}px`;
     handle.setAttribute("aria-label", mode === "repeat" ? `Repeat ${name}` : `Trim or extend ${name}`);
     handle.title = mode === "repeat"
       ? `Drag to repeat ${name}`
@@ -10857,7 +10957,7 @@
         clip.repeatCount = Math.max(1, Math.ceil((sourceOffset + durationBars - 0.0001) / repeatLength));
       }
       const duration = getArrangementClipDuration(type, clip);
-      element.style.width = `${Math.max(28, duration * BAR_WIDTH - 8)}px`;
+      element.style.width = `${Math.max(12, duration * BAR_WIDTH - 8)}px`;
       if (type === "audio") {
         element.style.setProperty("--pattern-color", track?.color || "var(--accent)");
         updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength(type, clip), duration,
@@ -10935,7 +11035,28 @@
     return handle;
   }
 
+  let arrangementSliceMode = false;
   const reversedAudioClipBuffers = new WeakMap();
+
+  function setArrangementSliceMode(enabled) {
+    arrangementSliceMode = enabled;
+    const button = $("#arrangement-slice-button");
+    button.setAttribute("aria-pressed", String(enabled));
+    button.title = enabled ? "Click a clip to split it; click SLICE again to exit" : "Click a clip to split it at that point";
+    document.body.classList.toggle("is-arrangement-slicing", enabled);
+  }
+
+  function sliceArrangementClipFromPointer(event, type, clip) {
+    if (!arrangementSliceMode || event.target.closest(".clip-resize-handle")) return false;
+    const lane = event.currentTarget.closest(".timeline-lane");
+    if (!lane) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    state.selectedArrangementItems = new Set([arrangementSelectionKey(type, clip.id)]);
+    updateArrangementSelection();
+    splitArrangementItemsAtCursor(barAtPointer(event, lane));
+    return true;
+  }
 
   function drawAudioClipWaveform(canvas, clip, displayWidth, color) {
     const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
@@ -11091,7 +11212,7 @@
     element.dataset.selectableType = "audio";
     element.style.setProperty("--clip-color", track.color);
     element.style.left = `${clip.startBar * BAR_WIDTH + 4}px`;
-    const clipWidth = Math.max(28, durationBars * BAR_WIDTH - 8);
+    const clipWidth = Math.max(12, durationBars * BAR_WIDTH - 8);
     element.style.width = `${clipWidth}px`;
     const metadataLabel = describeAudioMetadata(clip.audioMetadata);
     element.title = `${clip.name} · ${metadataLabel}`;
@@ -11108,6 +11229,7 @@
     reverseBadge.className = "audio-clip-reverse-badge";
     reverseBadge.textContent = "REV";
     element.style.setProperty("--pattern-color", track.color);
+    const startHandle = makeAudioClipStartTrimHandle(track, clip, element);
     const repeatHandle = makeArrangementResizeHandle("audio", clip, track, element, name, "repeat");
     const resizeHandle = makeArrangementResizeHandle("audio", clip, track, element, name);
     updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength("audio", clip), durationBars,
@@ -11120,6 +11242,7 @@
       beginArrangementItemDrag(event, element, "audio", durationBars, clip.startBar);
     });
     element.addEventListener("click", (event) => {
+      if (sliceArrangementClipFromPointer(event, "audio", clip)) return;
       if (event.target.closest(".clip-resize-handle")) return;
       event.stopPropagation();
       selectArrangementTrack(track.id);
@@ -11132,7 +11255,7 @@
       event.stopPropagation();
       openAudioClipEditor(track, clip);
     });
-    element.append(waveform, name);
+    element.append(waveform, name, startHandle);
     if (clip.reversed) element.append(reverseBadge);
     element.append(repeatHandle, resizeHandle);
     return element;
@@ -11150,7 +11273,7 @@
     element.style.setProperty("--clip-color", track.color);
     element.style.setProperty("--pattern-color", track.color);
     element.style.left = `${clip.startBar * BAR_WIDTH + 4}px`;
-    element.style.width = `${Math.max(28, bars * BAR_WIDTH - 8)}px`;
+    element.style.width = `${Math.max(12, bars * BAR_WIDTH - 8)}px`;
     const name = document.createElement("span");
     name.className = "mel-clip-name";
     name.textContent = `${mel.name.toUpperCase()} · ${Number(bars.toFixed(2))} BAR${bars === 1 ? "" : "S"}`;
@@ -11171,6 +11294,7 @@
       beginArrangementItemDrag(event, element, "mel", bars, clip.startBar);
     });
     element.addEventListener("click", (event) => {
+      if (sliceArrangementClipFromPointer(event, "mel", clip)) return;
       if (event.target.closest(".clip-resize-handle")) return;
       event.stopPropagation();
       selectArrangementTrack(track.id);
@@ -11194,7 +11318,7 @@
     element.style.setProperty("--clip-color", pattern?.color || "var(--accent)");
     element.draggable = true;
     element.style.left = `${clip.startBar * BAR_WIDTH + 4}px`;
-    element.style.width = `${Math.max(28, totalBars * BAR_WIDTH - 8)}px`;
+    element.style.width = `${Math.max(12, totalBars * BAR_WIDTH - 8)}px`;
     element.setAttribute("aria-label", `${patternName}, bar ${clip.startBar + 1}, ${displayBars} bars; drag to move, repeat, or resize`);
     const icon = document.createElement("span");
     icon.className = "pattern-clip-icon";
@@ -11219,6 +11343,7 @@
       beginArrangementItemDrag(event, element, "pattern", totalBars, clip.startBar);
     });
     element.addEventListener("click", (event) => {
+      if (sliceArrangementClipFromPointer(event, "pattern", clip)) return;
       if (event.target.closest(".clip-resize-handle")) return;
       event.stopPropagation();
       if (!selectArrangementItem("pattern", clip.id, event)) return;
@@ -11604,10 +11729,10 @@
     return true;
   }
 
-  function splitArrangementItemsAtCursor() {
+  function splitArrangementItemsAtCursor(bar = state.arrangementCursor) {
     const splitKeys = new Set();
     const hasSelection = state.selectedArrangementItems.size > 0;
-    const cursor = snapArrangementBar(state.arrangementCursor);
+    const cursor = snapArrangementBar(bar);
     setArrangementCursor(cursor);
     let splitCount = 0;
     const canSplit = (type, clip) => {
@@ -15422,7 +15547,7 @@
         : 0;
       if (Number.isFinite(saved.swing)) state.swing = Math.max(0, Math.min(45, Math.round(saved.swing)));
       if (Number.isFinite(saved.steps)) state.steps = normalizePatternSteps(saved.steps);
-      if (Number.isFinite(saved.arrangementScale)) state.arrangementScale = Math.max(0.5, Math.min(4, saved.arrangementScale));
+      if (Number.isFinite(saved.arrangementScale)) state.arrangementScale = Math.max(0.1, Math.min(4, saved.arrangementScale));
       if (Number.isFinite(saved.pianoScale)) state.pianoScale = Math.max(0.5, Math.min(4, saved.pianoScale));
       if (Number.isFinite(saved.sequencerScale)) state.sequencerScale = Math.max(0.5, Math.min(4, saved.sequencerScale));
       if (Number.isFinite(saved.arrangementBars)) state.arrangementBars = Math.max(32, Math.min(MAX_ARRANGEMENT_BARS, Math.round(saved.arrangementBars)));
@@ -17067,6 +17192,7 @@
       setArrangementScale(Number(event.target.value) / 100);
     });
     $("#arrangement-scale-slider").addEventListener("change", saveState);
+    $("#arrangement-slice-button").addEventListener("click", () => setArrangementSliceMode(!arrangementSliceMode));
     $("#record-audio-button").addEventListener("click", toggleAudioRecording);
     $("#project-name").addEventListener("click", () => {
       renderProjectList();

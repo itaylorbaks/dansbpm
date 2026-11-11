@@ -492,6 +492,7 @@
       setArrangementScale(Number(event.target.value) / 100);
     });
     $("#arrangement-scale-slider").addEventListener("change", saveState);
+    $("#arrangement-slice-button").addEventListener("click", () => setArrangementSliceMode(!arrangementSliceMode));
     $("#record-audio-button").addEventListener("click", toggleAudioRecording);
     $("#project-name").addEventListener("click", () => {
       renderProjectList();

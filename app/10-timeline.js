@@ -335,9 +335,106 @@
       element.append(indicator);
     }
     if (mode === "repeat") indicator.textContent = `REPEAT ×${clip.repeatCount || 1}`;
+    else if (mode === "start") indicator.textContent = durationBars < initialDuration - 0.001 ? "TRIM START" : "EXTEND START";
     else indicator.textContent = durationBars > initialDuration + 0.001
       ? "EXTEND · SILENT"
       : durationBars < initialDuration - 0.001 ? "TRIM" : "LENGTH";
+  }
+
+  function makeAudioClipStartTrimHandle(track, clip, element) {
+    const handle = document.createElement("button");
+    handle.type = "button";
+    handle.className = "clip-resize-handle clip-start-handle";
+    handle.setAttribute("aria-label", `Trim the beginning of ${clip.name}`);
+    handle.title = "Drag to trim the beginning of this audio clip";
+    const handleWidth = Math.max(4, Math.min(12, BAR_WIDTH * 0.1));
+    handle.style.width = `${handleWidth}px`;
+    handle.style.flexBasis = `${handleWidth}px`;
+
+    const applyTrim = (deltaBars, initial) => {
+      const secondsPerBar = 240 / state.bpm;
+      const minDuration = Math.min(state.arrangementSnap ? 0.25 : 0.01, initial.durationBars);
+      const minDelta = -Math.min(initial.sourceOffsetSeconds / secondsPerBar, initial.startBar);
+      const maxDelta = Math.max(0, initial.durationBars - minDuration);
+      const delta = Math.max(minDelta, Math.min(maxDelta, snapArrangementBar(deltaBars)));
+      const durationBars = initial.durationBars - delta;
+      const startBar = initial.startBar + delta;
+      const sourceOffsetSeconds = Math.max(0, initial.sourceOffsetSeconds + delta * secondsPerBar);
+      const changed = Math.abs(startBar - clip.startBar) > 0.0001 ||
+        Math.abs(sourceOffsetSeconds - (clip.sourceOffsetSeconds || 0)) > 0.0001 ||
+        Math.abs(durationBars - getArrangementClipDuration("audio", clip)) > 0.0001;
+      if (!changed) return false;
+
+      clip.startBar = startBar;
+      clip.sourceOffsetSeconds = sourceOffsetSeconds;
+      clip.durationSeconds = durationBars * secondsPerBar;
+      const repeatLength = getArrangementClipRepeatLength("audio", clip);
+      clip.repeatCount = Math.max(1, Math.ceil((sourceOffsetSeconds / secondsPerBar + durationBars - 0.0001) / repeatLength));
+      const width = Math.max(12, durationBars * BAR_WIDTH - 8);
+      element.style.left = `${startBar * BAR_WIDTH + 4}px`;
+      element.style.width = `${width}px`;
+      drawAudioClipWaveform(element.querySelector(".clip-waveform-canvas"), clip, Math.max(1, width - 8), track.color);
+      updateArrangementClipRepeatMarkers(element, clip, repeatLength, durationBars, sourceOffsetSeconds / secondsPerBar);
+      element.setAttribute("aria-label",
+        `${clip.name}, bar ${startBar + 1}, ${durationBars.toFixed(2)} bars; drag to move or resize`);
+      return true;
+    };
+
+    const finishTrim = (changed) => {
+      if (!changed) return;
+      updateArrangementLength();
+      state.suppressArrangementClick = true;
+      window.setTimeout(() => { state.suppressArrangementClick = false; }, 0);
+      renderArrangement();
+      saveState();
+      persistClip(track, clip).catch(() => showToast("Clip trim changed, but browser storage could not be updated."));
+    };
+
+    handle.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      event.stopPropagation();
+      const initial = {
+        startBar: clip.startBar,
+        sourceOffsetSeconds: clip.sourceOffsetSeconds || 0,
+        durationBars: getArrangementClipDuration("audio", clip),
+      };
+      const delta = event.key === "ArrowRight" ? 0.25 : -0.25;
+      finishTrim(applyTrim(delta, initial));
+    });
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (state.isPlaying && state.playbackMode === "arrangement") stopPlayback();
+      const startX = event.clientX;
+      const initial = {
+        startBar: clip.startBar,
+        sourceOffsetSeconds: clip.sourceOffsetSeconds || 0,
+        durationBars: getArrangementClipDuration("audio", clip),
+      };
+      let changed = false;
+      element.draggable = false;
+      updateClipResizeIndicator(element, "start", clip, initial.durationBars, initial.durationBars);
+      const onMove = (moveEvent) => {
+        const nextDelta = (moveEvent.clientX - startX) / BAR_WIDTH;
+        const moved = applyTrim(nextDelta, initial);
+        changed = moved || changed;
+        updateClipResizeIndicator(element, "start", clip, getArrangementClipDuration("audio", clip), initial.durationBars);
+      };
+      const onEnd = () => {
+        document.removeEventListener("pointermove", onMove);
+        document.removeEventListener("pointerup", onEnd);
+        document.removeEventListener("pointercancel", onEnd);
+        element.draggable = true;
+        element.querySelector(".clip-resize-indicator")?.remove();
+        finishTrim(changed);
+      };
+      document.addEventListener("pointermove", onMove);
+      document.addEventListener("pointerup", onEnd);
+      document.addEventListener("pointercancel", onEnd);
+    });
+    return handle;
   }
 
   function makeArrangementResizeHandle(type, clip, track, element, labelElement, mode = "length") {
@@ -346,6 +443,9 @@
       : type === "mel" ? getMel(clip.melId)?.name || "Mel" : clip.name;
     handle.type = "button";
     handle.className = `clip-resize-handle clip-${mode}-handle`;
+    const handleWidth = Math.max(4, Math.min(12, BAR_WIDTH * 0.1));
+    handle.style.width = `${handleWidth}px`;
+    handle.style.flexBasis = `${handleWidth}px`;
     handle.setAttribute("aria-label", mode === "repeat" ? `Repeat ${name}` : `Trim or extend ${name}`);
     handle.title = mode === "repeat"
       ? `Drag to repeat ${name}`
@@ -361,7 +461,7 @@
         clip.repeatCount = Math.max(1, Math.ceil((sourceOffset + durationBars - 0.0001) / repeatLength));
       }
       const duration = getArrangementClipDuration(type, clip);
-      element.style.width = `${Math.max(28, duration * BAR_WIDTH - 8)}px`;
+      element.style.width = `${Math.max(12, duration * BAR_WIDTH - 8)}px`;
       if (type === "audio") {
         element.style.setProperty("--pattern-color", track?.color || "var(--accent)");
         updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength(type, clip), duration,

@@ -336,7 +336,7 @@
                             </select>
                           </label>
                           <label class="scale-control">
-                            <span>ZOOM</span>
+                            <span>SCALE</span>
                             <input id="piano-scale-slider" type="range" min="50" max="400" step="10" value="100" aria-label="Piano roll scale">
                             <output id="piano-scale-value" for="piano-scale-slider">100%</output>
                           </label>
@@ -586,10 +586,11 @@
                       <button class="quiet-button" id="track-view-fullscreen-button" type="button" aria-label="Expand Track View to fullscreen" aria-controls="track-view-area" aria-pressed="false">Expand</button>
                       <button class="quiet-button" id="hide-track-view-button" type="button">Hide</button>
                       <button class="quiet-button" id="arrangement-snap-button" type="button" aria-pressed="true" title="Snap the playhead and clips to quarter-note beats">SNAP ON</button>
+                      <button class="quiet-button" id="arrangement-slice-button" type="button" aria-pressed="false" title="Click a clip to split it at that point">SLICE</button>
                       <button class="quiet-button loop-toggle-button" id="arrangement-loop-button" type="button" aria-pressed="false">LOOP OFF</button>
                       <label class="scale-control">
                         <span>SCALE</span>
-                        <input id="arrangement-scale-slider" type="range" min="50" max="400" step="10" value="100" aria-label="Track view scale">
+                        <input id="arrangement-scale-slider" type="range" min="10" max="400" step="10" value="100" aria-label="Track view scale">
                         <output id="arrangement-scale-value" for="arrangement-scale-slider">100%</output>
                       </label>
                       <span class="arrangement-bar-label" id="arrangement-bar-label">32 BARS</span>

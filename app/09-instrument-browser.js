@@ -613,7 +613,7 @@
     }
     const startBar = arrangementDropStartAtPointer(event, lane);
     preview.style.left = `${startBar * BAR_WIDTH + 4}px`;
-    preview.style.width = `${Math.max(28, drag.durationBars * BAR_WIDTH - 8)}px`;
+    preview.style.width = `${Math.max(12, drag.durationBars * BAR_WIDTH - 8)}px`;
   }
 
   function clearArrangementDragPreview() {
