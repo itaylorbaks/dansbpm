@@ -839,6 +839,8 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .dj-deck.is-active { border-color: #839b4b; box-shadow: inset 0 0 0 1px rgba(211,243,107,.13); }
 .dj-deck-heading { margin-bottom: 10px; }
 .dj-deck-heading h2, .dj-section-heading h2 { font-size: 13px; }
+.dj-deck.is-muted .dj-deck-heading::after { content: "MUTED"; color: #ff958c; font: 8px var(--mono); letter-spacing: .5px; }
+#dj-view.is-master-muted .dj-master-panel h2::after { content: " · MUTED"; color: #ff958c; font: 8px var(--mono); }
 .dj-deck select { display: block; width: 100%; height: 32px; border: 1px solid #3a3b40; border-radius: 5px; background: #17181b; padding: 0 8px; color: var(--text); font-size: 10px; }
 .dj-deck-stage { display: grid; grid-template-columns: 104px minmax(0, 1fr); align-items: center; gap: 12px; margin: 12px 0 8px; }
 .dj-platter { position: relative; display: grid; width: 104px; aspect-ratio: 1; place-items: center; overflow: hidden; border: 1px solid #505157; border-radius: 50%; background: repeating-radial-gradient(circle, #242529 0 4px, #1d1e21 5px 7px), conic-gradient(from 25deg, #313238, #17181b, #36373d, #1b1c20, #313238); box-shadow: inset 0 0 0 5px #131416, 0 4px 12px #0008; cursor: grab; touch-action: none; user-select: none; }
@@ -883,8 +885,10 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .dj-arrangement-scroll { display: grid; grid-template-columns: 62px minmax(0, 1fr) 68px; align-items: center; gap: 8px; padding: 0 8px; color: #aeb0b6; font-family: var(--mono); font-size: 8px; }
 .dj-arrangement-scroll input { width: 100%; min-width: 0; margin: 0; accent-color: var(--accent); }
 .dj-arrangement-scroll output { color: #888b7b; font-size: 7px; text-align: right; white-space: nowrap; }
-.dj-live-waveform-row { display: grid; grid-template-columns: 62px minmax(0, 1fr); align-items: center; gap: 8px; border: 1px solid #34353a; border-radius: 6px; background: #17181b; padding: 6px 8px; cursor: grab; touch-action: none; user-select: none; transition: opacity .2s ease, filter .2s ease; }
+.dj-live-waveform-row { position: relative; display: grid; grid-template-columns: 62px minmax(0, 1fr); align-items: center; gap: 8px; border: 1px solid #34353a; border-radius: 6px; background: #17181b; padding: 6px 8px; cursor: grab; touch-action: none; user-select: none; transition: opacity .2s ease, filter .2s ease; }
 .dj-live-waveform-row:not(.is-playing) { opacity: .78; filter: grayscale(.3); }
+.dj-live-waveform-row.is-muted .dj-live-waveform { opacity: .28; }
+.dj-live-waveform-row.is-muted::after { position: absolute; top: 8px; right: 12px; z-index: 1; border-radius: 3px; background: #f3f5e8; padding: 2px 4px; color: #17181b; content: "MUTED"; font: 8px var(--mono); }
 .dj-live-waveform-row.is-dragging { border-color: var(--accent); cursor: grabbing; }
 .dj-live-waveform-row > span { display: grid; gap: 3px; color: var(--accent); font-family: var(--mono); font-size: 8px; }
 .dj-live-waveform-row output { color: #888b7b; font-size: 7px; }

@@ -531,12 +531,12 @@
                         </div>
                         <div class="dj-live-deck-view" id="dj-live-deck-view">
                           <div class="dj-live-ruler" aria-label="Arrangement time ruler">
-                            <span>TIME<small>BAR</small></span>
+                            <span>SEEK</span>
                             <canvas id="dj-arrangement-ruler" role="slider" tabindex="0" aria-label="Arrangement playhead" aria-valuemin="0" aria-valuemax="256" aria-valuenow="0" aria-valuetext="Bar 1"></canvas>
                           </div>
                           <label class="dj-arrangement-scroll" for="dj-arrangement-scroll">
                             <span>VIEW</span>
-                            <input id="dj-arrangement-scroll" type="range" min="0" max="248" step="any" value="0" aria-label="Scroll arrangement timeline">
+                            <input id="dj-arrangement-scroll" type="range" min="-4" max="252" step="any" value="0" aria-label="Scroll arrangement timeline">
                             <output id="dj-arrangement-range">BARS 1–8</output>
                           </label>
                           <div class="dj-live-waveform-row" data-deck="A" title="Drag to move Deck A in the arrangement">
@@ -883,7 +883,7 @@
               <h3>DJ</h3>
               <ul>
                 <li>Choose a source for Deck A or B, then use <strong>Play</strong>, <strong>Sync</strong>, and the nudge buttons to mix.</li>
-                <li>Drag a deck waveform to stage its entry; drag the arrangement ruler to seek. <kbd>Space</kbd> pauses or resumes.</li>
+                <li>Drag a deck waveform to stage its entry; drag the arrangement ruler to seek. <kbd>Space</kbd> pauses or resumes. In full DJ View, <kbd>M</kbd> toggles master mute; <kbd>[</kbd> + <kbd>M</kbd> toggles Deck A mute, and <kbd>]</kbd> + <kbd>M</kbd> toggles Deck B mute.</li>
               </ul>
             </section>
             <section class="help-section">

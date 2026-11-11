@@ -976,6 +976,7 @@
     return {
       activeDeck: djState.activeDeck,
       crossfader: djState.crossfader,
+      masterMuted: djState.masterMuted,
       masterVolume: djState.masterVolume,
       masterLow: djState.masterLow,
       masterMid: djState.masterMid,
@@ -988,6 +989,7 @@
         return [deckId, {
           sourceKey: deck.sourceKey,
           volume: deck.volume,
+          muted: deck.muted,
           filter: deck.filter,
           eqLow: deck.eqLow,
           eqMid: deck.eqMid,
@@ -1098,6 +1100,7 @@
     Object.assign(djState, {
       activeDeck: dj.activeDeck,
       crossfader: dj.crossfader,
+      masterMuted: dj.masterMuted,
       masterVolume: dj.masterVolume,
       masterLow: dj.masterLow,
       masterMid: dj.masterMid,
