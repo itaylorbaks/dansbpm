@@ -1045,6 +1045,11 @@
       if (time < deck.dragPreviewStartTime) return null;
       return (time - deck.dragPreviewStartTime) * unitsPerSecond * getDjRate(deck);
     }
+    if (!deck.playing && Number.isFinite(deck.visualStopTime) &&
+      Number.isFinite(deck.resumeContentPosition) && time >= deck.visualStopTime) {
+      return deck.resumeContentPosition + (time - deck.visualStopTime) *
+        unitsPerSecond * (deck.resumeRate || getDjRate(deck));
+    }
     const segments = deck.visualSegments || [];
     let low = 0;
     let high = segments.length;
@@ -1313,6 +1318,7 @@
     deck.scratchPointerId = null;
     deck.scratchRate = 1;
     deck.nudgeRate = 1;
+    if (Number.isFinite(stoppedAtBar)) deck.resumeRate = getDjRate(deck);
     if (deck.nudgeTimer !== null) window.clearTimeout(deck.nudgeTimer);
     deck.nudgeTimer = null;
     if (deck.audioSource) {
@@ -1372,10 +1378,12 @@
         if (Number.isFinite(previousArrangementStart)) {
           const timeShift = nextArrangementStart - previousArrangementStart;
           DJ_DECK_IDS.forEach((id) => {
-            (djState.decks[id].visualSegments || []).forEach((segment) => {
+            const shiftedDeck = djState.decks[id];
+            (shiftedDeck.visualSegments || []).forEach((segment) => {
               segment.startTime += timeShift;
               if (Number.isFinite(segment.endTime)) segment.endTime += timeShift;
             });
+            if (Number.isFinite(shiftedDeck.visualStopTime)) shiftedDeck.visualStopTime += timeShift;
           });
         }
         djState.arrangementStartTime = nextArrangementStart;
@@ -1397,6 +1405,7 @@
       deck.resumeContentPosition = null;
       deck.resumeArrangementBar = null;
       deck.pausedViewStartBar = null;
+      deck.resumeRate = null;
       deck.visualStopTime = null;
       deck.nextStepTime = startTime;
       deck.playing = true;
