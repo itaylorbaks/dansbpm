@@ -224,7 +224,7 @@
         let detected = 60 * frameRate / fractionalLag;
         if (detected < 85 && detected * 2 <= 200 &&
           correlationAt(Math.round(bestLag / 2)) >= bestScore * 0.8) detected *= 2;
-        bpm = Math.round(detected);
+        bpm = roundBpm(detected);
       }
     }
     return { bpm, key: getKeyFromChroma(chroma) };
@@ -382,7 +382,7 @@
   function normalizeAudioMetadata(metadata) {
     return {
       bpm: Number.isFinite(metadata?.bpm) && metadata.bpm >= 40 && metadata.bpm <= 240
-        ? Math.round(metadata.bpm) : null,
+        ? roundBpm(metadata.bpm) : null,
       key: typeof metadata?.key === "string" && /^[A-G]#? (major|minor)$/.test(metadata.key)
         ? metadata.key : null,
     };
@@ -415,6 +415,8 @@
   }
 
   function getAudioClipTempoRatio(clip) {
+    const sourceBpm = normalizeAudioMetadata(clip.audioMetadata).bpm ?? clip.audioAdjustment?.sourceBpm;
+    if (Number.isFinite(sourceBpm) && sourceBpm > 0) return state.bpm / sourceBpm;
     const ratio = clip.audioAdjustment?.tempoRatio;
     return Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
   }

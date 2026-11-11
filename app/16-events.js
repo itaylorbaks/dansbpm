@@ -46,7 +46,7 @@
       }
       const resumeBar = state.arrangementCursor;
       if (state.isPlaying && isSongWorkspace()) stopPlayback();
-      state.bpm = Math.round(value);
+      state.bpm = roundBpm(value);
       tempoValue.textContent = String(state.bpm);
       updateArrangementLength();
       if (isSongWorkspace()) renderArrangement();

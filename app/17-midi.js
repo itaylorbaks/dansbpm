@@ -172,8 +172,9 @@
       if (!notes.length) throw new Error("No supported notes were found in that MIDI file.");
       const endTick = Math.max(...notes.map((note) => note.startTick + note.durationTicks));
       const bars = [1, 2, 4, 8].find((bar) => bar * PIANO_TICKS_PER_BAR >= endTick) || 8;
-      const requestedBpm = Math.round(parsed.bpm);
-      const bpm = Math.max(60, Math.min(180, requestedBpm));
+      const requestedBpm = parsed.bpm;
+      const bpm = Math.max(60, Math.min(180, roundBpm(requestedBpm)));
+      const tempoLimited = requestedBpm < 60 || requestedBpm > 180;
       const name = file.name.replace(/\.(mid|midi)$/i, "").trim() || "Imported MIDI";
       const mel = makeMel(name, state.selectedPianoTrackId, bars, notes);
       if (state.isPlaying) stopPlayback();
@@ -193,9 +194,9 @@
       saveState();
       const skipped = Math.max(0, parsed.notes.length - notes.length);
       const skippedMessage = skipped ? ` ${skipped} notes outside the editor range were skipped.` : "";
-      showToast(requestedBpm === bpm
-        ? `Imported ${notes.length} MIDI notes into "${name}".${skippedMessage}`
-        : `Imported ${notes.length} MIDI notes; tempo was limited to ${bpm} BPM.${skippedMessage}`);
+      showToast(tempoLimited
+        ? `Imported ${notes.length} MIDI notes; tempo was limited to ${bpm} BPM.${skippedMessage}`
+        : `Imported ${notes.length} MIDI notes into "${name}".${skippedMessage}`);
     } catch (error) {
       showToast(error.message || "The MIDI file could not be imported.");
     }

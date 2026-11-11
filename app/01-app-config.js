@@ -26,6 +26,10 @@
   const PATTERN_COLORS = ["#d3f36b", "#7cc9ff", "#ff9178", "#ee9df6", "#f6ca74", "#93e2bd", "#b5a0ff", "#f28dba"];
   const GRID_RESOLUTIONS = ["1/64", "1/32", "1/16", "1/8", "1/4"];
   const GRID_STEPS_PER_BAR = { "1/64": 64, "1/32": 32, "1/16": 16, "1/8": 8, "1/4": 4 };
+  function roundBpm(value) {
+    return Math.round(value * 10) / 10;
+  }
+
   const LIVE_KEY_CODES = [
     ..."1234567890".split("").map((key) => `Digit${key}`),
     ..."qwertyuiopasdfghjklzxcvbnm".split("").map((key) => `Key${key.toUpperCase()}`),

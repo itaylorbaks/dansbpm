@@ -1018,7 +1018,7 @@
       const projectWasEmpty = isProjectEmptyForAudioImport();
       const detectedMetadata = normalizeAudioMetadata(audioMetadata);
       if (projectWasEmpty && detectedMetadata.bpm !== null) {
-        state.bpm = Math.max(60, Math.min(180, detectedMetadata.bpm));
+        state.bpm = Math.max(60, Math.min(180, roundBpm(detectedMetadata.bpm)));
         tempoValue.textContent = String(state.bpm);
       }
       let audioAdjustment = projectWasEmpty ? null : getAudioClipProjectAdjustment(audioMetadata);

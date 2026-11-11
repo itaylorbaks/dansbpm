@@ -447,6 +447,10 @@
   const PATTERN_COLORS = ["#d3f36b", "#7cc9ff", "#ff9178", "#ee9df6", "#f6ca74", "#93e2bd", "#b5a0ff", "#f28dba"];
   const GRID_RESOLUTIONS = ["1/64", "1/32", "1/16", "1/8", "1/4"];
   const GRID_STEPS_PER_BAR = { "1/64": 64, "1/32": 32, "1/16": 16, "1/8": 8, "1/4": 4 };
+  function roundBpm(value) {
+    return Math.round(value * 10) / 10;
+  }
+
   const LIVE_KEY_CODES = [
     ..."1234567890".split("").map((key) => `Digit${key}`),
     ..."qwertyuiopasdfghjklzxcvbnm".split("").map((key) => `Key${key.toUpperCase()}`),
@@ -5896,7 +5900,7 @@
     const source = getDjSource(deck.sourceKey);
     $(`#dj-track-name-${suffix}`).textContent = source?.name || "No track loaded";
     const metadata = getDjSourceMetadata(source);
-    const displayedBpm = Number.isFinite(metadata.bpm) ? Math.round(metadata.bpm * getDjRate(deck)) : "—";
+    const displayedBpm = Number.isFinite(metadata.bpm) ? roundBpm(metadata.bpm * getDjRate(deck)) : "—";
     $(`#dj-metadata-${suffix}`).textContent = `BPM ${displayedBpm} · KEY ${metadata.key || "—"}`;
     $(`#dj-pitch-value-${suffix}`).textContent = `${deck.pitch >= 0 ? "+" : ""}${deck.pitch.toFixed(1)}%`;
     const timeline = source ? getDjTimelineData(deckId) : null;
@@ -8131,7 +8135,7 @@
         let detected = 60 * frameRate / fractionalLag;
         if (detected < 85 && detected * 2 <= 200 &&
           correlationAt(Math.round(bestLag / 2)) >= bestScore * 0.8) detected *= 2;
-        bpm = Math.round(detected);
+        bpm = roundBpm(detected);
       }
     }
     return { bpm, key: getKeyFromChroma(chroma) };
@@ -8289,7 +8293,7 @@
   function normalizeAudioMetadata(metadata) {
     return {
       bpm: Number.isFinite(metadata?.bpm) && metadata.bpm >= 40 && metadata.bpm <= 240
-        ? Math.round(metadata.bpm) : null,
+        ? roundBpm(metadata.bpm) : null,
       key: typeof metadata?.key === "string" && /^[A-G]#? (major|minor)$/.test(metadata.key)
         ? metadata.key : null,
     };
@@ -8322,6 +8326,8 @@
   }
 
   function getAudioClipTempoRatio(clip) {
+    const sourceBpm = normalizeAudioMetadata(clip.audioMetadata).bpm ?? clip.audioAdjustment?.sourceBpm;
+    if (Number.isFinite(sourceBpm) && sourceBpm > 0) return state.bpm / sourceBpm;
     const ratio = clip.audioAdjustment?.tempoRatio;
     return Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
   }
@@ -12747,7 +12753,7 @@
       const projectWasEmpty = isProjectEmptyForAudioImport();
       const detectedMetadata = normalizeAudioMetadata(audioMetadata);
       if (projectWasEmpty && detectedMetadata.bpm !== null) {
-        state.bpm = Math.max(60, Math.min(180, detectedMetadata.bpm));
+        state.bpm = Math.max(60, Math.min(180, roundBpm(detectedMetadata.bpm)));
         tempoValue.textContent = String(state.bpm);
       }
       let audioAdjustment = projectWasEmpty ? null : getAudioClipProjectAdjustment(audioMetadata);
@@ -16327,7 +16333,7 @@
           })
           .map((track) => makeMixerBusTrack("mixer-effects", track));
       }
-      if (Number.isFinite(saved.bpm)) state.bpm = Math.max(60, Math.min(180, Math.round(saved.bpm)));
+      if (Number.isFinite(saved.bpm)) state.bpm = Math.max(60, Math.min(180, roundBpm(saved.bpm)));
       state.masterPitch = Number.isFinite(saved.masterPitch)
         ? Math.max(-12, Math.min(12, Math.round(saved.masterPitch)))
         : 0;
@@ -17545,7 +17551,7 @@
       }
       const resumeBar = state.arrangementCursor;
       if (state.isPlaying && isSongWorkspace()) stopPlayback();
-      state.bpm = Math.round(value);
+      state.bpm = roundBpm(value);
       tempoValue.textContent = String(state.bpm);
       updateArrangementLength();
       if (isSongWorkspace()) renderArrangement();
@@ -18482,8 +18488,9 @@
       if (!notes.length) throw new Error("No supported notes were found in that MIDI file.");
       const endTick = Math.max(...notes.map((note) => note.startTick + note.durationTicks));
       const bars = [1, 2, 4, 8].find((bar) => bar * PIANO_TICKS_PER_BAR >= endTick) || 8;
-      const requestedBpm = Math.round(parsed.bpm);
-      const bpm = Math.max(60, Math.min(180, requestedBpm));
+      const requestedBpm = parsed.bpm;
+      const bpm = Math.max(60, Math.min(180, roundBpm(requestedBpm)));
+      const tempoLimited = requestedBpm < 60 || requestedBpm > 180;
       const name = file.name.replace(/\.(mid|midi)$/i, "").trim() || "Imported MIDI";
       const mel = makeMel(name, state.selectedPianoTrackId, bars, notes);
       if (state.isPlaying) stopPlayback();
@@ -18503,9 +18510,9 @@
       saveState();
       const skipped = Math.max(0, parsed.notes.length - notes.length);
       const skippedMessage = skipped ? ` ${skipped} notes outside the editor range were skipped.` : "";
-      showToast(requestedBpm === bpm
-        ? `Imported ${notes.length} MIDI notes into "${name}".${skippedMessage}`
-        : `Imported ${notes.length} MIDI notes; tempo was limited to ${bpm} BPM.${skippedMessage}`);
+      showToast(tempoLimited
+        ? `Imported ${notes.length} MIDI notes; tempo was limited to ${bpm} BPM.${skippedMessage}`
+        : `Imported ${notes.length} MIDI notes into "${name}".${skippedMessage}`);
     } catch (error) {
       showToast(error.message || "The MIDI file could not be imported.");
     }

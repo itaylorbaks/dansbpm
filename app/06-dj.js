@@ -1303,7 +1303,7 @@
     const source = getDjSource(deck.sourceKey);
     $(`#dj-track-name-${suffix}`).textContent = source?.name || "No track loaded";
     const metadata = getDjSourceMetadata(source);
-    const displayedBpm = Number.isFinite(metadata.bpm) ? Math.round(metadata.bpm * getDjRate(deck)) : "—";
+    const displayedBpm = Number.isFinite(metadata.bpm) ? roundBpm(metadata.bpm * getDjRate(deck)) : "—";
     $(`#dj-metadata-${suffix}`).textContent = `BPM ${displayedBpm} · KEY ${metadata.key || "—"}`;
     $(`#dj-pitch-value-${suffix}`).textContent = `${deck.pitch >= 0 ? "+" : ""}${deck.pitch.toFixed(1)}%`;
     const timeline = source ? getDjTimelineData(deckId) : null;
