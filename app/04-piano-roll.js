@@ -667,6 +667,25 @@
     return [1, 2, 4, 8, 16].includes(ticks) ? ticks : 4;
   }
 
+  function getPianoChopperSliceOrder(sliceCount, mode, keepLastSliceAtEnd) {
+    const movableCount = Math.max(0, sliceCount - Number(keepLastSliceAtEnd));
+    const order = Array.from({ length: movableCount }, (_, index) => index);
+    if (mode === "reverse") {
+      order.reverse();
+    } else if (mode === "alternating") {
+      const midpoint = Math.ceil(movableCount / 2);
+      order.splice(0, order.length, ...Array.from({ length: movableCount }, (_, index) =>
+        index % 2 === 0 ? Math.floor(index / 2) : midpoint + Math.floor(index / 2)));
+    } else if (mode === "shuffle") {
+      for (let index = order.length - 1; index > 0; index -= 1) {
+        const otherIndex = Math.floor(Math.random() * (index + 1));
+        [order[index], order[otherIndex]] = [order[otherIndex], order[index]];
+      }
+    }
+    if (keepLastSliceAtEnd) order.push(sliceCount - 1);
+    return order;
+  }
+
   function updatePianoChopperPreview() {
     const clip = getPianoRollAudioClip();
     if (!clip?.buffer) {
@@ -680,8 +699,9 @@
     const visibleDuration = Math.min(sourceDuration, secondsPerTick * 8 * PIANO_TICKS_PER_BAR);
     const sliceCount = Math.ceil(visibleDuration / (secondsPerTick * getPianoChopperDivisionTicks()));
     const exceedsPianoRoll = sourceDuration > secondsPerTick * 8 * PIANO_TICKS_PER_BAR;
+    const organizeLabel = $("#piano-chopper-organize").selectedOptions[0]?.textContent?.toLowerCase();
     $("#piano-chopper-preview").textContent =
-      `${sliceCount} slices · ${visibleDuration.toFixed(1)} seconds${exceedsPianoRoll ? " · only the first 8 bars fit in Piano Roll" : ""}`;
+      `${sliceCount} slices · ${visibleDuration.toFixed(1)} seconds · ${organizeLabel}${exceedsPianoRoll ? " · only the first 8 bars fit in Piano Roll" : ""}`;
   }
 
   function openPianoAudioChopper() {
@@ -723,6 +743,9 @@
     const pitch = Math.max(-12, Math.min(12, Number($("#piano-chopper-pitch").value) || 0));
     const dropOff = Math.max(0, Math.min(90, Number($("#piano-chopper-dropoff").value) || 0));
     const sliceCount = Math.ceil(durationTicks / sliceTicks);
+    const finalSliceTicks = durationTicks - (sliceCount - 1) * sliceTicks;
+    const keepLastSliceAtEnd = finalSliceTicks < sliceTicks - 0.0001;
+    const sliceOrder = getPianoChopperSliceOrder(sliceCount, $("#piano-chopper-organize").value, keepLastSliceAtEnd);
     let mel = getMel();
     if (state.pianoNotes.length &&
       !state.pianoNotes.some((note) => note.audioSlice?.clipId === clip.id)) {
@@ -743,25 +766,28 @@
     const startIndex = state.pianoNotes.length;
     const trackId = state.selectedPianoTrackId;
     for (let index = 0; index < sliceCount; index += 1) {
-      const startTick = index * sliceTicks;
-      const endTick = Math.min(durationTicks, startTick + sliceTicks);
-      const offsetSeconds = sourceOffset + startTick * secondsPerTick;
-      const sliceDuration = Math.min((endTick - startTick) * secondsPerTick,
+      const destinationStartTick = index * sliceTicks;
+      const destinationEndTick = Math.min(durationTicks, destinationStartTick + sliceTicks);
+      const sourceSliceIndex = sliceOrder[index];
+      const sourceStartTick = sourceSliceIndex * sliceTicks;
+      const sourceEndTick = Math.min(durationTicks, sourceStartTick + sliceTicks);
+      const offsetSeconds = sourceOffset + sourceStartTick * secondsPerTick;
+      const sliceDuration = Math.min((sourceEndTick - sourceStartTick) * secondsPerTick,
         sourceOffset + sourceDuration - offsetSeconds);
       if (sliceDuration <= 0) continue;
       state.pianoNotes.push({
         id: makeId(),
         trackId,
         midi: 60 + pitch,
-        startTick,
-        durationTicks: Math.max(0.5, endTick - startTick),
+        startTick: destinationStartTick,
+        durationTicks: Math.max(0.5, destinationEndTick - destinationStartTick),
         velocity: 0.8,
         audioSlice: {
           clipId: clip.id,
           offsetSeconds,
           durationSeconds: sliceDuration,
           dropOff,
-          sliceNumber: index + 1,
+          sliceNumber: sourceSliceIndex + 1,
         },
       });
     }

@@ -103,6 +103,7 @@
     $("#piano-chopper-cancel").addEventListener("click", () => $("#piano-chopper-dialog").close());
     $("#piano-chopper-apply").addEventListener("click", chopSelectedPianoAudio);
     $("#piano-chopper-division").addEventListener("change", updatePianoChopperPreview);
+    $("#piano-chopper-organize").addEventListener("change", updatePianoChopperPreview);
     $("#piano-chopper-dropoff").addEventListener("input", (event) => {
       $("#piano-chopper-dropoff-value").textContent = `${event.currentTarget.value}%`;
     });

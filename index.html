@@ -774,7 +774,17 @@
             <option value="1">1/32 note</option>
           </select>
         </label>
+        <label class="piano-chopper-control">
+          <span>Organize</span>
+          <select id="piano-chopper-organize">
+            <option value="original">Original order</option>
+            <option value="alternating">Alternate halves</option>
+            <option value="reverse">Reverse order</option>
+            <option value="shuffle">Shuffle</option>
+          </select>
+        </label>
         <p class="piano-chopper-preview" id="piano-chopper-preview"></p>
+        <p class="piano-chopper-help">Shuffle picks a new order each time. The final partial slice stays at the end to preserve the full audio.</p>
         <label class="piano-chopper-control">
           <span>Drop-off <output id="piano-chopper-dropoff-value">10%</output></span>
           <input id="piano-chopper-dropoff" type="range" min="0" max="90" step="1" value="10">
