@@ -52,14 +52,26 @@ test("room creation, joining, and snapshot broadcasts work", async (t) => {
   assert.match(created.roomCode, /^[0-9A-F]{20}$/);
 
   const joinedMessage = nextJson(joined);
-  joined.send(JSON.stringify({ type: "join", roomCode: created.roomCode, name: "Grace" }));
+  joined.send(JSON.stringify({
+    type: "join",
+    roomCode: created.roomCode,
+    name: "Grace",
+    view: "piano-roll",
+  }));
   const roomState = await joinedMessage;
   assert.equal(roomState.type, "roomState");
   assert.deepEqual(roomState.snapshot, snapshot);
   assert.equal(roomState.projectName, "Shared song");
   assert.deepEqual(roomState.participants, ["Ada", "Grace"]);
+  assert.deepEqual(roomState.viewers.map(({ name, view }) => [name, view]), [
+    ["Ada", "arrangement"],
+    ["Grace", "piano-roll"],
+  ]);
   const presence = await nextJson(creator);
   assert.deepEqual(presence.participants, ["Ada", "Grace"]);
+  const viewUpdate = nextJson(creator);
+  joined.send(JSON.stringify({ type: "view", view: "sequencer" }));
+  assert.equal((await viewUpdate).viewers[1].view, "sequencer");
 
   const creatorUpdate = nextJson(creator);
   const acknowledgement = nextJson(joined);
@@ -82,6 +94,18 @@ test("room creation, joining, and snapshot broadcasts work", async (t) => {
   const assetAck = await assetAcknowledgement;
   assert.equal(assetAck.updateId, 7);
   assert.equal(assetAck.revision, 3);
+
+  const creatorFollowup = nextJson(creator);
+  const followupAck = nextJson(joined);
+  joined.send(JSON.stringify({
+    type: "update",
+    baseRevision: 3,
+    snapshot: { bpm: 140, patterns: [] },
+    updateId: 8,
+  }));
+  assert.equal((await followupAck).revision, 4);
+  assert.equal((await creatorFollowup).snapshot.bpm, 140);
+  assert.equal(app.rooms.get(created.roomCode).snapshot.bpm, 140);
 
   const synchronizedPlay = nextJson(joined);
   creator.send(JSON.stringify({

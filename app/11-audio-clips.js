@@ -745,6 +745,7 @@
     }
     state.view = view;
     state.workspaceHidden = false;
+    sendCollaborationView();
     const showSequencer = view === "sequencer";
     const showPianoRoll = view === "piano-roll";
     const showMixer = view === "mixer";

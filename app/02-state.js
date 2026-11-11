@@ -128,6 +128,8 @@
     localDirty: false,
     conflicted: false,
     conflictMessage: "",
+    participantId: null,
+    viewers: [],
     reconnectTimer: null,
     manualLeave: false,
     pendingCreate: null,

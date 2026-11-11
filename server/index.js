@@ -9,6 +9,7 @@ const MAX_ROOM_BYTES = 20 * 1024 * 1024;
 const MAX_TOTAL_ROOM_BYTES = 100 * 1024 * 1024;
 const MAX_MESSAGES_PER_SECOND = 30;
 const ROOM_CODE_BYTES = 10;
+const COLLABORATION_VIEWS = new Set(["arrangement", "sequencer", "piano-roll", "mixer", "dj"]);
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -36,6 +37,10 @@ function safeName(value) {
 function safeProjectName(value) {
   if (typeof value !== "string") return "Shared project";
   return value.trim().replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 64) || "Shared project";
+}
+
+function safeView(value) {
+  return COLLABORATION_VIEWS.has(value) ? value : "arrangement";
 }
 
 function send(socket, value) {
@@ -66,6 +71,14 @@ export function createCollaborationServer({
     return [...room.clients.values()].map(({ name }) => name);
   }
 
+  function viewers(room) {
+    return [...room.clients.values()].map(({ id, name, view }) => ({ id, name, view }));
+  }
+
+  function presence(room) {
+    return { type: "presence", participants: participants(room), viewers: viewers(room) };
+  }
+
   function totalRoomBytes() {
     let total = 0;
     rooms.forEach((room) => { total += room.sizeBytes; });
@@ -87,14 +100,14 @@ export function createCollaborationServer({
     room.clients.delete(client.id);
     room.lastActiveAt = Date.now();
     if (room.clients.size === 0) room.expiresAt = Date.now() + roomTtlMs;
-    broadcast(room, { type: "presence", participants: participants(room) });
+    broadcast(room, presence(room));
   }
 
   function sendError(socket, message) {
     send(socket, { type: "error", message });
   }
 
-  function joinRoom(socket, roomCode, name) {
+  function joinRoom(socket, roomCode, name, view) {
     const room = rooms.get(roomCode);
     if (!room) {
       sendError(socket, "Room not found. Check the code or create a new room.");
@@ -105,7 +118,7 @@ export function createCollaborationServer({
       return;
     }
     const id = randomUUID();
-    const client = { id, name: safeName(name), roomCode, socket, messageTimes: [] };
+    const client = { id, name: safeName(name), view: safeView(view), roomCode, socket, messageTimes: [] };
     clients.set(socket, client);
     room.clients.set(id, client);
     room.lastActiveAt = Date.now();
@@ -113,13 +126,15 @@ export function createCollaborationServer({
     send(socket, {
       type: "roomState",
       roomCode,
+      participantId: id,
       revision: room.revision,
       snapshot: room.snapshot,
       assets: room.assets,
       projectName: room.projectName,
       participants: participants(room),
+      viewers: viewers(room),
     });
-    broadcast(room, { type: "presence", participants: participants(room) }, socket);
+    broadcast(room, presence(room), socket);
   }
 
   function validateDocument(socket, snapshot, assets) {
@@ -181,14 +196,23 @@ export function createCollaborationServer({
       };
       rooms.set(roomCode, room);
       const id = randomUUID();
-      const client = { id, name: safeName(message.name), roomCode, socket, messageTimes: [] };
+      const client = {
+        id,
+        name: safeName(message.name),
+        view: safeView(message.view),
+        roomCode,
+        socket,
+        messageTimes: [],
+      };
       clients.set(socket, client);
       room.clients.set(id, client);
       send(socket, {
         type: "roomCreated",
         roomCode,
+        participantId: id,
         revision: room.revision,
         participants: participants(room),
+        viewers: viewers(room),
       });
       return;
     }
@@ -202,7 +226,7 @@ export function createCollaborationServer({
         sendError(socket, "Enter a valid room code.");
         return;
       }
-      joinRoom(socket, message.roomCode, message.name);
+      joinRoom(socket, message.roomCode, message.name, message.view);
       return;
     }
 
@@ -289,8 +313,19 @@ export function createCollaborationServer({
         assets: room.assets,
         projectName: room.projectName,
         participants: participants(room),
+        viewers: viewers(room),
         sender: client.name,
       }, socket);
+      return;
+    }
+    if (message.type === "view") {
+      if (!COLLABORATION_VIEWS.has(message.view)) {
+        sendError(socket, "The collaboration view is invalid.");
+        return;
+      }
+      client.view = message.view;
+      room.lastActiveAt = now;
+      broadcast(room, presence(room), socket);
       return;
     }
     if (message.type === "transport") {

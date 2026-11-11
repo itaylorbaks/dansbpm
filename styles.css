@@ -37,6 +37,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .app-shell { width: min(100% - 64px, 1184px); margin: 0 auto; }
 body.is-exporting .app-shell { cursor: wait; opacity: .7; pointer-events: none; }
 .topbar { height: 66px; display: flex; align-items: center; border-bottom: 1px solid var(--stroke-soft); }
+.collaboration-presence-bar { position: sticky; top: 0; z-index: 20; min-height: 28px; display: flex; align-items: center; gap: 8px; overflow: hidden; border-bottom: 1px solid #34383a; background: #20231d; padding: 5px 10px; color: #cbd4b2; font: 9px var(--mono); white-space: nowrap; }
+.collaboration-presence-bar[hidden] { display: none; }
+.collaboration-presence-indicator { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px rgba(211,243,107,.55); }
+#collaboration-presence-text { overflow: hidden; text-overflow: ellipsis; }
 .brand { display: flex; gap: 10px; align-items: center; color: var(--text); text-decoration: none; font-size: 16px; font-weight: 700; letter-spacing: -.7px; }
 .brand-light { color: #a4a5a9; font-weight: 500; }
 .brand-mark { width: 21px; height: 21px; display: flex; align-items: flex-end; gap: 2px; padding: 3px; border: 1px solid rgba(211,243,107,.2); border-radius: 6px; background: var(--accent-soft); }

@@ -569,6 +569,8 @@
     localDirty: false,
     conflicted: false,
     conflictMessage: "",
+    participantId: null,
+    viewers: [],
     reconnectTimer: null,
     manualLeave: false,
     pendingCreate: null,
@@ -10257,6 +10259,7 @@
     }
     state.view = view;
     state.workspaceHidden = false;
+    sendCollaborationView();
     const showSequencer = view === "sequencer";
     const showPianoRoll = view === "piano-roll";
     const showMixer = view === "mixer";
@@ -12036,6 +12039,8 @@
     const roomActions = $("#collaboration-room-actions");
     const code = $("#collaboration-room-code");
     const participants = $("#collaboration-participants");
+    const presenceBar = $("#collaboration-presence-bar");
+    const presenceText = $("#collaboration-presence-text");
     if (status) status.textContent = collaboration.conflicted ? collaboration.conflictMessage : message;
     if (activeRoom) activeRoom.hidden = !collaboration.session;
     if (roomActions) roomActions.hidden = Boolean(collaboration.session);
@@ -12045,6 +12050,25 @@
         ? `In this room: ${collaboration.participantNames.join(", ")}`
         : "";
     }
+    if (presenceBar) presenceBar.hidden = !collaboration.session;
+    if (presenceText) {
+      const viewers = collaboration.viewers.length
+        ? collaboration.viewers
+        : [{ name: getCurrentUserName(), view: state.view }];
+      presenceText.textContent = viewers
+        .map(({ name, view }) => `${name} is viewing: ${getCollaborationViewName(view)}`)
+        .join("  ·  ");
+    }
+  }
+
+  function getCollaborationViewName(view) {
+    return ({
+      arrangement: "Arrangement",
+      sequencer: "Step Sequencer",
+      "piano-roll": "Piano Roll",
+      mixer: "Mixer",
+      dj: "DJ",
+    })[view] || "DansBPM";
   }
 
   function normalizeCollaborationServerUrl(value) {
@@ -12123,6 +12147,17 @@
     if (collaboration.socket?.readyState !== WebSocket.OPEN) return false;
     collaboration.socket.send(JSON.stringify(message));
     return true;
+  }
+
+  function sendCollaborationView() {
+    if (!collaboration.session) return;
+    collaboration.viewers = collaboration.viewers.map((viewer) =>
+      viewer.id === collaboration.participantId ? { ...viewer, view: state.view } : viewer,
+    );
+    if (!collaboration.applyingRemote) {
+      sendCollaborationMessage({ type: "view", view: state.view });
+    }
+    renderCollaborationStatus();
   }
 
   function sendCollaborationSnapshot(snapshot = createStateSnapshot()) {
@@ -12370,6 +12405,8 @@
         revision: message.revision,
       };
       collaboration.participantNames = message.participants || [];
+      collaboration.participantId = message.participantId || null;
+      collaboration.viewers = message.viewers || [];
       renderCollaborationStatus("Room created. Preparing a shared project copy…");
       await createLocalCollaborationProject({
         ...pending,
@@ -12380,6 +12417,8 @@
     }
     if (message.type === "roomState") {
       collaboration.participantNames = message.participants || collaboration.participantNames || [];
+      collaboration.participantId = message.participantId || collaboration.participantId;
+      collaboration.viewers = message.viewers || collaboration.viewers;
       if (!collaboration.session) {
         const pending = collaboration.pendingJoin;
         if (!pending) return;
@@ -12410,6 +12449,7 @@
     }
     if (message.type === "presence") {
       collaboration.participantNames = message.participants || [];
+      collaboration.viewers = message.viewers || [];
       renderCollaborationStatus(`Connected to room ${collaboration.session?.roomCode || ""}.`);
     }
     if (message.type === "snapshotAck") {
@@ -12482,6 +12522,7 @@
           socket.send(JSON.stringify({
             type: "create",
             name: getCurrentUserName(),
+            view: state.view,
             projectName: collaboration.pendingCreate.projectName,
             snapshot: collaboration.pendingCreate.snapshot,
             assets: collaboration.pendingCreate.assets,
@@ -12499,6 +12540,7 @@
         type: "join",
         roomCode: roomCode.trim().toUpperCase(),
         name: getCurrentUserName(),
+        view: state.view,
       }));
     });
   }
@@ -12571,6 +12613,7 @@
         type: "join",
         roomCode: session.roomCode,
         name: getCurrentUserName(),
+        view: state.view,
       }));
     });
   }
@@ -12586,6 +12629,8 @@
     collaboration.localDirty = false;
     collaboration.conflicted = false;
     collaboration.conflictMessage = "";
+    collaboration.participantId = null;
+    collaboration.viewers = [];
     saveCollaborationSession();
     renderCollaborationStatus("Room left. This project's local copy is saved.");
   }
@@ -12638,7 +12683,7 @@
   }
 
   function saveState() {
-    if (!state.currentUser) return;
+    if (!state.currentUser || collaboration.applyingRemote) return;
     const saveDot = $(".save-dot");
     $("#save-state").textContent = "Saving…";
     saveDot.style.background = "#c8a95a";
