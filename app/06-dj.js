@@ -29,8 +29,8 @@
     masterFilter: 20000,
     liveSlots: Array(8).fill(null),
     decks: {
-      A: { sourceKey: "", volume: 0.8, muted: false, filter: 20000, eqLow: 0, eqMid: 0, eqHigh: 0, pitch: 0, syncRate: 1, reverse: false, startOffsetBars: 0, loop: null, playing: false, isStarting: false, startRequestId: 0, timerId: null, audioSource: null, songSources: new Set(), songGains: new Map(), songEvents: new Set(), songAnchorTime: 0, songPositionBar: 0, songRate: 1, songDurationBars: 0, songEndTime: 0, filterNode: null, eqLowNode: null, eqMidNode: null, eqHighNode: null, gainNode: null, audioContext: null, djMasterInput: null, nextStepTime: 0, stepIndex: 0, scratchRate: 1, nudgeRate: 1, isScratching: false },
-      B: { sourceKey: "", volume: 0.8, muted: false, filter: 20000, eqLow: 0, eqMid: 0, eqHigh: 0, pitch: 0, syncRate: 1, reverse: false, startOffsetBars: 0, loop: null, playing: false, isStarting: false, startRequestId: 0, timerId: null, audioSource: null, songSources: new Set(), songGains: new Map(), songEvents: new Set(), songAnchorTime: 0, songPositionBar: 0, songRate: 1, songDurationBars: 0, songEndTime: 0, filterNode: null, eqLowNode: null, eqMidNode: null, eqHighNode: null, gainNode: null, audioContext: null, djMasterInput: null, nextStepTime: 0, stepIndex: 0, scratchRate: 1, nudgeRate: 1, isScratching: false },
+      A: { sourceKey: "", volume: 0.8, muted: false, filter: 20000, eqLow: 0, eqMid: 0, eqHigh: 0, quickIso: "off", pitch: 0, syncRate: 1, reverse: false, startOffsetBars: 0, loop: null, playing: false, isStarting: false, startRequestId: 0, timerId: null, audioSource: null, songSources: new Set(), songGains: new Map(), songEvents: new Set(), songAnchorTime: 0, songPositionBar: 0, songRate: 1, songDurationBars: 0, songEndTime: 0, filterNode: null, eqLowNode: null, eqMidNode: null, eqHighNode: null, gainNode: null, audioContext: null, djMasterInput: null, nextStepTime: 0, stepIndex: 0, scratchRate: 1, nudgeRate: 1, isScratching: false },
+      B: { sourceKey: "", volume: 0.8, muted: false, filter: 20000, eqLow: 0, eqMid: 0, eqHigh: 0, quickIso: "off", pitch: 0, syncRate: 1, reverse: false, startOffsetBars: 0, loop: null, playing: false, isStarting: false, startRequestId: 0, timerId: null, audioSource: null, songSources: new Set(), songGains: new Map(), songEvents: new Set(), songAnchorTime: 0, songPositionBar: 0, songRate: 1, songDurationBars: 0, songEndTime: 0, filterNode: null, eqLowNode: null, eqMidNode: null, eqHighNode: null, gainNode: null, audioContext: null, djMasterInput: null, nextStepTime: 0, stepIndex: 0, scratchRate: 1, nudgeRate: 1, isScratching: false },
     },
   };
   let djOpenLiveSlot = null;
@@ -111,6 +111,7 @@
             eqLow: deck.eqLow,
             eqMid: deck.eqMid,
             eqHigh: deck.eqHigh,
+            quickIso: deck.quickIso,
             pitch: deck.pitch,
             syncRate: deck.syncRate,
             reverse: deck.reverse,
@@ -160,6 +161,7 @@
         if (Number.isFinite(savedDeck.eqLow)) deck.eqLow = Math.max(-12, Math.min(12, savedDeck.eqLow));
         if (Number.isFinite(savedDeck.eqMid)) deck.eqMid = Math.max(-12, Math.min(12, savedDeck.eqMid));
         if (Number.isFinite(savedDeck.eqHigh)) deck.eqHigh = Math.max(-12, Math.min(12, savedDeck.eqHigh));
+        if (["off", "voice", "melody", "drums"].includes(savedDeck.quickIso)) deck.quickIso = savedDeck.quickIso;
         if (Number.isFinite(savedDeck.pitch)) deck.pitch = Math.max(-8, Math.min(8, savedDeck.pitch));
         if (Number.isFinite(savedDeck.syncRate)) deck.syncRate = Math.max(0.25, Math.min(4, savedDeck.syncRate));
         deck.reverse = savedDeck.reverse === true;
@@ -476,6 +478,7 @@
       $(`#dj-eq-low-${suffix}`).value = String(deck.eqLow);
       $(`#dj-eq-mid-${suffix}`).value = String(deck.eqMid);
       $(`#dj-eq-high-${suffix}`).value = String(deck.eqHigh);
+      $(`#dj-quick-iso-${suffix}`).value = deck.quickIso;
       updateDjDial($(`#dj-volume-${suffix}`), (value) => formatDjDialValue("volume", value));
       updateDjDial($(`#dj-filter-${suffix}`), (value) => formatDjDialValue("frequency", value));
       updateDjDial($(`#dj-eq-low-${suffix}`), (value) => formatDjDialValue("eq", value));
@@ -999,6 +1002,22 @@
       const timelineWidth = Math.max(1, width - 16);
       const binCount = Math.max(48, Math.min(900, Math.floor(timelineWidth)));
       const stepWidth = timelineWidth / binCount;
+      const autoLoopedSource = data.source.type === "pattern" || data.source.type === "mel";
+      const drawRestartMarker = (x) => {
+        if (x < 8 || x > width - 8) return;
+        context.save();
+        context.strokeStyle = "#f1d36b";
+        context.fillStyle = "#f1d36b";
+        context.lineWidth = 1.5;
+        context.beginPath();
+        context.moveTo(x, 1);
+        context.lineTo(x, height - 1);
+        context.stroke();
+        context.font = "9px sans-serif";
+        context.textBaseline = "top";
+        context.fillText("↻", x + 2, 2);
+        context.restore();
+      };
 
       if (isAudio) {
         const samples = data.clip.buffer.getChannelData(0);
@@ -1082,6 +1101,38 @@
           context.globalAlpha = 1;
         }
       }
+      if (autoLoopedSource && loopSpan > 0) {
+        if (isLive && !deck.loop) {
+          let previousTick = null;
+          let previousCycle = null;
+          const firstBinTickSpan = unitsPerSecond * getDjRate(deck) * visibleSpan / binCount;
+          for (let bin = 0; bin < binCount; bin += 1) {
+            const timelineTime = start + (bin + 0.5) / binCount * visibleSpan;
+            const sourceTick = getDjVisualPositionAtTime(deck, timelineTime, unitsPerSecond, isDragPreview);
+            if (sourceTick === null || sourceTick < 0) continue;
+            const cycle = Math.floor(sourceTick / loopSpan);
+            if (previousTick === null) {
+              const phase = sourceTick - cycle * loopSpan;
+              if (phase <= firstBinTickSpan * 2) {
+                drawRestartMarker(8 + (bin + 0.5) / binCount * timelineWidth);
+              }
+            } else if (cycle > previousCycle) {
+              for (let crossedCycle = previousCycle + 1; crossedCycle <= cycle; crossedCycle += 1) {
+                const boundary = crossedCycle * loopSpan;
+                const progress = (boundary - previousTick) / (sourceTick - previousTick);
+                drawRestartMarker(8 + (bin - 0.5 + progress) / binCount * timelineWidth);
+              }
+            }
+            previousTick = sourceTick;
+            previousCycle = cycle;
+          }
+        } else if (!isLive) {
+          const firstBoundary = Math.max(0, Math.ceil((start - 0.0001) / loopSpan) * loopSpan);
+          for (let boundary = firstBoundary; boundary <= start + visibleSpan; boundary += loopSpan) {
+            drawRestartMarker(8 + (boundary - start) / visibleSpan * timelineWidth);
+          }
+        }
+      }
       if (isLive && deck.loop) {
         const loopLeft = 8 + (deck.loop.startBar - viewStartBar) / DJ_ARRANGEMENT_BARS * timelineWidth;
         const loopRight = 8 + (deck.loop.endBar - viewStartBar) / DJ_ARRANGEMENT_BARS * timelineWidth;
@@ -1144,6 +1195,7 @@
     const deck = djState.decks[deckId];
     const suffix = deckId.toLowerCase();
     const source = getDjSource(deck.sourceKey);
+    $(`#dj-quick-iso-${suffix}`).value = deck.quickIso;
     $(`#dj-deck-${suffix}`).classList.toggle("is-active", djState.activeDeck === deckId);
     $(`#dj-deck-${suffix}`).classList.toggle("is-playing", deck.playing);
     $(`#dj-deck-${suffix}`).classList.toggle("is-muted", deck.muted);
@@ -1367,6 +1419,13 @@
     return { lowNode, midNode, highNode };
   }
 
+  function getDjQuickIsoProfile(mode) {
+    if (mode === "voice") return { low: -12, mid: 6, high: -8 };
+    if (mode === "melody") return { low: -12, mid: 2, high: 5 };
+    if (mode === "drums") return { low: 5, mid: -12, high: 5 };
+    return { low: 0, mid: 0, high: 0 };
+  }
+
   function ensureDjMasterAudio() {
     if (djMasterChain?.context === state.audioContext && djMasterChain.output === state.masterGain) return djMasterChain;
     if (djMasterChain) {
@@ -1421,9 +1480,10 @@
     DJ_DECK_IDS.forEach((deckId, index) => {
       const deck = djState.decks[deckId];
       if (!deck.filterNode || !deck.gainNode || deck.audioContext !== state.audioContext) return;
-      deck.eqLowNode.gain.setTargetAtTime(deck.eqLow, now, 0.015);
-      deck.eqMidNode.gain.setTargetAtTime(deck.eqMid, now, 0.015);
-      deck.eqHighNode.gain.setTargetAtTime(deck.eqHigh, now, 0.015);
+      const quickIso = getDjQuickIsoProfile(deck.quickIso);
+      deck.eqLowNode.gain.setTargetAtTime(deck.eqLow + quickIso.low, now, 0.015);
+      deck.eqMidNode.gain.setTargetAtTime(deck.eqMid + quickIso.mid, now, 0.015);
+      deck.eqHighNode.gain.setTargetAtTime(deck.eqHigh + quickIso.high, now, 0.015);
       deck.filterNode.frequency.setTargetAtTime(deck.filter, now, 0.015);
       deck.gainNode.gain.setTargetAtTime(deck.volume * gains[index] * (deck.muted ? 0 : 1), now, 0.015);
     });
@@ -2756,6 +2816,17 @@
       });
       $(`#dj-sync-${suffix}`).addEventListener("click", () => syncDjDeck(deckId));
       $(`#dj-focus-${suffix}`).addEventListener("click", () => setActiveDjDeck(deckId));
+      $(`#dj-quick-iso-${suffix}`).addEventListener("change", (event) => {
+        const mode = event.currentTarget.value;
+        if (!["off", "voice", "melody", "drums"].includes(mode)) {
+          showToast("That quick isolation mode is not available.");
+          event.currentTarget.value = djState.decks[deckId].quickIso;
+          return;
+        }
+        djState.decks[deckId].quickIso = mode;
+        applyDjMixer();
+        saveDjState();
+      });
       bindDjDial(`dj-volume-${suffix}`, "volume", (value) => {
         djState.decks[deckId].volume = value / 100;
         applyDjMixer();

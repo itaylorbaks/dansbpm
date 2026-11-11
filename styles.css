@@ -871,6 +871,8 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .dj-pitch-control input { width: 100%; }
 .dj-deck-transport { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 10px 0; }
 .dj-deck-transport button { min-height: 27px; padding: 0 8px; font-size: 9px; }
+.dj-quick-iso-control { display: grid; grid-template-columns: 66px minmax(0, 1fr); align-items: center; gap: 8px; margin-top: 8px; color: var(--faint); font: 8px var(--mono); letter-spacing: .5px; }
+.dj-quick-iso-control select { height: 28px; }
 .dj-knob-control { display: grid; grid-template-columns: 54px minmax(0, 1fr); align-items: center; gap: 8px; margin-top: 8px; }
 .dj-deck-knobs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin-top: 10px; border-top: 1px solid #303136; padding-top: 9px; }
 .dj-dial-control { min-width: 0; display: grid; justify-items: center; align-content: start; gap: 4px; color: var(--faint); font-family: var(--mono); font-size: 7px; text-align: center; }
@@ -883,6 +885,7 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .dj-arrangement, .dj-cue-slots, .dj-pads { margin-top: 16px; }
 .dj-section-heading { margin-bottom: 8px; }
 .dj-section-heading p { margin: 3px 0 0; color: #85868b; font-size: 9px; }
+.dj-restart-legend span { color: #f1d36b; font-size: 12px; }
 .dj-live-deck-view { display: grid; gap: 7px; }
 .dj-live-ruler { display: grid; grid-template-columns: 62px minmax(0, 1fr); align-items: stretch; gap: 8px; padding: 0 8px; }
 .dj-live-ruler > span { display: grid; align-content: center; gap: 2px; color: #aeb0b6; font-family: var(--mono); font-size: 8px; }

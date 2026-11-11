@@ -464,6 +464,15 @@
                             <button class="quiet-button dj-nudge" data-deck="A" data-direction="1" type="button" aria-label="Nudge deck A forward">+</button>
                             <button class="quiet-button dj-add-slot" data-deck="A" type="button">Add Cue Slot</button>
                           </div>
+                          <label class="dj-quick-iso-control" for="dj-quick-iso-a" title="EQ-based quick focus; overlapping frequencies remain.">
+                            <span>QUICK ISO</span>
+                            <select id="dj-quick-iso-a" aria-label="Deck A quick isolation">
+                              <option value="off">Off</option>
+                              <option value="voice">Voice</option>
+                              <option value="melody">Melody</option>
+                              <option value="drums">Drums</option>
+                            </select>
+                          </label>
                           <div class="dj-deck-knobs" aria-label="Deck A controls">
                             <label class="dj-dial-control" for="dj-volume-a">
                               <span>VOLUME</span><div class="dj-dial"><input id="dj-volume-a" type="range" min="0" max="100" value="80" aria-label="Deck A volume"></div><output id="dj-volume-a-value">80%</output>
@@ -508,6 +517,15 @@
                             <button class="quiet-button dj-nudge" data-deck="B" data-direction="1" type="button" aria-label="Nudge deck B forward">+</button>
                             <button class="quiet-button dj-add-slot" data-deck="B" type="button">Add Cue Slot</button>
                           </div>
+                          <label class="dj-quick-iso-control" for="dj-quick-iso-b" title="EQ-based quick focus; overlapping frequencies remain.">
+                            <span>QUICK ISO</span>
+                            <select id="dj-quick-iso-b" aria-label="Deck B quick isolation">
+                              <option value="off">Off</option>
+                              <option value="voice">Voice</option>
+                              <option value="melody">Melody</option>
+                              <option value="drums">Drums</option>
+                            </select>
+                          </label>
                           <div class="dj-deck-knobs" aria-label="Deck B controls">
                             <label class="dj-dial-control" for="dj-volume-b">
                               <span>VOLUME</span><div class="dj-dial"><input id="dj-volume-b" type="range" min="0" max="100" value="80" aria-label="Deck B volume"></div><output id="dj-volume-b-value">80%</output>
@@ -531,7 +549,7 @@
                         <div class="dj-section-heading">
                           <div>
                             <h2 id="dj-arrangement-title">Arrangement</h2>
-                            <!-- <p>Drag either waveform to stage its entry; drag the ruler to seek. Space pauses and resumes.</p> -->
+                            <p class="dj-restart-legend"><span>↻</span> marks pattern/Mel restarts</p>
                           </div>
                         </div>
                         <div class="dj-live-deck-view" id="dj-live-deck-view">
