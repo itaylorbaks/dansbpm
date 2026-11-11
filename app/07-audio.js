@@ -897,6 +897,50 @@
       shaper.curve = curve;
       shaper.oversample = "4x";
       connectWet(shaper);
+    } else if (id === "multibandCompressor") {
+      const lowCrossover = setting("lowCrossover", 180);
+      const highCrossover = Math.max(lowCrossover + 100, setting("highCrossover", 3500));
+      const attack = setting("attack", 10) / 1000;
+      const release = setting("release", 180) / 1000;
+      const sum = context.createGain();
+      const configureFilter = (filter, type, frequency) => {
+        filter.type = type;
+        filter.frequency.value = frequency;
+        filter.Q.value = Math.SQRT1_2;
+        nodes.push(filter);
+      };
+      const connectBand = (filters, thresholdKey, ratioKey, gainKey) => {
+        let previous = input;
+        filters.forEach(([type, frequency]) => {
+          const filter = context.createBiquadFilter();
+          configureFilter(filter, type, frequency);
+          previous.connect(filter);
+          previous = filter;
+        });
+        const compressor = context.createDynamicsCompressor();
+        compressor.threshold.value = setting(thresholdKey, -18);
+        compressor.knee.value = 6;
+        compressor.ratio.value = setting(ratioKey, 3);
+        compressor.attack.value = attack;
+        compressor.release.value = release;
+        const makeup = context.createGain();
+        makeup.gain.value = Math.pow(10, setting(gainKey, 0) / 20);
+        previous.connect(compressor);
+        compressor.connect(makeup);
+        makeup.connect(sum);
+        nodes.push(compressor, makeup);
+      };
+      connectBand([["lowpass", lowCrossover], ["lowpass", lowCrossover]],
+        "lowThreshold", "lowRatio", "lowGain");
+      connectBand([
+        ["highpass", lowCrossover], ["highpass", lowCrossover],
+        ["lowpass", highCrossover], ["lowpass", highCrossover],
+      ],
+        "midThreshold", "midRatio", "midGain");
+      connectBand([["highpass", highCrossover], ["highpass", highCrossover]],
+        "highThreshold", "highRatio", "highGain");
+      nodes.push(sum);
+      effectOutput = sum;
     } else if (id === "compressor" || id === "limiter" || id === "noiseGate" || id === "transientShaper") {
       const compressor = context.createDynamicsCompressor();
       compressor.threshold.value = id === "noiseGate" ? setting("threshold", -42)
