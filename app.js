@@ -7687,7 +7687,7 @@
 
   function scheduleArrangementMetronomeClick(iteration, clockStep, time) {
     if (!state.metronome || state.recordingMetronomeTimer !== null || clockStep % 8 !== 0) return;
-    const key = `${iteration}:${clockStep}`;
+    const key = `${iteration}:${Math.round(time * state.audioContext.sampleRate)}`;
     if (state.scheduledArrangementClicks.has(key)) return;
     scheduleArrangementVoice(() => triggerClick(time, clockStep % 32 === 0));
     state.scheduledArrangementClicks.add(key);
