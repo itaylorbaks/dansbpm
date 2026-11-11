@@ -209,10 +209,14 @@
     }
   }
 
+  function getAudioClipEditedMel(clip) {
+    return state.mels.slice().reverse().find((mel) => mel.audioSourceClipId === clip.id) || null;
+  }
+
   function createAudioClip(track, clip) {
     const element = document.createElement("div");
     const durationBars = getArrangementClipDuration("audio", clip);
-    const editedMel = state.mels.slice().reverse().find((mel) => mel.audioSourceClipId === clip.id);
+    const editedMel = getAudioClipEditedMel(clip);
     element.className = "audio-clip";
     element.classList.toggle("is-reversed", clip.reversed === true);
     element.classList.toggle("has-audio-pitch-mel", Boolean(editedMel));

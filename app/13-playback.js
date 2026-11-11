@@ -161,8 +161,36 @@
     } else {
       source.connect(envelope);
     }
-    envelope.connect(outputNode);
-    source.onended = () => pitchNode?.disconnect();
+    const clipEnvelope = noteOptions.clipEnvelope;
+    let clipGainNode = null;
+    if (clipEnvelope) {
+      clipGainNode = state.audioContext.createGain();
+      const clipGain = Math.max(0, Math.min(2, clipEnvelope.gain));
+      const clipOffset = Math.max(0, clipEnvelope.offsetSeconds);
+      const clipDuration = Math.max(0, clipEnvelope.durationSeconds);
+      const fadeIn = Math.max(0, clipEnvelope.fadeInSeconds);
+      const fadeOut = Math.max(0, clipEnvelope.fadeOutSeconds);
+      if (fadeIn || fadeOut) {
+        const curve = new Float32Array(33);
+        curve.forEach((_, index) => {
+          const clipTime = clipOffset + outputDuration * index / (curve.length - 1);
+          const fadeInGain = fadeIn ? Math.min(1, clipTime / fadeIn) : 1;
+          const fadeOutGain = fadeOut ? Math.min(1, Math.max(0, (clipDuration - clipTime) / fadeOut)) : 1;
+          curve[index] = clipGain * Math.min(fadeInGain, fadeOutGain);
+        });
+        clipGainNode.gain.setValueCurveAtTime(curve, time, outputDuration);
+      } else {
+        clipGainNode.gain.setValueAtTime(clipGain, time);
+      }
+      envelope.connect(clipGainNode);
+      clipGainNode.connect(outputNode);
+    } else {
+      envelope.connect(outputNode);
+    }
+    source.onended = () => {
+      pitchNode?.disconnect();
+      clipGainNode?.disconnect();
+    };
     source.start(time, offset, bufferDuration);
   }
 
@@ -622,6 +650,66 @@
     state.arrangementTracks.forEach((track) => {
       ensureArrangementTrackAudio(track);
       track.clips.forEach((clip) => {
+        const editedMel = getAudioClipEditedMel(clip);
+        if (editedMel?.notes.length) {
+          const instrument = getPianoTrack(editedMel.instrumentId) || getPianoTrack();
+          if (!instrument) throw new Error(`The edited Mel for ${clip.name} has no available instrument.`);
+          const clipDurationBars = getArrangementClipDuration("audio", clip);
+          const melClip = {
+            melId: editedMel.id,
+            startBar: clip.startBar,
+            sourceOffsetBars: 0,
+            repeatCount: clip.repeatCount || 1,
+            durationBars: clipDurationBars,
+          };
+          const clipEndBar = Math.min(arrangementEndBar, clip.startBar + clipDurationBars);
+          const clipGain = Math.max(0, Math.min(2, Number.isFinite(clip.clipGain) ? clip.clipGain : 1));
+          getMelClipNoteEvents(editedMel, melClip).forEach(({ note, loop, startBar: noteStartBar, endBar: noteEndBar }) => {
+            const key = `audio-mel:${track.id}:${clip.id}:${loop}:${note.id}`;
+            if (state.scheduledPianoNotes.has(key) || noteEndBar <= startBar) return;
+            const audibleStartBar = Math.max(startBar, noteStartBar);
+            const audibleEndBar = Math.min(noteEndBar, clipEndBar);
+            if (audibleEndBar <= audibleStartBar) return;
+            const elapsedSeconds = (audibleStartBar - noteStartBar) * secondsPerBar;
+            const duration = (audibleEndBar - audibleStartBar) * secondsPerBar;
+            let noteOptions = note;
+            if (note.audioSlice) {
+              const audioSlice = { ...note.audioSlice };
+              const sourceClip = getPianoRollAudioClipById(audioSlice.clipId) || clip;
+              const sourceRootMidi = Number.isInteger(audioSlice.rootMidi) ? audioSlice.rootMidi : 60;
+              const keyShiftSemitones = Number.isFinite(sourceClip.audioAdjustment?.keyShiftSemitones)
+                ? sourceClip.audioAdjustment.keyShiftSemitones : 0;
+              const sourceRate = getAudioClipTempoRatio(sourceClip) * Math.pow(2,
+                (note.midi - sourceRootMidi + keyShiftSemitones + (note.detune || 0) / 100) / 12);
+              const sourceAdvance = elapsedSeconds * sourceRate;
+              audioSlice.offsetSeconds += sourceAdvance;
+              audioSlice.durationSeconds = Math.max(0, audioSlice.durationSeconds - sourceAdvance);
+              noteOptions = {
+                ...note,
+                audioSlice,
+                clipEnvelope: {
+                  gain: clipGain,
+                  offsetSeconds: (audibleStartBar - clip.startBar) * secondsPerBar,
+                  durationSeconds: clipDurationBars * secondsPerBar,
+                  fadeInSeconds: clip.fadeInSeconds || 0,
+                  fadeOutSeconds: clip.fadeOutSeconds || 0,
+                },
+              };
+            }
+            scheduleArrangementVoice(() => playPianoNote(
+              instrument,
+              startTime + (audibleStartBar - startBar) * secondsPerBar,
+              note.midi,
+              duration,
+              (note.velocity ?? 0.8) * (note.audioSlice ? 1 : clipGain),
+              track,
+              null,
+              noteOptions,
+            ));
+            state.scheduledPianoNotes.add(key);
+          });
+          return;
+        }
         getAudioClipSegments(clip, startBar, Math.min(
           arrangementEndBar,
           clip.startBar + getArrangementClipDuration("audio", clip),
