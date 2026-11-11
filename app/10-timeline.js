@@ -361,11 +361,14 @@
       const secondsPerBar = 240 / state.bpm;
       const sourceSecondsPerBar = secondsPerBar * getAudioClipTempoRatio(clip);
       const minDuration = Math.min(state.arrangementSnap ? 0.25 : 0.01, initial.durationBars);
-      const minDelta = -Math.min(initial.sourceOffsetSeconds / sourceSecondsPerBar, initial.startBar);
+      const minDelta = -initial.sourceOffsetSeconds / sourceSecondsPerBar;
       const maxDelta = Math.max(0, initial.durationBars - minDuration);
-      const delta = Math.max(minDelta, Math.min(maxDelta, snapArrangementBar(deltaBars)));
+      const trimDelta = deltaBars < 0 && initial.sourceOffsetSeconds > 0
+        ? deltaBars
+        : snapArrangementBar(deltaBars);
+      const delta = Math.max(minDelta, Math.min(maxDelta, trimDelta));
       const durationBars = initial.durationBars - delta;
-      const startBar = initial.startBar + delta;
+      const startBar = Math.max(0, initial.startBar + delta);
       const sourceOffsetSeconds = Math.max(0, initial.sourceOffsetSeconds + delta * sourceSecondsPerBar);
       const changed = Math.abs(startBar - clip.startBar) > 0.0001 ||
         Math.abs(sourceOffsetSeconds - (clip.sourceOffsetSeconds || 0)) > 0.0001 ||

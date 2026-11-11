@@ -1049,6 +1049,12 @@
       const audioMetadata = detectAudioMetadata(buffer);
       const projectWasEmpty = isProjectEmptyForAudioImport();
       const detectedMetadata = normalizeAudioMetadata(audioMetadata);
+      const sourceOffsetSeconds = Number.isFinite(detectedMetadata.beatOffsetSeconds)
+        ? Math.max(0, Math.min(buffer.duration - 0.01, detectedMetadata.beatOffsetSeconds))
+        : 0;
+      const alignmentNotice = sourceOffsetSeconds > 0.02
+        ? ` Aligned the detected first beat; ${sourceOffsetSeconds.toFixed(2)} s of lead-in is trimmed. Drag the clip's left edge to restore it.`
+        : "";
       if (projectWasEmpty && detectedMetadata.bpm !== null) {
         state.bpm = Math.max(60, Math.min(180, roundBpm(detectedMetadata.bpm)));
         tempoValue.textContent = String(state.bpm);
@@ -1062,8 +1068,8 @@
       const clip = {
         id: makeId(), name: file.name, buffer,
           repeatCount: 1,
-        durationSeconds: buffer.duration,
-        sourceOffsetSeconds: 0,
+        durationSeconds: buffer.duration - sourceOffsetSeconds,
+        sourceOffsetSeconds,
         startBar: 0,
         blob: file,
         audioMetadata,
@@ -1085,13 +1091,13 @@
         showToast("Recording added for this session, but browser storage is unavailable.");
       }
       if (adjustmentBlocked) {
-        showToast(`${file.name} was added without key or tempo matching because pitch-preserving adjustment is unavailable.`);
+        showToast(`${file.name} was added without key or tempo matching because pitch-preserving adjustment is unavailable.${alignmentNotice}`);
       } else if (audioAdjustment) {
         const targets = [
           audioAdjustment.targetKey,
           audioAdjustment.targetBpm ? `${audioAdjustment.targetBpm} BPM` : null,
         ].filter(Boolean);
-        if (targets.length) showToast(`${file.name} matched to ${targets.join(" and ")}.`);
+        if (targets.length) showToast(`${file.name} matched to ${targets.join(" and ")}.${alignmentNotice}`);
       } else if (projectWasEmpty) {
         const detected = [
           detectedMetadata.bpm === null ? null :
@@ -1099,8 +1105,10 @@
           detectedMetadata.key,
         ].filter(Boolean);
         showToast(detected.length
-          ? `Project set to ${detected.join(" / ")} from ${file.name}.`
-          : `Added ${file.name}; tempo and key could not be confidently detected.`);
+          ? `Project set to ${detected.join(" / ")} from ${file.name}.${alignmentNotice}`
+          : `Added ${file.name}; tempo and key could not be confidently detected.${alignmentNotice}`);
+      } else if (alignmentNotice) {
+        showToast(`${file.name}.${alignmentNotice}`);
       }
       return clip;
     } catch (error) {

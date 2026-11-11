@@ -110,6 +110,33 @@
     return `${MUSICAL_KEY_NAMES[best.tonic]} ${best.mode === 0 ? "major" : "minor"}`;
   }
 
+  function detectAudioBeatOffset(onsets, frameRate, bpm, onsetCenterOffsetSeconds) {
+    const beatFrames = frameRate * 60 / bpm;
+    const analysisFrames = Math.min(onsets.length, Math.floor(frameRate * 12));
+    if (!Number.isFinite(beatFrames) || beatFrames < 1 || analysisFrames < beatFrames * 4) return null;
+    const averageOnset = onsets.slice(0, analysisFrames)
+      .reduce((sum, value) => sum + value, 0) / analysisFrames;
+    let bestPhase = 0;
+    let bestScore = -Infinity;
+    for (let phase = 0; phase < Math.ceil(beatFrames); phase += 1) {
+      let score = 0;
+      let beatCount = 0;
+      for (let beat = phase; beat < analysisFrames; beat += beatFrames) {
+        score += onsets[Math.min(onsets.length - 1, Math.round(beat))];
+        beatCount += 1;
+      }
+      const averageScore = score / beatCount;
+      if (averageScore > bestScore) {
+        bestScore = averageScore;
+        bestPhase = phase;
+      }
+    }
+    if (bestScore <= averageOnset * 1.15) return null;
+    const phaseSeconds = bestPhase / frameRate;
+    if (phaseSeconds <= 1 / frameRate) return 0;
+    return Math.round((phaseSeconds + onsetCenterOffsetSeconds) * 1000) / 1000;
+  }
+
   function detectAudioMetadata(buffer) {
     // Analyze a bounded local window; spectral flux estimates tempo and chroma estimates key.
     const stride = Math.max(1, Math.floor(buffer.sampleRate / 11025));
@@ -117,7 +144,7 @@
     const sampleCount = Math.min(Math.floor(buffer.length / stride), Math.floor(sampleRate * 45));
     const frameSize = 2048;
     const hopSize = 256;
-    if (sampleCount < frameSize) return { bpm: null, key: null };
+    if (sampleCount < frameSize) return { bpm: null, key: null, beatOffsetSeconds: null };
     const channels = Array.from({ length: buffer.numberOfChannels }, (_, index) => buffer.getChannelData(index));
     const mono = new Float32Array(sampleCount);
     for (let index = 0; index < sampleCount; index += 1) {
@@ -189,6 +216,7 @@
     }
 
     let bpm = null;
+    let beatOffsetSeconds = null;
     if (buffer.duration >= 2 && onsets.length > 12) {
       const onsetMean = onsets.reduce((sum, value) => sum + value, 0) / onsets.length;
       const centeredOnsets = onsets.map((value) => value - onsetMean);
@@ -225,9 +253,10 @@
         if (detected < 85 && detected * 2 <= 200 &&
           correlationAt(Math.round(bestLag / 2)) >= bestScore * 0.8) detected *= 2;
         bpm = roundBpm(detected);
+        beatOffsetSeconds = detectAudioBeatOffset(onsets, frameRate, bpm, frameSize / (2 * sampleRate));
       }
     }
-    return { bpm, key: getKeyFromChroma(chroma) };
+    return { bpm, key: getKeyFromChroma(chroma), beatOffsetSeconds };
   }
 
   function estimateAudioPitchNotes(buffer, sourceOffsetSeconds = 0, durationSeconds = buffer.duration) {
@@ -385,6 +414,9 @@
         ? roundBpm(metadata.bpm) : null,
       key: typeof metadata?.key === "string" && /^[A-G]#? (major|minor)$/.test(metadata.key)
         ? metadata.key : null,
+      beatOffsetSeconds: Number.isFinite(metadata?.beatOffsetSeconds) &&
+        metadata.beatOffsetSeconds >= 0 && metadata.beatOffsetSeconds <= 2
+        ? metadata.beatOffsetSeconds : null,
     };
   }
 

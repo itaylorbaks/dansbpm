@@ -8020,6 +8020,33 @@
     return `${MUSICAL_KEY_NAMES[best.tonic]} ${best.mode === 0 ? "major" : "minor"}`;
   }
 
+  function detectAudioBeatOffset(onsets, frameRate, bpm, onsetCenterOffsetSeconds) {
+    const beatFrames = frameRate * 60 / bpm;
+    const analysisFrames = Math.min(onsets.length, Math.floor(frameRate * 12));
+    if (!Number.isFinite(beatFrames) || beatFrames < 1 || analysisFrames < beatFrames * 4) return null;
+    const averageOnset = onsets.slice(0, analysisFrames)
+      .reduce((sum, value) => sum + value, 0) / analysisFrames;
+    let bestPhase = 0;
+    let bestScore = -Infinity;
+    for (let phase = 0; phase < Math.ceil(beatFrames); phase += 1) {
+      let score = 0;
+      let beatCount = 0;
+      for (let beat = phase; beat < analysisFrames; beat += beatFrames) {
+        score += onsets[Math.min(onsets.length - 1, Math.round(beat))];
+        beatCount += 1;
+      }
+      const averageScore = score / beatCount;
+      if (averageScore > bestScore) {
+        bestScore = averageScore;
+        bestPhase = phase;
+      }
+    }
+    if (bestScore <= averageOnset * 1.15) return null;
+    const phaseSeconds = bestPhase / frameRate;
+    if (phaseSeconds <= 1 / frameRate) return 0;
+    return Math.round((phaseSeconds + onsetCenterOffsetSeconds) * 1000) / 1000;
+  }
+
   function detectAudioMetadata(buffer) {
     // Analyze a bounded local window; spectral flux estimates tempo and chroma estimates key.
     const stride = Math.max(1, Math.floor(buffer.sampleRate / 11025));
@@ -8027,7 +8054,7 @@
     const sampleCount = Math.min(Math.floor(buffer.length / stride), Math.floor(sampleRate * 45));
     const frameSize = 2048;
     const hopSize = 256;
-    if (sampleCount < frameSize) return { bpm: null, key: null };
+    if (sampleCount < frameSize) return { bpm: null, key: null, beatOffsetSeconds: null };
     const channels = Array.from({ length: buffer.numberOfChannels }, (_, index) => buffer.getChannelData(index));
     const mono = new Float32Array(sampleCount);
     for (let index = 0; index < sampleCount; index += 1) {
@@ -8099,6 +8126,7 @@
     }
 
     let bpm = null;
+    let beatOffsetSeconds = null;
     if (buffer.duration >= 2 && onsets.length > 12) {
       const onsetMean = onsets.reduce((sum, value) => sum + value, 0) / onsets.length;
       const centeredOnsets = onsets.map((value) => value - onsetMean);
@@ -8135,9 +8163,10 @@
         if (detected < 85 && detected * 2 <= 200 &&
           correlationAt(Math.round(bestLag / 2)) >= bestScore * 0.8) detected *= 2;
         bpm = roundBpm(detected);
+        beatOffsetSeconds = detectAudioBeatOffset(onsets, frameRate, bpm, frameSize / (2 * sampleRate));
       }
     }
-    return { bpm, key: getKeyFromChroma(chroma) };
+    return { bpm, key: getKeyFromChroma(chroma), beatOffsetSeconds };
   }
 
   function estimateAudioPitchNotes(buffer, sourceOffsetSeconds = 0, durationSeconds = buffer.duration) {
@@ -8295,6 +8324,9 @@
         ? roundBpm(metadata.bpm) : null,
       key: typeof metadata?.key === "string" && /^[A-G]#? (major|minor)$/.test(metadata.key)
         ? metadata.key : null,
+      beatOffsetSeconds: Number.isFinite(metadata?.beatOffsetSeconds) &&
+        metadata.beatOffsetSeconds >= 0 && metadata.beatOffsetSeconds <= 2
+        ? metadata.beatOffsetSeconds : null,
     };
   }
 
@@ -11549,11 +11581,14 @@
       const secondsPerBar = 240 / state.bpm;
       const sourceSecondsPerBar = secondsPerBar * getAudioClipTempoRatio(clip);
       const minDuration = Math.min(state.arrangementSnap ? 0.25 : 0.01, initial.durationBars);
-      const minDelta = -Math.min(initial.sourceOffsetSeconds / sourceSecondsPerBar, initial.startBar);
+      const minDelta = -initial.sourceOffsetSeconds / sourceSecondsPerBar;
       const maxDelta = Math.max(0, initial.durationBars - minDuration);
-      const delta = Math.max(minDelta, Math.min(maxDelta, snapArrangementBar(deltaBars)));
+      const trimDelta = deltaBars < 0 && initial.sourceOffsetSeconds > 0
+        ? deltaBars
+        : snapArrangementBar(deltaBars);
+      const delta = Math.max(minDelta, Math.min(maxDelta, trimDelta));
       const durationBars = initial.durationBars - delta;
-      const startBar = initial.startBar + delta;
+      const startBar = Math.max(0, initial.startBar + delta);
       const sourceOffsetSeconds = Math.max(0, initial.sourceOffsetSeconds + delta * sourceSecondsPerBar);
       const changed = Math.abs(startBar - clip.startBar) > 0.0001 ||
         Math.abs(sourceOffsetSeconds - (clip.sourceOffsetSeconds || 0)) > 0.0001 ||
@@ -12789,6 +12824,12 @@
       const audioMetadata = detectAudioMetadata(buffer);
       const projectWasEmpty = isProjectEmptyForAudioImport();
       const detectedMetadata = normalizeAudioMetadata(audioMetadata);
+      const sourceOffsetSeconds = Number.isFinite(detectedMetadata.beatOffsetSeconds)
+        ? Math.max(0, Math.min(buffer.duration - 0.01, detectedMetadata.beatOffsetSeconds))
+        : 0;
+      const alignmentNotice = sourceOffsetSeconds > 0.02
+        ? ` Aligned the detected first beat; ${sourceOffsetSeconds.toFixed(2)} s of lead-in is trimmed. Drag the clip's left edge to restore it.`
+        : "";
       if (projectWasEmpty && detectedMetadata.bpm !== null) {
         state.bpm = Math.max(60, Math.min(180, roundBpm(detectedMetadata.bpm)));
         tempoValue.textContent = String(state.bpm);
@@ -12802,8 +12843,8 @@
       const clip = {
         id: makeId(), name: file.name, buffer,
           repeatCount: 1,
-        durationSeconds: buffer.duration,
-        sourceOffsetSeconds: 0,
+        durationSeconds: buffer.duration - sourceOffsetSeconds,
+        sourceOffsetSeconds,
         startBar: 0,
         blob: file,
         audioMetadata,
@@ -12825,13 +12866,13 @@
         showToast("Recording added for this session, but browser storage is unavailable.");
       }
       if (adjustmentBlocked) {
-        showToast(`${file.name} was added without key or tempo matching because pitch-preserving adjustment is unavailable.`);
+        showToast(`${file.name} was added without key or tempo matching because pitch-preserving adjustment is unavailable.${alignmentNotice}`);
       } else if (audioAdjustment) {
         const targets = [
           audioAdjustment.targetKey,
           audioAdjustment.targetBpm ? `${audioAdjustment.targetBpm} BPM` : null,
         ].filter(Boolean);
-        if (targets.length) showToast(`${file.name} matched to ${targets.join(" and ")}.`);
+        if (targets.length) showToast(`${file.name} matched to ${targets.join(" and ")}.${alignmentNotice}`);
       } else if (projectWasEmpty) {
         const detected = [
           detectedMetadata.bpm === null ? null :
@@ -12839,8 +12880,10 @@
           detectedMetadata.key,
         ].filter(Boolean);
         showToast(detected.length
-          ? `Project set to ${detected.join(" / ")} from ${file.name}.`
-          : `Added ${file.name}; tempo and key could not be confidently detected.`);
+          ? `Project set to ${detected.join(" / ")} from ${file.name}.${alignmentNotice}`
+          : `Added ${file.name}; tempo and key could not be confidently detected.${alignmentNotice}`);
+      } else if (alignmentNotice) {
+        showToast(`${file.name}.${alignmentNotice}`);
       }
       return clip;
     } catch (error) {
