@@ -1,0 +1,9 @@
+lamejs 1.2.1
+Copyright (c) Alex Zhukov
+Source: https://github.com/zhuker/lamejs
+LAME project: https://lame.sourceforge.net
+License: GNU Lesser General Public License, version 3.0
+
+The browser bundle is distributed separately as lame.min.js. Its readable
+standalone source is included as lame.all.js. See LGPL-3.0.txt and
+LAMEJS-LICENSE.txt for license terms and upstream usage notes.

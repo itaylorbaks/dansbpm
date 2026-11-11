@@ -22,3 +22,13 @@ License: CC0 1.0 Universal (public domain dedication)
 License URL: https://creativecommons.org/publicdomain/zero/1.0/
 
 The eight OGG recordings in the virtuosity/ subdirectory are included unchanged from the source pack.
+
+Additional live acoustic hi-hats
+
+Source: Gradigang Solutions, kringel-samples
+Source repository: https://github.com/Gradigang-Solutions/kringel-samples
+Source revision: 60810ece266e94fdf1c91330a088ba3efb94041f
+License: CC0 1.0 Universal (public domain dedication)
+License URL: https://creativecommons.org/publicdomain/zero/1.0/
+
+The closed and open hi-hat recordings are included unchanged from SonicPiAcoustic/hh.flac and SonicPiAcoustic/oh.flac. The repository credits the original sounds as drum_cymbal_closed (Freesound 100053, menegass) and drum_cymbal_open (Freesound 100055, menegass).

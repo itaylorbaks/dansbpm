@@ -230,8 +230,11 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .step-piano-edit-button { grid-column: 1 / -1; justify-self: start; }
 .step-mix-group { display: grid; align-content: start; gap: 7px; }
 .step-mix-control { grid-template-columns: minmax(48px, .7fr) minmax(70px, 1.4fr) 42px; }
-.project-dialog { position: fixed; width: min(440px, calc(100vw - 30px)); max-height: min(620px, calc(100vh - 32px)); overflow: auto; border: 1px solid #3a3b40; border-radius: 10px; background: #1b1c1f; padding: 22px; color: var(--text); box-shadow: 0 20px 60px #0009; }
-.project-dialog::backdrop { background: #0009; backdrop-filter: blur(3px); }
+.project-dialog, .export-dialog { position: fixed; width: min(440px, calc(100vw - 30px)); max-height: min(620px, calc(100vh - 32px)); overflow: auto; border: 1px solid #3a3b40; border-radius: 10px; background: #1b1c1f; padding: 22px; color: var(--text); box-shadow: 0 20px 60px #0009; }
+.project-dialog::backdrop, .export-dialog::backdrop { background: #0009; backdrop-filter: blur(3px); }
+.export-dialog { width: min(340px, calc(100vw - 30px)); }
+.export-dialog-options { display: grid; gap: 8px; margin-top: 20px; }
+.export-dialog-options .quiet-button { justify-content: flex-start; }
 .project-dialog-heading { position: relative; display: flex; align-items: flex-start; justify-content: space-between; }
 .project-dialog-heading h2 { margin: 7px 0 0; font-size: 20px; }
 .project-user-label { margin: 7px 0 0; color: var(--muted); font-size: 10px; }
@@ -476,6 +479,8 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .sound-duration-control > span { display: flex; justify-content: space-between; }
 .sound-duration-control output { color: #92949a; font-family: var(--mono); }
 .sound-duration-control input { width: 100%; margin: 0; accent-color: var(--accent); }
+.sound-reverse-control { display: flex; align-items: center; gap: 7px; color: #c6c7cb; font-size: 10px; }
+.sound-reverse-control input { margin: 0; accent-color: var(--accent); }
 .sound-duration-actions { display: flex; justify-content: flex-end; gap: 6px; }
 .piano-roll-footer { flex: 0 0 auto; color: #77787e; font-family: var(--mono); font-size: 8px; }
 
@@ -809,8 +814,6 @@ body:has(#arrangement-view:not([hidden])) .workspace-tabs {
   height: 36px;
   flex: 0 0 36px;
 }
-
-body:not(.is-beat-grid-open) #export-button { display: none; }
 
 .arrangement-workspace {
   display: flex;

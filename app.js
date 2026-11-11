@@ -282,6 +282,10 @@
       ["double-kick-1", "Live Double Kick Take 1", "double_kick1.mp3", 36],
       ["double-kick-2", "Live Double Kick Take 2", "double_kick2.mp3", 36],
     ], 0.86),
+    ...makeLiveSampleTracks("Live Drums", "Hi-Hats", "#d5b677", [
+      ["acoustic-closed-hi-hat", "Acoustic Closed Hi-Hat", "sonic-pi-acoustic/closed-hi-hat.flac", 60],
+      ["acoustic-open-hi-hat", "Acoustic Open Hi-Hat", "sonic-pi-acoustic/open-hi-hat.flac", 60],
+    ]),
     ...makeLiveSampleTracks("Live Drums", "Claps", "#e58b7a", [
       ["clap-1", "Studio Clap Take 1", "Clap1.mp3", 60],
       ["clap-2", "Studio Clap Take 2", "Clap2.mp3", 60],
@@ -460,6 +464,7 @@
     pianoSnapEnabled: true,
     pianoNoteLength: 2,
     soundDurationEdits: {},
+    soundReverseEdits: {},
     selectedPianoTrackId: "piano-grand",
     selectedPianoNoteId: null,
     selectedPianoNoteIds: new Set(),
@@ -567,6 +572,7 @@
   let stepInstrumentPickerMode = "step";
   let stepInstrumentPendingId = null;
   const librarySampleLoads = new Map();
+  const reversedLibrarySampleBuffers = new WeakMap();
 
   function makeTracks() {
     const tracks = [...TRACKS, ...LIBRARY_TRACKS].map((definition) => {
@@ -2724,6 +2730,24 @@
     return state.soundDurationEdits[getSoundDurationKey(track)] ?? 1;
   }
 
+  function getLibrarySamplePlaybackBuffer(track) {
+    const buffer = track.sample?.buffer;
+    if (!buffer || state.soundReverseEdits[getSoundDurationKey(track)] !== true) return buffer;
+    let reversedBuffer = reversedLibrarySampleBuffers.get(buffer);
+    if (!reversedBuffer) {
+      reversedBuffer = state.audioContext.createBuffer(buffer.numberOfChannels, buffer.length, buffer.sampleRate);
+      for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
+        const source = buffer.getChannelData(channel);
+        const destination = reversedBuffer.getChannelData(channel);
+        for (let sample = 0; sample < source.length; sample += 1) {
+          destination[sample] = source[source.length - sample - 1];
+        }
+      }
+      reversedLibrarySampleBuffers.set(buffer, reversedBuffer);
+    }
+    return reversedBuffer;
+  }
+
   function closeSoundDurationMenu() {
     const menu = $("#sound-duration-menu");
     menu.hidden = true;
@@ -2742,6 +2766,8 @@
     slider.value = String(Math.round((state.soundDurationEdits[soundId] ?? 1) * 100));
     $("#sound-duration-title").textContent = track.name;
     $("#sound-duration-value").textContent = `${slider.value}%`;
+    $("#sound-reverse-control").hidden = track.kind !== "sample";
+    $("#sound-reverse-toggle").checked = track.kind === "sample" && state.soundReverseEdits[soundId] === true;
     menu.dataset.soundId = soundId;
     menu.dataset.trackId = track.id;
     menu.hidden = false;
@@ -2760,6 +2786,14 @@
     if (durationScale === 1) delete state.soundDurationEdits[soundId];
     else state.soundDurationEdits[soundId] = durationScale;
     $("#sound-duration-value").textContent = `${Math.round(durationScale * 100)}%`;
+    saveState();
+  }
+
+  function setSoundReverseFromMenu(isReversed) {
+    const soundId = $("#sound-duration-menu").dataset.soundId;
+    if (!soundId) return;
+    if (isReversed) state.soundReverseEdits[soundId] = true;
+    else delete state.soundReverseEdits[soundId];
     saveState();
   }
 
@@ -10590,11 +10624,16 @@
     }));
   }
 
+  function getDrumSampleRecordId(trackId, projectId = state.projectId) {
+    return `drum-sample:${projectId}:${trackId}`;
+  }
+
   function persistDrumSample(track, file) {
     return openRecordingDb().then((database) => new Promise((resolve, reject) => {
       const transaction = database.transaction("recordings", "readwrite");
-      transaction.objectStore("recordings").put({
-        id: `drum-sample:${track.id}`,
+      const store = transaction.objectStore("recordings");
+      store.put({
+        id: getDrumSampleRecordId(track.id),
         projectId: state.projectId,
         recordType: "drum-sample",
         trackId: track.id,
@@ -10610,6 +10649,14 @@
         audioMetadata: normalizeAudioMetadata(track.audioMetadata),
         blob: file,
       });
+      const legacyRecord = store.get(`drum-sample:${track.id}`);
+      legacyRecord.onsuccess = () => {
+        const record = legacyRecord.result;
+        if (record && (record.projectId === state.projectId ||
+          (!record.projectId && state.projectId === "default"))) {
+          store.delete(record.id);
+        }
+      };
       transaction.oncomplete = () => { database.close(); resolve(); updateStorageIndicator(); };
       transaction.onerror = () => { database.close(); reject(transaction.error || new Error("Could not save drum sample")); };
       transaction.onabort = () => { database.close(); reject(transaction.error || new Error("Drum sample save was cancelled")); };
@@ -10619,7 +10666,16 @@
   function deletePersistedDrumSample(trackId) {
     return openRecordingDb().then((database) => new Promise((resolve, reject) => {
       const transaction = database.transaction("recordings", "readwrite");
-      transaction.objectStore("recordings").delete(`drum-sample:${trackId}`);
+      const store = transaction.objectStore("recordings");
+      store.delete(getDrumSampleRecordId(trackId));
+      const legacyRecord = store.get(`drum-sample:${trackId}`);
+      legacyRecord.onsuccess = () => {
+        const record = legacyRecord.result;
+        if (record && (record.projectId === state.projectId ||
+          (!record.projectId && state.projectId === "default"))) {
+          store.delete(record.id);
+        }
+      };
       transaction.oncomplete = () => { database.close(); resolve(); updateStorageIndicator(); };
       transaction.onerror = () => { database.close(); reject(transaction.error || new Error("Could not remove drum sample")); };
       transaction.onabort = () => { database.close(); reject(transaction.error || new Error("Drum sample removal was cancelled")); };
@@ -10795,7 +10851,7 @@
     if (track.sample) {
       const source = context.createBufferSource();
       registerArrangementPlaybackSource(source);
-      source.buffer = track.sample.buffer;
+      source.buffer = getLibrarySamplePlaybackBuffer(track);
       const envelope = context.createGain();
       const sampleDetune = track.sampleHumanized ? (Math.random() - 0.5) * 8 : 0;
       const samplePitchRatio = pitchRatio * Math.pow(2, sampleDetune / 1200);
@@ -10846,7 +10902,7 @@
       const sampleDetune = track.sampleHumanized ? (Math.random() - 0.5) * 8 : 0;
       const rate = Math.pow(2, (midi - rootMidi + (detune + sampleDetune) / 100) / 12);
       if (track.sampleHumanized) velocity *= 0.92 + Math.random() * 0.14;
-      source.buffer = track.sample.buffer;
+      source.buffer = getLibrarySamplePlaybackBuffer(track);
       source.playbackRate.setValueAtTime(rate, time);
       const bufferDuration = Math.min(source.buffer.duration * soundDurationScale, Math.max(0.01, duration) * rate);
       const outputDuration = bufferDuration / rate;
@@ -11748,6 +11804,7 @@
       pianoSnapEnabled: state.pianoSnapEnabled,
       pianoNoteLength: state.pianoNoteLength,
       soundDurationEdits: { ...state.soundDurationEdits },
+      soundReverseEdits: { ...state.soundReverseEdits },
       selectedPianoTrackId: savedMel?.instrumentId || state.selectedPianoTrackId,
       arrangementBars: state.arrangementBars,
       arrangementScale: state.arrangementScale,
@@ -12218,6 +12275,126 @@
     }
   }
 
+  function persistImportedProjectAssets(projectId, assets) {
+    if (!assets.length) return Promise.resolve();
+    return openRecordingDb().then((database) => new Promise((resolve, reject) => {
+      const transaction = database.transaction("recordings", "readwrite");
+      const store = transaction.objectStore("recordings");
+      transaction.oncomplete = () => {
+        database.close();
+        resolve();
+      };
+      transaction.onerror = () => {
+        database.close();
+        reject(transaction.error || new Error("Could not save imported project audio."));
+      };
+      transaction.onabort = () => {
+        database.close();
+        reject(transaction.error || new Error("Project audio import was cancelled."));
+      };
+      try {
+        assets.forEach(({ metadata, blob }) => {
+          store.put({
+            ...metadata,
+            id: metadata.recordType === "drum-sample"
+              ? getDrumSampleRecordId(metadata.trackId, projectId)
+              : makeId(),
+            projectId,
+            blob,
+          });
+        });
+      } catch (error) {
+        try { transaction.abort(); } catch { database.close(); }
+        reject(error);
+      }
+    }));
+  }
+
+  async function importProjectFile(file) {
+    if (!file) return;
+    if (!state.currentUser) {
+      showToast("Choose a profile before importing a project.");
+      return;
+    }
+    if (state.mediaRecorder?.state === "recording") {
+      showToast("Stop microphone recording before importing a project.");
+      return;
+    }
+
+    let projectFile;
+    let snapshot;
+    let assets;
+    try {
+      projectFile = JSON.parse(await file.text());
+      snapshot = projectFile?.project?.snapshot;
+      if (projectFile?.app !== "DansBPM" || projectFile.format !== "dansbpm-project" ||
+        projectFile.version !== 1 || typeof projectFile.project?.name !== "string" ||
+        !snapshot || typeof snapshot !== "object" || Array.isArray(snapshot) ||
+        !Array.isArray(snapshot.tracks) || !Array.isArray(snapshot.patterns) ||
+        !Array.isArray(snapshot.patternClips) || !Array.isArray(snapshot.mels) ||
+        !Array.isArray(snapshot.melTracks) || !Array.isArray(snapshot.arrangementTracks) ||
+        !Array.isArray(projectFile.assets)) {
+        throw new Error("This is not a supported DansBPM project file.");
+      }
+      const trackIds = new Set(snapshot.tracks
+        .filter((track) => typeof track?.id === "string")
+        .map((track) => track.id));
+      assets = projectFile.assets.map((asset) => {
+        const metadata = asset?.metadata;
+        if (!metadata || typeof metadata !== "object" || Array.isArray(metadata) ||
+          typeof metadata.trackId !== "string" || !metadata.trackId || typeof asset.dataUrl !== "string") {
+          throw new Error("The project contains an invalid audio attachment.");
+        }
+        if (metadata.recordType !== undefined && metadata.recordType !== "drum-sample") {
+          throw new Error("The project contains an unsupported audio attachment.");
+        }
+        if (metadata.recordType === "drum-sample" && !trackIds.has(metadata.trackId)) {
+          throw new Error("The project contains a drum sample for a missing track.");
+        }
+        return { metadata, blob: dataUrlToBlob(asset.dataUrl) };
+      });
+    } catch (error) {
+      showToast(`Could not read the project: ${error.message || "the file is invalid"}`);
+      return;
+    }
+
+    if (!flushSaveState()) {
+      showToast("Could not save the current project; import was cancelled.");
+      return;
+    }
+    const previousProjectId = state.projectId;
+    const previousProjectName = state.projectName;
+    const previousActiveProjectIds = { ...state.activeProjectIds };
+    const projectId = makeId();
+    const projectName = projectFile.project.name.trim().slice(0, 64) || "Imported project";
+    const project = { id: projectId, name: projectName, ownerId: state.currentUser, updatedAt: Date.now() };
+    let snapshotSaved = false;
+    try {
+      window.localStorage.setItem(getProjectStorageKey(projectId), JSON.stringify(snapshot));
+      snapshotSaved = true;
+      state.projects.unshift(project);
+      state.projectId = projectId;
+      state.projectName = projectName;
+      writeProjectCatalog();
+      await persistImportedProjectAssets(projectId, assets);
+      showToast(`${projectName} imported`);
+      window.location.reload();
+    } catch (error) {
+      state.projects = state.projects.filter((item) => item.id !== projectId);
+      state.projectId = previousProjectId;
+      state.projectName = previousProjectName;
+      state.activeProjectIds = previousActiveProjectIds;
+      try {
+        if (snapshotSaved) window.localStorage.removeItem(getProjectStorageKey(projectId));
+        writeProjectCatalog();
+      } catch (rollbackError) {
+        showToast(`Project import failed and cleanup was incomplete: ${rollbackError.message || "browser storage is unavailable"}`);
+        return;
+      }
+      showToast(`Could not import the project: ${error.message || "browser storage is unavailable"}`);
+    }
+  }
+
   function switchUser() {
     if (state.mediaRecorder?.state === "recording") {
       showToast("Stop audio recording before switching users.");
@@ -12464,6 +12641,10 @@
         state.soundDurationEdits = Object.fromEntries(Object.entries(saved.soundDurationEdits)
           .filter(([soundId, scale]) => typeof soundId === "string" && Number.isFinite(scale) && scale >= 0.01 && scale < 1));
       }
+      if (saved.soundReverseEdits && typeof saved.soundReverseEdits === "object" && !Array.isArray(saved.soundReverseEdits)) {
+        state.soundReverseEdits = Object.fromEntries(Object.entries(saved.soundReverseEdits)
+          .filter(([soundId, isReversed]) => typeof soundId === "string" && isReversed === true));
+      }
       if (Number.isInteger(saved.pianoNoteLength) && [1, 2, 4, 8].includes(saved.pianoNoteLength)) state.pianoNoteLength = saved.pianoNoteLength;
       if (typeof saved.selectedPianoTrackId === "string" && state.tracks.some((track) => track.id === saved.selectedPianoTrackId)) {
         state.selectedPianoTrackId = saved.selectedPianoTrackId;
@@ -12603,14 +12784,46 @@
     showToast("Pattern exported as JSON");
   }
 
-  async function exportArrangementWav() {
+  function exportMel() {
+    captureCurrentMel();
+    const mel = getMel();
+    if (!mel) {
+      showToast("Choose a Mel before exporting.");
+      return;
+    }
+    const instrument = state.tracks.find((track) => track.id === mel.instrumentId);
+    const exportedMel = {
+      app: "DansBPM",
+      format: "dansbpm-mel",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      tempo: state.bpm,
+      swing: state.swing,
+      mel: {
+        name: mel.name,
+        bars: getMelLengthBars(mel),
+        instrumentId: mel.instrumentId,
+        instrumentName: instrument?.name || "Instrument",
+        notes: mel.notes.map((note) => ({ ...note })),
+      },
+    };
+    downloadBlob(new Blob([JSON.stringify(exportedMel, null, 2)], { type: "application/json" }),
+      `${sanitizeFilename(mel.name)}.mel.json`);
+    showToast("Mel exported as JSON");
+  }
+
+  function openSongExportMenu() {
+    if (!$("#export-song-dialog").open) $("#export-song-dialog").showModal();
+  }
+
+  async function exportArrangementAudio(format = "wav") {
     if (state.mediaRecorder?.state === "recording") {
       showToast("Stop microphone recording before exporting the song.");
       return;
     }
     const OfflineAudioContext = window.OfflineAudioContext || window.webkitOfflineAudioContext;
     if (!OfflineAudioContext) {
-      showToast("WAV export is not supported in this browser.");
+      showToast(`${format.toUpperCase()} export is not supported in this browser.`);
       return;
     }
     if (state.isPlaying) stopPlayback();
@@ -12619,6 +12832,10 @@
     const duration = state.arrangementBars * secondsPerBar;
     if (duration > 600) {
       showToast("Song export is limited to 10 minutes. Shorten the arrangement or raise the tempo.");
+      return;
+    }
+    if (format === "mp3" && !window.lamejs?.Mp3Encoder) {
+      showToast("MP3 export is unavailable because its encoder did not load.");
       return;
     }
 
@@ -12633,11 +12850,12 @@
     const previousFxRuntimes = allTracks.map((track) => track.fxRuntime);
     const previousAnalysers = allTracks.map((track) => track.analyser);
     const previousSourceGains = allTracks.map((track) => track.sourceGains);
-    const button = $("#export-song-button");
+    const button = $(`#export-song-${format}-button`);
     state.isExporting = true;
     button.disabled = true;
     document.body.classList.add("is-exporting");
-    showToast("Rendering your song to WAV…");
+    $("#export-song-dialog").close();
+    showToast(`Rendering your song to ${format.toUpperCase()}…`);
     try {
       const context = new OfflineAudioContext(2, Math.ceil(duration * sampleRate), sampleRate);
       state.audioContext = context;
@@ -12756,8 +12974,10 @@
       }
 
       const rendered = await context.startRendering();
-      downloadBlob(encodeWav(rendered), "dansbpm-song.wav");
-      showToast("Song exported as WAV");
+      const extension = format === "mp3" ? "mp3" : "wav";
+      const audioFile = format === "mp3" ? await encodeMp3(rendered) : encodeWav(rendered);
+      downloadBlob(audioFile, `dansbpm-song.${extension}`);
+      showToast(`Song exported as ${format.toUpperCase()}`);
     } catch (error) {
       showToast(`Could not export the song: ${error.message || "render failed"}`);
     } finally {
@@ -12780,6 +13000,32 @@
       button.disabled = false;
       document.body.classList.remove("is-exporting");
     }
+  }
+
+  async function encodeMp3(audioBuffer) {
+    const channels = Math.min(2, audioBuffer.numberOfChannels);
+    const encoder = new window.lamejs.Mp3Encoder(channels, audioBuffer.sampleRate, 192);
+    const pcmChannels = Array.from({ length: channels }, (_, channel) => {
+      const samples = audioBuffer.getChannelData(channel);
+      return Int16Array.from(samples, (sample) => {
+        const clamped = Math.max(-1, Math.min(1, sample));
+        return clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
+      });
+    });
+    const chunks = [];
+    for (let offset = 0; offset < audioBuffer.length; offset += 1152) {
+      const left = pcmChannels[0].subarray(offset, Math.min(offset + 1152, audioBuffer.length));
+      const encoded = channels === 1
+        ? encoder.encodeBuffer(left)
+        : encoder.encodeBuffer(left, pcmChannels[1].subarray(offset, Math.min(offset + 1152, audioBuffer.length)));
+      if (encoded.length) chunks.push(encoded);
+      if (offset > 0 && offset % (1152 * 256) === 0) {
+        await new Promise((resolve) => window.setTimeout(resolve, 0));
+      }
+    }
+    const finalChunk = encoder.flush();
+    if (finalChunk.length) chunks.push(finalChunk);
+    return new Blob(chunks, { type: "audio/mpeg" });
   }
 
   function encodeWav(audioBuffer) {
@@ -12823,6 +13069,102 @@
     link.download = filename;
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function sanitizeFilename(name) {
+    return name.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").replace(/\s+/g, "-").slice(0, 80) || "dansbpm";
+  }
+
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error || new Error("Could not encode project audio."));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  function dataUrlToBlob(dataUrl) {
+    const comma = dataUrl.indexOf(",");
+    if (comma < 0 || !dataUrl.slice(0, comma).endsWith(";base64")) {
+      throw new Error("The project contains an invalid audio attachment.");
+    }
+    const mediaType = dataUrl.slice(5, comma).split(";")[0] || "application/octet-stream";
+    const binary = atob(dataUrl.slice(comma + 1));
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    return new Blob([bytes], { type: mediaType });
+  }
+
+  async function getProjectRecordingRecords() {
+    const database = await openRecordingDb();
+    return new Promise((resolve, reject) => {
+      let records = [];
+      const transaction = database.transaction("recordings", "readonly");
+      const request = transaction.objectStore("recordings").getAll();
+      request.onsuccess = () => { records = request.result; };
+      request.onerror = () => {
+        database.close();
+        reject(request.error || new Error("Could not read saved project audio."));
+      };
+      transaction.oncomplete = () => {
+        database.close();
+        resolve(records.filter((record) =>
+          record.projectId === state.projectId || (!record.projectId && state.projectId === "default")));
+      };
+      transaction.onerror = () => {
+        database.close();
+        reject(transaction.error || new Error("Could not read saved project audio."));
+      };
+      transaction.onabort = () => {
+        database.close();
+        reject(transaction.error || new Error("Project audio export was cancelled."));
+      };
+    });
+  }
+
+  async function exportProjectFile() {
+    if (state.mediaRecorder?.state === "recording") {
+      showToast("Stop microphone recording before exporting the project.");
+      return;
+    }
+    const snapshot = createStateSnapshot();
+    const button = $("#export-project-button");
+    button.disabled = true;
+    $("#export-song-dialog").close();
+    state.isExporting = true;
+    document.body.classList.add("is-exporting");
+    showToast("Packing your project and audio…");
+    try {
+      const recordings = window.indexedDB ? await getProjectRecordingRecords() : [];
+      const assets = await Promise.all(recordings.map(async (record) => {
+        if (!(record.blob instanceof Blob)) {
+          throw new Error(`Could not export ${record.name || record.trackName || "a project audio file"}.`);
+        }
+        const { blob, ...metadata } = record;
+        return { metadata, dataUrl: await blobToDataUrl(blob) };
+      }));
+      const projectFile = {
+        app: "DansBPM",
+        format: "dansbpm-project",
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        project: {
+          name: state.projectName,
+          snapshot,
+        },
+        assets,
+      };
+      const file = new Blob([JSON.stringify(projectFile)], { type: "application/vnd.dansbpm.project+json" });
+      downloadBlob(file, `${sanitizeFilename(state.projectName)}.bpm`);
+      showToast("Project exported as a BPM file");
+    } catch (error) {
+      showToast(`Could not export the project: ${error.message || "project data could not be read"}`);
+    } finally {
+      button.disabled = false;
+      state.isExporting = false;
+      document.body.classList.remove("is-exporting");
+    }
   }
 
   function clearPattern() {
@@ -12915,8 +13257,16 @@
       const preset = PRESETS.find((item) => item.id === event.target.value);
       if (preset) loadPreset(preset);
     });
-    $("#export-button").addEventListener("click", exportPattern);
-    $("#export-song-button").addEventListener("click", exportArrangementWav);
+    $("#export-pattern-button").addEventListener("click", exportPattern);
+    $("#export-mel-button").addEventListener("click", exportMel);
+    $("#export-song-button").addEventListener("click", openSongExportMenu);
+    $("#export-song-wav-button").addEventListener("click", () => exportArrangementAudio("wav"));
+    $("#export-song-mp3-button").addEventListener("click", () => exportArrangementAudio("mp3"));
+    $("#export-project-button").addEventListener("click", exportProjectFile);
+    $("#export-song-close").addEventListener("click", () => $("#export-song-dialog").close());
+    $("#export-song-dialog").addEventListener("click", (event) => {
+      if (event.target === $("#export-song-dialog")) $("#export-song-dialog").close();
+    });
     $("#metronome-button").addEventListener("click", toggleMetronome);
     $("#help-button").addEventListener("click", () => $("#help-dialog").showModal());
     $("#sequencer-tab").addEventListener("click", () => setWorkspaceView("sequencer"));
@@ -13177,6 +13527,9 @@
     $("#sound-duration-slider").addEventListener("input", (event) => {
       setSoundDurationFromMenu(Number(event.currentTarget.value));
     });
+    $("#sound-reverse-toggle").addEventListener("change", (event) => {
+      setSoundReverseFromMenu(event.currentTarget.checked);
+    });
     $("#sound-duration-play").addEventListener("click", () => {
       const track = state.tracks.find((item) => item.id === $("#sound-duration-menu").dataset.trackId);
       if (!track) {
@@ -13299,6 +13652,15 @@
     $("#top-save-project-button").addEventListener("click", saveProjectNow);
     $("#rename-project-button").addEventListener("click", renameProject);
     $("#new-project-button").addEventListener("click", createProject);
+    $("#import-project-button").addEventListener("click", () => $("#project-import-input").click());
+    $("#project-import-input").addEventListener("change", async (event) => {
+      const input = event.currentTarget;
+      try {
+        await importProjectFile(input.files?.[0]);
+      } finally {
+        input.value = "";
+      }
+    });
     $("#switch-user-button").addEventListener("click", switchUser);
     $("#login-options").addEventListener("click", (event) => {
       const option = event.target instanceof Element ? event.target.closest("[data-user-id]") : null;
