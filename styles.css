@@ -1177,3 +1177,59 @@ body:has(#dj-view:not([hidden])).is-dj-expanded #arrangement-view { min-height: 
 body:has(#dj-view:not([hidden])).is-dj-expanded #arrangement-card { border-radius: 0; }
 body:has(#dj-view:not([hidden])).is-dj-expanded #arrangement-main { grid-template-rows: minmax(0, 1fr); }
 body:has(#dj-view:not([hidden])).is-dj-expanded #workspace-area { grid-row: 1; border: 0; }
+
+#piano-roll-view .piano-roll-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 3px;
+  min-height: 36px;
+  max-height: 40px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 1px solid var(--stroke);
+  border-radius: 6px;
+  background: var(--panel);
+  padding: 3px 4px;
+  scrollbar-color: #45464a #1b1c1f;
+  scrollbar-width: thin;
+}
+#piano-roll-view .piano-roll-toolbar > .piano-toolbar-group { flex: 0 0 auto; }
+#piano-roll-view .piano-roll-context { width: auto; flex: 0 0 auto !important; border: 0; padding: 0 5px; }
+#piano-roll-view .piano-toolbar-group {
+  min-width: 0;
+  flex-wrap: nowrap;
+  gap: 4px;
+  border: 0;
+  border-right: 1px solid var(--stroke);
+  border-radius: 0;
+  background: transparent;
+  padding: 0 5px;
+}
+#piano-roll-view .piano-toolbar-group-title { width: auto; flex: 0 0 auto; font-size: 7px; letter-spacing: .4px; }
+#piano-roll-view .piano-roll-toolbar .quiet-button {
+  height: 24px;
+  gap: 4px;
+  border-radius: 4px;
+  padding: 0 6px;
+  font-size: 8px;
+  white-space: nowrap;
+}
+#piano-roll-view .piano-roll-toolbar .pattern-select-control {
+  height: 24px;
+  gap: 3px;
+  border-radius: 4px;
+  padding: 0 4px;
+}
+#piano-roll-view .piano-roll-toolbar .pattern-select-control > span { font-size: 6px; }
+#piano-roll-view .piano-roll-toolbar .pattern-select-control select { max-width: 82px; font-size: 8px; }
+#piano-roll-view .piano-instrument-picker-button { max-width: 90px; gap: 3px; font-size: 8px; }
+#piano-roll-view .piano-scale-lock-control { height: 24px; gap: 3px; padding: 0 4px; font-size: 8px; }
+#piano-roll-view .piano-roll-toolbar .scale-control { height: 24px; gap: 3px; font-size: 7px; }
+#piano-roll-view .piano-roll-toolbar .scale-control input { width: 58px; }
+#piano-roll-view .piano-roll-toolbar .scale-control output { font-size: 7px; }
+#piano-roll-view .piano-audio-source-label { max-width: 100px; font-size: 8px; }
+#piano-roll-view .workspace-play-button { min-width: 48px; }
+#piano-roll-view .piano-roll-toolbar::-webkit-scrollbar { height: 4px; }
