@@ -370,6 +370,28 @@
       ["fuzz-1", "Fuzz Bass Take 1", "fuzz_bass_1.mp3", 40],
       ["fuzz-2", "Fuzz Bass Take 2", "fuzz_bass_2.mp3", 40],
     ]),
+    ...makeLiveSampleTracks("Live Vocals", "Vocal FX", "#c5a6ed", [
+      ["down-chop", "Vocal Chop · Down", "vocals/down_vocals_1.mp3", 60],
+      ["up-down", "Vocal Rise & Fall", "vocals/up_down_vocals_1.mp3", 60],
+      ["buzz", "Vocal Buzz", "vocals/vocal_buzz_1.mp3", 60],
+      ["hum-1", "Vocal Hum 1", "vocals/vocal_hum_1.mp3", 60],
+      ["hum-2", "Vocal Hum 2", "vocals/vocal_hum_2.mp3", 60],
+      ["hum-3", "Vocal Hum 3", "vocals/vocal_hum_3.mp3", 60],
+      ["synth-1", "Vocal Synth 1", "vocals/vocal_synth1.mp3", 60],
+      ["synth-2", "Vocal Synth 2", "vocals/vocal_synth2.mp3", 60],
+      ["synth-short", "Vocal Synth Short", "vocals/vocal_synth4_short.mp3", 60],
+      ["vocoder-hit", "Short Vocoder Hit", "vocals/vocoder2_short.mp3", 60],
+      ["vocoder-phrase", "Spoken Vocoder Phrase", "vocals/thisIsTheSoundOfAVocoder.mp3", 60],
+    ]),
+    ...makeLiveSampleTracks("Live Vocals", "Vocal Notes", "#d29b79", [
+      ["ah-c2", "Ah Vowel · C2", "vocals/ahntone_c2.mp3", 36],
+      ["ah-c3", "Ah Vowel · C3", "vocals/ahntone_c3.mp3", 48],
+      ["ah-c4", "Ah Vowel · C4", "vocals/ahntone_c4.mp3", 60],
+      ["male-aa-a3", "Male Ah · A3", "vocals/malevoice_aa_A3.mp3", 57],
+      ["male-oo-a3", "Male Oh · A3", "vocals/malevoice_oo_A3.mp3", 57],
+      ["female-aa-a3", "Female Ah · A3", "vocals/femalevoice_aa_A3.mp3", 57],
+      ["female-oo-a4", "Female Oh · A4", "vocals/femalevoice_oo_A4.mp3", 69],
+    ]),
   ];
   const LIBRARY_TRACKS = [
     ...BASE_LIBRARY_TRACKS,
