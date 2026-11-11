@@ -174,6 +174,7 @@ export function createCollaborationServer({
         sizeBytes,
         projectName: safeProjectName(message.projectName),
         revision: 1,
+        lastUpdatedBy: safeName(message.name),
         clients: new Map(),
         lastActiveAt: Date.now(),
         expiresAt: null,
@@ -225,6 +226,16 @@ export function createCollaborationServer({
     }
     if (message.type === "update") {
       if (!validateDocument(socket, message.snapshot, room.assets)) return;
+      if (!Number.isInteger(message.baseRevision) ||
+        (message.baseRevision !== room.revision && client.lastAcceptedRevision !== room.revision)) {
+        send(socket, {
+          type: "snapshotConflict",
+          revision: room.revision,
+          sender: room.lastUpdatedBy,
+          updateId: message.updateId,
+        });
+        return;
+      }
       const sizeBytes = measureRoom(message.snapshot, room.assets);
       if (totalRoomBytes() - room.sizeBytes + sizeBytes > MAX_TOTAL_ROOM_BYTES) {
         sendError(socket, "The collaboration server has reached its shared-project storage limit.");
@@ -233,6 +244,8 @@ export function createCollaborationServer({
       room.snapshot = message.snapshot;
       room.sizeBytes = sizeBytes;
       room.revision += 1;
+      client.lastAcceptedRevision = room.revision;
+      room.lastUpdatedBy = client.name;
       room.lastActiveAt = now;
       send(socket, { type: "snapshotAck", revision: room.revision, updateId: message.updateId });
       broadcast(room, {
@@ -245,6 +258,16 @@ export function createCollaborationServer({
     }
     if (message.type === "updateAssets") {
       if (!validateDocument(socket, message.snapshot, message.assets)) return;
+      if (!Number.isInteger(message.baseRevision) ||
+        (message.baseRevision !== room.revision && client.lastAcceptedRevision !== room.revision)) {
+        send(socket, {
+          type: "snapshotConflict",
+          revision: room.revision,
+          sender: room.lastUpdatedBy,
+          updateId: message.updateId,
+        });
+        return;
+      }
       const sizeBytes = measureRoom(message.snapshot, message.assets);
       if (totalRoomBytes() - room.sizeBytes + sizeBytes > MAX_TOTAL_ROOM_BYTES) {
         sendError(socket, "The collaboration server has reached its shared-project storage limit.");
@@ -254,6 +277,8 @@ export function createCollaborationServer({
       room.assets = message.assets;
       room.sizeBytes = sizeBytes;
       room.revision += 1;
+      client.lastAcceptedRevision = room.revision;
+      room.lastUpdatedBy = client.name;
       room.lastActiveAt = now;
       send(socket, { type: "snapshotAck", revision: room.revision, updateId: message.updateId });
       broadcast(room, {

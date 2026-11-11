@@ -266,6 +266,7 @@
       volume,
     }));
   }
+
   const LIVE_SAMPLE_TRACKS = [
     ...makeLiveSampleTracks("Live Drums", "Kicks", "#d4f16c", [
       ["virtuosity-kick-dry-soft", "Virtuosity Kick · Soft · Snare Off", "virtuosity/oh_kick_snoff_vl1_rr1.ogg", 36],
@@ -567,6 +568,8 @@
     revision: 0,
     applyingRemote: false,
     localDirty: false,
+    conflicted: false,
+    conflictMessage: "",
     reconnectTimer: null,
     manualLeave: false,
     pendingCreate: null,
@@ -12034,7 +12037,7 @@
     const roomActions = $("#collaboration-room-actions");
     const code = $("#collaboration-room-code");
     const participants = $("#collaboration-participants");
-    if (status) status.textContent = message;
+    if (status) status.textContent = collaboration.conflicted ? collaboration.conflictMessage : message;
     if (activeRoom) activeRoom.hidden = !collaboration.session;
     if (roomActions) roomActions.hidden = Boolean(collaboration.session);
     if (code) code.textContent = collaboration.session?.roomCode || "";
@@ -12124,17 +12127,17 @@
   }
 
   function sendCollaborationSnapshot(snapshot = createStateSnapshot()) {
-    if (!collaboration.session || collaboration.applyingRemote) return;
+    if (!collaboration.session || collaboration.applyingRemote || collaboration.conflicted) return;
     const updateId = (collaboration.lastUpdateId || 0) + 1;
     collaboration.lastUpdateId = updateId;
-    sendCollaborationMessage({ type: "update", snapshot, updateId });
+    sendCollaborationMessage({ type: "update", snapshot, updateId, baseRevision: collaboration.revision });
     collaboration.localDirty = true;
     collaboration.session.localDirty = true;
     saveCollaborationSession();
   }
 
   async function sendCollaborationAssets() {
-    if (!collaboration.session || collaboration.applyingRemote) return;
+    if (!collaboration.session || collaboration.applyingRemote || collaboration.conflicted) return;
     try {
       const assets = await getCollaborationAssets();
       const updateId = (collaboration.lastUpdateId || 0) + 1;
@@ -12144,6 +12147,7 @@
         snapshot: createStateSnapshot(),
         assets,
         updateId,
+        baseRevision: collaboration.revision,
       });
       collaboration.localDirty = true;
       collaboration.assetsDirty = !sent;
@@ -12160,6 +12164,21 @@
     if (!collaboration.session || collaboration.applyingRemote) return;
     window.clearTimeout(collaboration.assetsTimer);
     collaboration.assetsTimer = window.setTimeout(() => { void sendCollaborationAssets(); }, 500);
+  }
+
+  function markCollaborationConflict(revision, sender) {
+    collaboration.conflicted = true;
+    collaboration.conflictMessage =
+      `Conflict: ${sender || "A collaborator"} updated the room. Your edits are saved locally and were not shared.`;
+    collaboration.localDirty = true;
+    if (collaboration.session) {
+      collaboration.session.localDirty = true;
+      saveCollaborationSession();
+    }
+    if (Number.isInteger(revision)) collaboration.revision = Math.max(collaboration.revision, revision);
+    if (saveState.timeout) flushSaveState();
+    renderCollaborationStatus();
+    showToast(collaboration.conflictMessage);
   }
 
   function connectCollaboration(serverUrl, onOpen) {
@@ -12251,22 +12270,6 @@
       showToast("The collaboration server sent an invalid project snapshot.");
       return false;
     }
-    if (saveState.timeout) {
-      flushSaveState();
-      return false;
-    }
-    if (collaboration.localDirty) {
-      if (collaboration.assetsDirty) void sendCollaborationAssets();
-      else sendCollaborationSnapshot(createStateSnapshot());
-      return false;
-    }
-    if (state.mediaRecorder?.state === "recording") {
-      if (collaboration.assetsDirty) void sendCollaborationAssets();
-      else sendCollaborationSnapshot(createStateSnapshot());
-      showToast("A room update arrived during recording; your local project was kept.");
-      return false;
-    }
-
     collaboration.applyingRemote = true;
     try {
       stopPlayback();
@@ -12342,6 +12345,10 @@
       return;
     }
     if (!message || typeof message !== "object") return;
+    if (message.type === "snapshotConflict") {
+      markCollaborationConflict(message.revision, message.sender);
+      return;
+    }
     if (message.type === "error") {
       collaboration.pendingCreate = null;
       collaboration.pendingJoin = null;
@@ -12389,6 +12396,17 @@
         });
         return;
       }
+      const roomRevision = Number.isInteger(message.revision) ? message.revision : 0;
+      if (collaboration.localDirty || collaboration.assetsDirty) {
+        if (roomRevision > collaboration.revision) {
+          markCollaborationConflict(roomRevision, "A collaborator");
+        } else if (collaboration.assetsDirty) {
+          void sendCollaborationAssets();
+        } else {
+          sendCollaborationSnapshot(createStateSnapshot());
+        }
+        return;
+      }
       renderCollaborationStatus(`Connected to room ${collaboration.session.roomCode}.`);
     }
     if (message.type === "presence") {
@@ -12396,7 +12414,7 @@
       renderCollaborationStatus(`Connected to room ${collaboration.session?.roomCode || ""}.`);
     }
     if (message.type === "snapshotAck") {
-      if (message.updateId === collaboration.lastUpdateId) {
+      if (message.updateId === collaboration.lastUpdateId && !collaboration.conflicted) {
         collaboration.localDirty = false;
         collaboration.assetsDirty = false;
         if (collaboration.session) {
@@ -12406,7 +12424,7 @@
       }
       if (Number.isInteger(message.revision)) {
         collaboration.revision = message.revision;
-        if (collaboration.session) {
+        if (collaboration.session && !collaboration.conflicted) {
           collaboration.session.revision = message.revision;
           saveCollaborationSession();
         }
@@ -12428,6 +12446,10 @@
       if (collaboration.session && revision > collaboration.revision) {
         collaboration.applyQueue = collaboration.applyQueue.then(async () => {
           if (revision <= collaboration.revision) return;
+          if (saveState.timeout || collaboration.localDirty || state.mediaRecorder?.state === "recording") {
+            markCollaborationConflict(revision, message.sender);
+            return;
+          }
           const applied = await applyCollaborationSnapshot(message.snapshot, message.assets, message.sender);
           if (applied && !collaboration.localDirty) {
             collaboration.assetsDirty = false;
@@ -12540,6 +12562,8 @@
     collaboration.revision = Number.isInteger(session.revision) ? session.revision : 0;
     collaboration.localDirty = session.localDirty === true;
     collaboration.assetsDirty = session.assetsDirty === true;
+    collaboration.conflicted = false;
+    collaboration.conflictMessage = "";
     collaboration.manualLeave = false;
     $("#collaboration-dialog").showModal();
     const serverUrl = session.serverUrl;
@@ -12549,8 +12573,6 @@
         roomCode: session.roomCode,
         name: getCurrentUserName(),
       }));
-      if (collaboration.assetsDirty) void sendCollaborationAssets();
-      else if (collaboration.localDirty) sendCollaborationSnapshot(createStateSnapshot());
     });
   }
 
@@ -12563,6 +12585,8 @@
     collaboration.socket = null;
     collaboration.session = null;
     collaboration.localDirty = false;
+    collaboration.conflicted = false;
+    collaboration.conflictMessage = "";
     saveCollaborationSession();
     renderCollaborationStatus("Room left. This project's local copy is saved.");
   }

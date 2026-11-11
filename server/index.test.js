@@ -63,7 +63,7 @@ test("room creation, joining, and snapshot broadcasts work", async (t) => {
 
   const creatorUpdate = nextJson(creator);
   const acknowledgement = nextJson(joined);
-  joined.send(JSON.stringify({ type: "update", snapshot: { bpm: 132, patterns: [] } }));
+  joined.send(JSON.stringify({ type: "update", baseRevision: 1, snapshot: { bpm: 132, patterns: [] } }));
   assert.equal((await creatorUpdate).snapshot.bpm, 132);
   assert.equal((await acknowledgement).revision, 2);
 
@@ -71,6 +71,7 @@ test("room creation, joining, and snapshot broadcasts work", async (t) => {
   const assetAcknowledgement = nextJson(joined);
   joined.send(JSON.stringify({
     type: "updateAssets",
+    baseRevision: 1,
     snapshot: { bpm: 132, patterns: [] },
     assets: [{ metadata: { trackId: "sample-1" }, dataUrl: "data:audio/wav;base64,AA==" }],
     updateId: 7,
@@ -78,7 +79,9 @@ test("room creation, joining, and snapshot broadcasts work", async (t) => {
   const sharedAssets = await creatorAssets;
   assert.equal(sharedAssets.type, "roomState");
   assert.equal(sharedAssets.assets.length, 1);
-  assert.equal((await assetAcknowledgement).updateId, 7);
+  const assetAck = await assetAcknowledgement;
+  assert.equal(assetAck.updateId, 7);
+  assert.equal(assetAck.revision, 3);
 
   const synchronizedPlay = nextJson(joined);
   creator.send(JSON.stringify({
@@ -95,4 +98,64 @@ test("connections from unlisted origins are rejected", async (t) => {
   t.after(() => app.close());
   const socket = new WebSocket(app.url, { origin: "https://not-allowed.example" });
   await assert.rejects(once(socket, "open"));
+});
+
+test("stale snapshot and asset updates cannot overwrite a newer room revision", async (t) => {
+  const app = await openServer();
+  t.after(() => app.close());
+  const creator = await connect(app.url);
+  const joined = await connect(app.url);
+  t.after(() => {
+    creator.close();
+    joined.close();
+  });
+
+  const createdMessage = nextJson(creator);
+  creator.send(JSON.stringify({
+    type: "create",
+    name: "Ada",
+    snapshot: { bpm: 128, patterns: [] },
+    assets: [],
+  }));
+  const created = await createdMessage;
+  const joinedMessage = nextJson(joined);
+  joined.send(JSON.stringify({ type: "join", roomCode: created.roomCode, name: "Grace" }));
+  await joinedMessage;
+  await nextJson(creator);
+
+  const creatorBroadcast = nextJson(creator);
+  const joinedAck = nextJson(joined);
+  joined.send(JSON.stringify({
+    type: "update",
+    baseRevision: 1,
+    snapshot: { bpm: 132, patterns: [] },
+    updateId: 1,
+  }));
+  assert.equal((await joinedAck).revision, 2);
+  await creatorBroadcast;
+
+  const snapshotConflict = nextJson(creator);
+  creator.send(JSON.stringify({
+    type: "update",
+    baseRevision: 1,
+    snapshot: { bpm: 90, patterns: [] },
+    updateId: 2,
+  }));
+  const conflict = await snapshotConflict;
+  assert.equal(conflict.type, "snapshotConflict");
+  assert.equal(conflict.revision, 2);
+  assert.equal(conflict.sender, "Grace");
+  assert.equal(app.rooms.get(created.roomCode).snapshot.bpm, 132);
+
+  const assetConflict = nextJson(creator);
+  creator.send(JSON.stringify({
+    type: "updateAssets",
+    baseRevision: 1,
+    snapshot: { bpm: 90, patterns: [] },
+    assets: [{ metadata: { trackId: "sample-1" }, dataUrl: "data:audio/wav;base64,AA==" }],
+    updateId: 3,
+  }));
+  assert.equal((await assetConflict).type, "snapshotConflict");
+  assert.equal(app.rooms.get(created.roomCode).snapshot.bpm, 132);
+  assert.deepEqual(app.rooms.get(created.roomCode).assets, []);
 });
