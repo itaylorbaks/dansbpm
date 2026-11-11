@@ -570,21 +570,16 @@
   }
 
   function renderPatternSelectors() {
-    [$("#sequencer-pattern-select"), $("#arrangement-pattern-select")].forEach((select) => {
-      select.replaceChildren();
-      state.patterns.forEach((pattern) => {
-        const option = document.createElement("option");
-        option.value = pattern.id;
-        option.textContent = pattern.name;
-        select.append(option);
-      });
-      select.value = state.selectedPatternId;
+    const select = $("#sequencer-pattern-select");
+    select.replaceChildren();
+    state.patterns.forEach((pattern) => {
+      const option = document.createElement("option");
+      option.value = pattern.id;
+      option.textContent = pattern.name;
+      select.append(option);
     });
+    select.value = state.selectedPatternId;
     const selected = getPattern();
-    const dragSource = $("#pattern-drag-source");
-    dragSource.textContent = selected ? `Drag ${selected.name} to timeline` : "No pattern selected";
-    dragSource.disabled = !selected;
-    dragSource.style.setProperty("--pattern-color", selected?.color || "var(--accent)");
     $("#grid-resolution-select").value = getPatternGridResolution(selected);
   }
 

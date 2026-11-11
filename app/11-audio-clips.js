@@ -883,15 +883,6 @@
     const showPianoRoll = view === "piano-roll";
     const showMixer = view === "mixer";
     const showDJ = view === "dj";
-    const patternDragSource = $("#pattern-drag-source");
-    const addPatternButton = $("#add-pattern-button");
-    if (showSequencer) {
-      $("#sequencer-actions").append(patternDragSource, addPatternButton);
-    } else {
-      const arrangementActions = $("#arrangement-actions");
-      arrangementActions.insertBefore(patternDragSource, $("#new-pattern-button"));
-      arrangementActions.insertBefore(addPatternButton, $("#record-audio-button"));
-    }
     $("#arrangement-heading").hidden = showSequencer || showPianoRoll || showDJ;
     $("#arrangement-view").hidden = false;
     document.body.classList.toggle("is-beat-grid-open", showSequencer);

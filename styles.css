@@ -381,16 +381,11 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .arrangement-workspace { width: 100%; max-width: 1120px; margin: 0 auto; }
 .arrangement-workspace[hidden], .arrangement-editor[hidden] { display: none; }
 .arrangement-heading { padding-top: 37px; }
-.arrangement-actions { display: flex; align-items: center; gap: 9px; padding-bottom: 2px; }
-.record-audio-button { border-color: #494044; color: #e2bfc1; }
-.record-audio-button:hover { border-color: #94636a; background: #2a2022; }
-.record-dot { width: 7px; height: 7px; border-radius: 50%; background: #ee6b72; }
-.record-audio-button.is-recording { border-color: #a64b51; background: rgba(209,75,82,.13); color: #ff9a9f; }
+.record-audio-button { border-color: transparent; background: transparent; padding: 0; }
+.record-audio-button:hover, .record-audio-button.is-recording { border-color: transparent; background: transparent; }
+.record-dot { width: 8px; height: 8px; border-radius: 50%; background: #ee6b72; box-shadow: 0 0 5px rgba(238,107,114,.35); }
 .record-audio-button.is-recording .record-dot { animation: recording-pulse 1s ease-in-out infinite; }
 @keyframes recording-pulse { 50% { opacity: .35; box-shadow: 0 0 9px #ee6b72; } }
-.import-recording-button { border-color: var(--accent); background: var(--accent); color: #1b2010; }
-.import-recording-button:hover { border-color: #dfff7b; background: #dfff7b; color: #1b2010; }
-.import-recording-button svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .arrangement-card { overflow: hidden; min-height: 310px; border: 1px solid #2a2b30; border-radius: 9px; background: #18191c; box-shadow: 0 12px 38px rgba(0,0,0,.12); }
 .arrangement-empty { min-height: 309px; display: flex; align-items: center; justify-content: center; flex-direction: column; padding: 28px; text-align: center; }
 .arrangement-empty h2 { margin: 15px 0 6px; font-size: 16px; font-weight: 600; }
@@ -427,6 +422,8 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .instrument-kind-group { display: flex; flex-direction: column; gap: 4px; padding-left: 5px; }
 .instrument-kind-heading { margin: 4px 0 1px; color: #818287; font-family: var(--mono); font-size: 7px; font-weight: 500; letter-spacing: .55px; text-transform: uppercase; }
 .instrument-source { min-width: 0; display: grid; grid-template-columns: 6px minmax(38px, 1fr) minmax(66px, 100px); align-items: center; gap: 6px; }
+.instrument-source[draggable="true"] { cursor: grab; }
+.instrument-source[draggable="true"]:active { cursor: grabbing; }
 .instrument-source.is-search-target, .instrument-family-group.is-search-target, .instrument-kind-group.is-search-target, .step-instrument-choice.is-search-target, .step-instrument-group.is-search-target { border-radius: 4px; outline: 1px solid #687641; background: rgba(211,243,107,.05); }
 .source-color { width: 6px; height: 6px; border-radius: 2px; }
 .instrument-source-name { overflow: hidden; border: 0; background: transparent; padding: 0; color: #b6b7b8; font-size: 9px; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
@@ -475,8 +472,8 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .arrangement-track-context-menu[hidden] { display: none; }
 .arrangement-track-context-menu button { width: 100%; border: 0; border-radius: 4px; background: transparent; padding: 8px 10px; color: #d7d8d4; font-size: 10px; text-align: left; cursor: pointer; }
 .arrangement-track-context-menu button:hover, .arrangement-track-context-menu button:focus-visible { outline: none; background: #303136; }
-.add-track-button { height: 34px; flex: 0 0 34px; margin: 9px 10px; border: 1px dashed #3a3b40; border-radius: 5px; background: transparent; color: #8d8e94; font-size: 10px; cursor: pointer; }
-.add-track-button:hover { border-color: #74765e; color: var(--accent); }
+.track-browser-button { height: 30px; flex: 0 0 30px; margin: 9px 10px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 .timeline-scroll { overflow: auto; overscroll-behavior: contain; scrollbar-color: #45464a #1b1c1f; scrollbar-width: thin; }
 .timeline-content { position: relative; min-width: 100%; width: max-content; }
 .selection-marquee { position: absolute; z-index: 20; border: 1px solid rgba(211,243,107,.9); background: rgba(211,243,107,.12); pointer-events: none; }
@@ -714,7 +711,6 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
   .pattern-card { min-height: 83px; padding: 10px; }
   .workspace-tabs { height: 46px; }
   .workspace-tab { padding: 0 8px; }
-  .arrangement-actions { width: 100%; justify-content: flex-end; }
   .arrangement-heading { gap: 10px; }
   .arrangement-editor { grid-template-columns: 125px minmax(0, 1fr); }
   .instrument-browser, .recording-browser { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -989,8 +985,6 @@ body:has(#arrangement-view:not([hidden])) .workspace-tabs {
 .arrangement-title { display: flex; min-width: max-content; align-items: center; gap: 10px; }
 .arrangement-title h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -.2px; }
 .arrangement-bar-label { border: 1px solid #34353a; border-radius: 4px; padding: 4px 6px; color: #a7a8ad; font-family: var(--mono); font-size: 8px; }
-.arrangement-actions { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0; }
-.arrangement-actions .quiet-button, .arrangement-actions .export-button { height: 30px; white-space: nowrap; }
 .repeater-control { display: flex; height: 30px; align-items: center; gap: 6px; border: 1px solid var(--stroke); border-radius: 5px; background: #1a1b1e; padding: 0 6px; }
 .repeater-control > span { color: #77787e; font-family: var(--mono); font-size: 7px; letter-spacing: .35px; }
 .repeater-control select { max-width: 82px; border: 0; background: transparent; color: #d3d4d0; font-size: 9px; }
@@ -1035,6 +1029,7 @@ body:has(#arrangement-view:not([hidden])) .workspace-tabs {
 .track-view-heading { justify-content: space-between; border-top: 0; }
 .track-view-controls { display: flex; align-items: center; gap: 8px; }
 .track-view-controls .quiet-button { height: 22px; padding: 0 8px; font-size: 8px; letter-spacing: 0; }
+.track-view-controls .record-audio-button { width: 22px; flex: 0 0 22px; padding: 0; }
 .track-view-controls .scale-control { height: 22px; gap: 3px; padding: 0 4px; }
 .track-view-controls .scale-control input { width: 42px; }
 .track-view-controls .scale-control output { min-width: 27px; font-size: 7px; }
@@ -1080,7 +1075,6 @@ body:has(#arrangement-view:not([hidden])) .workspace-tabs {
   body:has(#arrangement-view:not([hidden])) .transport-right .now-playing,
   body:has(#arrangement-view:not([hidden])) .transport-right .transport-divider-small { display: none; }
   .arrangement-heading { align-items: flex-start; flex-direction: column; gap: 4px; padding: 6px 2px; }
-  .arrangement-actions { width: 100%; justify-content: flex-start; }
   .arrangement-editor { grid-template-columns: 132px minmax(0, 1fr); }
   .track-view-heading { height: auto; min-height: 30px; flex-basis: auto; align-items: flex-start; flex-direction: column; gap: 5px; padding: 5px 8px; }
   .track-view-controls { width: 100%; min-width: 0; flex-wrap: wrap; justify-content: flex-start; gap: 5px; }
@@ -1105,10 +1099,6 @@ body:has(#arrangement-view:not([hidden])) .workspace-tabs {
   body:has(#arrangement-view:not([hidden])) .assets-open-button { margin-left: auto; padding: 0 6px; font-size: 9px; }
   body:has(#arrangement-view:not([hidden])) .transport-right { display: none; }
   .arrangement-heading { gap: 5px; }
-  .arrangement-actions { gap: 4px; }
-  .arrangement-actions .quiet-button, .arrangement-actions .export-button { height: 27px; padding-right: 7px; padding-left: 7px; font-size: 9px; }
-  .arrangement-actions .export-button { width: auto; font-size: 9px; }
-  .arrangement-actions .export-button svg { width: 13px; }
   .repeater-control { height: 27px; padding: 0 4px; }
   .repeater-control > span { font-size: 6px; }
   .pattern-select-control { height: 27px; padding: 0 4px; }

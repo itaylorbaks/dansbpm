@@ -21,7 +21,8 @@
         const isCopy = event.dataTransfer.files.length ||
           transferTypes.includes("application/x-pulsegrid-pattern-source") ||
           transferTypes.includes("application/x-pulsegrid-mel-source") ||
-          transferTypes.includes("application/x-pulsegrid-audio-source");
+          transferTypes.includes("application/x-pulsegrid-audio-source") ||
+          transferTypes.includes("application/x-pulsegrid-instrument-source");
         event.dataTransfer.dropEffect = isCopy ? "copy" : "move";
       }
       updateArrangementDragPreview(event, lane);
@@ -42,6 +43,20 @@
       if (files.length) {
         const audioTrackId = state.arrangementTracks.some((track) => track.id === trackId) ? trackId : null;
         for (const file of files) await importRecording(file, audioTrackId, startBar);
+        return;
+      }
+      const instrumentSource = event.dataTransfer?.getData("application/x-pulsegrid-instrument-source");
+      if (instrumentSource) {
+        try {
+          const { instrumentId } = JSON.parse(instrumentSource);
+          if (!state.tracks.some((track) => track.id === instrumentId)) {
+            showToast("That instrument is no longer available.");
+            return;
+          }
+          createEmptyMelTrack(instrumentId);
+        } catch {
+          showToast("That instrument track could not be created.");
+        }
         return;
       }
       const audioSource = event.dataTransfer?.getData("application/x-pulsegrid-audio-source");

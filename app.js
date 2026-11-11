@@ -1348,21 +1348,16 @@
   }
 
   function renderPatternSelectors() {
-    [$("#sequencer-pattern-select"), $("#arrangement-pattern-select")].forEach((select) => {
-      select.replaceChildren();
-      state.patterns.forEach((pattern) => {
-        const option = document.createElement("option");
-        option.value = pattern.id;
-        option.textContent = pattern.name;
-        select.append(option);
-      });
-      select.value = state.selectedPatternId;
+    const select = $("#sequencer-pattern-select");
+    select.replaceChildren();
+    state.patterns.forEach((pattern) => {
+      const option = document.createElement("option");
+      option.value = pattern.id;
+      option.textContent = pattern.name;
+      select.append(option);
     });
+    select.value = state.selectedPatternId;
     const selected = getPattern();
-    const dragSource = $("#pattern-drag-source");
-    dragSource.textContent = selected ? `Drag ${selected.name} to timeline` : "No pattern selected";
-    dragSource.disabled = !selected;
-    dragSource.style.setProperty("--pattern-color", selected?.color || "var(--accent)");
     $("#grid-resolution-select").value = getPatternGridResolution(selected);
   }
 
@@ -9942,6 +9937,17 @@
       const row = document.createElement("div");
       row.className = "instrument-source";
       row.dataset.soundId = track.id;
+      row.tabIndex = 0;
+      row.draggable = true;
+      row.title = `Drag ${track.name} to Track View to create an instrument track`;
+      row.setAttribute("aria-label", `${track.name}, drag to Track View to create an instrument track`);
+      row.addEventListener("dragstart", (event) => {
+        if (!event.dataTransfer) return;
+        event.dataTransfer.setData("application/x-pulsegrid-instrument-source", JSON.stringify({
+          instrumentId: track.id,
+        }));
+        event.dataTransfer.effectAllowed = "copy";
+      });
       const color = document.createElement("span");
       color.className = "source-color";
       color.style.background = track.color;
@@ -10111,11 +10117,13 @@
     return track;
   }
 
-  function createEmptyMelTrack() {
-    const instrumentId = state.tracks.some((track) => track.id === state.selectedPianoTrackId)
-      ? state.selectedPianoTrackId
-      : state.tracks[0]?.id;
-    if (!instrumentId) {
+  function createEmptyMelTrack(instrumentId = null) {
+    const selectedInstrumentId = state.tracks.some((track) => track.id === instrumentId)
+      ? instrumentId
+      : state.tracks.some((track) => track.id === state.selectedPianoTrackId)
+        ? state.selectedPianoTrackId
+        : state.tracks[0]?.id;
+    if (!selectedInstrumentId) {
       showToast("Add an instrument before creating an instrument track.");
       return;
     }
@@ -10128,7 +10136,7 @@
       name: `Instrument Track ${number}`,
       kind: "mel",
       insertAfterTrackId: existingLabels.at(-1)?.dataset.trackId || null,
-      instrumentId,
+      instrumentId: selectedInstrumentId,
       color: TRACK_COLORS[state.melTracks.length % TRACK_COLORS.length],
       muted: false,
       solo: false,
@@ -10143,6 +10151,7 @@
     renderArrangement();
     selectArrangementTrack(track.id);
     saveState();
+    return track;
   }
 
   function addMelClip(melId, trackId, startBar) {
@@ -10373,7 +10382,8 @@
         const isCopy = event.dataTransfer.files.length ||
           transferTypes.includes("application/x-pulsegrid-pattern-source") ||
           transferTypes.includes("application/x-pulsegrid-mel-source") ||
-          transferTypes.includes("application/x-pulsegrid-audio-source");
+          transferTypes.includes("application/x-pulsegrid-audio-source") ||
+          transferTypes.includes("application/x-pulsegrid-instrument-source");
         event.dataTransfer.dropEffect = isCopy ? "copy" : "move";
       }
       updateArrangementDragPreview(event, lane);
@@ -10394,6 +10404,20 @@
       if (files.length) {
         const audioTrackId = state.arrangementTracks.some((track) => track.id === trackId) ? trackId : null;
         for (const file of files) await importRecording(file, audioTrackId, startBar);
+        return;
+      }
+      const instrumentSource = event.dataTransfer?.getData("application/x-pulsegrid-instrument-source");
+      if (instrumentSource) {
+        try {
+          const { instrumentId } = JSON.parse(instrumentSource);
+          if (!state.tracks.some((track) => track.id === instrumentId)) {
+            showToast("That instrument is no longer available.");
+            return;
+          }
+          createEmptyMelTrack(instrumentId);
+        } catch {
+          showToast("That instrument track could not be created.");
+        }
         return;
       }
       const audioSource = event.dataTransfer?.getData("application/x-pulsegrid-audio-source");
@@ -11661,15 +11685,6 @@
     const showPianoRoll = view === "piano-roll";
     const showMixer = view === "mixer";
     const showDJ = view === "dj";
-    const patternDragSource = $("#pattern-drag-source");
-    const addPatternButton = $("#add-pattern-button");
-    if (showSequencer) {
-      $("#sequencer-actions").append(patternDragSource, addPatternButton);
-    } else {
-      const arrangementActions = $("#arrangement-actions");
-      arrangementActions.insertBefore(patternDragSource, $("#new-pattern-button"));
-      arrangementActions.insertBefore(addPatternButton, $("#record-audio-button"));
-    }
     $("#arrangement-heading").hidden = showSequencer || showPianoRoll || showDJ;
     $("#arrangement-view").hidden = false;
     document.body.classList.toggle("is-beat-grid-open", showSequencer);
@@ -16749,15 +16764,6 @@
       renderStepPianoPreviews();
     });
     $("#sequencer-scale-slider").addEventListener("change", saveState);
-    $("#arrangement-pattern-select").addEventListener("change", (event) => selectPattern(event.target.value));
-    $("#rename-pattern-sequencer-button").addEventListener("click", renamePattern);
-    $("#rename-pattern-button").addEventListener("click", renamePattern);
-    $("#pattern-drag-source").addEventListener("dragstart", (event) => {
-      const pattern = getPattern();
-      if (!pattern || !event.dataTransfer) return;
-      event.dataTransfer.setData("application/x-pulsegrid-pattern-source", JSON.stringify({ patternId: pattern.id }));
-      event.dataTransfer.effectAllowed = "copy";
-    });
     $("#assets-button").addEventListener("click", () => openAssetLibrary());
     $("#sequencer-browser-button").addEventListener("click", () => openAssetLibrary());
     const soundSearchInput = $("#sound-library-search-input");
@@ -16867,13 +16873,9 @@
     $("#mixer-routing-dialog").addEventListener("click", (event) => {
       if (event.target === $("#mixer-routing-dialog")) $("#mixer-routing-dialog").close();
     });
-    $("#new-pattern-button").addEventListener("click", createPattern);
-    $("#new-pattern-sequencer-button").addEventListener("click", createPattern);
-    $("#add-pattern-button").addEventListener("click", () => addPatternClip());
     $("#source-browser-button").addEventListener("click", () => openAssetLibrary());
     $("#source-browser-close").addEventListener("click", () => $("#source-browser-dialog").close());
     $("#source-browser-dialog").addEventListener("close", closeSoundDurationMenu);
-    $("#import-recording-button").addEventListener("click", () => requestRecordingImport());
     $("#empty-import-button").addEventListener("click", () => requestRecordingImport());
     $("#side-add-recording").addEventListener("click", () => requestRecordingImport());
     $("#recording-input").addEventListener("change", async (event) => {
@@ -16882,12 +16884,6 @@
       state.pendingImportTrackId = null;
       event.target.value = "";
     });
-    $("#add-track-button").addEventListener("click", () => {
-      const track = createArrangementTrack();
-      renderArrangement();
-      requestRecordingImport(track.id);
-    });
-    $("#add-mel-track-button").addEventListener("click", createEmptyMelTrack);
     $("#add-bars-button").addEventListener("click", () => {
       if (state.arrangementBars >= MAX_ARRANGEMENT_BARS) {
         showToast(`Arrangements are limited to ${MAX_ARRANGEMENT_BARS} bars.`);
@@ -16903,21 +16899,6 @@
     });
     $("#arrangement-scale-slider").addEventListener("change", saveState);
     $("#record-audio-button").addEventListener("click", toggleAudioRecording);
-    $("#arrangement-clear-button").addEventListener("click", () => {
-      if (!state.arrangementTracks.length && !state.patternClips.length && !state.melTracks.length) return;
-      if (!window.confirm("Remove all clips from this arrangement?")) return;
-      state.arrangementTracks.forEach((track) => track.clips.forEach((clip) => deletePersistedClip(clip.id)));
-      [...state.arrangementTracks, ...state.melTracks].forEach(disconnectTrackAudio);
-      state.arrangementTracks = [];
-      state.patternClips = [];
-      state.melTracks = [];
-      state.scheduledPianoNotes.clear();
-      state.arrangementBars = 32;
-      state.arrangementCursor = 0;
-      renderArrangement();
-      saveState();
-      showToast("Arrangement cleared");
-    });
     $("#project-name").addEventListener("click", () => {
       renderProjectList();
       $("#project-dialog").showModal();

@@ -173,6 +173,17 @@
       const row = document.createElement("div");
       row.className = "instrument-source";
       row.dataset.soundId = track.id;
+      row.tabIndex = 0;
+      row.draggable = true;
+      row.title = `Drag ${track.name} to Track View to create an instrument track`;
+      row.setAttribute("aria-label", `${track.name}, drag to Track View to create an instrument track`);
+      row.addEventListener("dragstart", (event) => {
+        if (!event.dataTransfer) return;
+        event.dataTransfer.setData("application/x-pulsegrid-instrument-source", JSON.stringify({
+          instrumentId: track.id,
+        }));
+        event.dataTransfer.effectAllowed = "copy";
+      });
       const color = document.createElement("span");
       color.className = "source-color";
       color.style.background = track.color;
@@ -342,11 +353,13 @@
     return track;
   }
 
-  function createEmptyMelTrack() {
-    const instrumentId = state.tracks.some((track) => track.id === state.selectedPianoTrackId)
-      ? state.selectedPianoTrackId
-      : state.tracks[0]?.id;
-    if (!instrumentId) {
+  function createEmptyMelTrack(instrumentId = null) {
+    const selectedInstrumentId = state.tracks.some((track) => track.id === instrumentId)
+      ? instrumentId
+      : state.tracks.some((track) => track.id === state.selectedPianoTrackId)
+        ? state.selectedPianoTrackId
+        : state.tracks[0]?.id;
+    if (!selectedInstrumentId) {
       showToast("Add an instrument before creating an instrument track.");
       return;
     }
@@ -359,7 +372,7 @@
       name: `Instrument Track ${number}`,
       kind: "mel",
       insertAfterTrackId: existingLabels.at(-1)?.dataset.trackId || null,
-      instrumentId,
+      instrumentId: selectedInstrumentId,
       color: TRACK_COLORS[state.melTracks.length % TRACK_COLORS.length],
       muted: false,
       solo: false,
@@ -374,6 +387,7 @@
     renderArrangement();
     selectArrangementTrack(track.id);
     saveState();
+    return track;
   }
 
   function addMelClip(melId, trackId, startBar) {

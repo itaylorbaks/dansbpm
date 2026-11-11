@@ -354,15 +354,6 @@
       renderStepPianoPreviews();
     });
     $("#sequencer-scale-slider").addEventListener("change", saveState);
-    $("#arrangement-pattern-select").addEventListener("change", (event) => selectPattern(event.target.value));
-    $("#rename-pattern-sequencer-button").addEventListener("click", renamePattern);
-    $("#rename-pattern-button").addEventListener("click", renamePattern);
-    $("#pattern-drag-source").addEventListener("dragstart", (event) => {
-      const pattern = getPattern();
-      if (!pattern || !event.dataTransfer) return;
-      event.dataTransfer.setData("application/x-pulsegrid-pattern-source", JSON.stringify({ patternId: pattern.id }));
-      event.dataTransfer.effectAllowed = "copy";
-    });
     $("#assets-button").addEventListener("click", () => openAssetLibrary());
     $("#sequencer-browser-button").addEventListener("click", () => openAssetLibrary());
     const soundSearchInput = $("#sound-library-search-input");
@@ -472,13 +463,9 @@
     $("#mixer-routing-dialog").addEventListener("click", (event) => {
       if (event.target === $("#mixer-routing-dialog")) $("#mixer-routing-dialog").close();
     });
-    $("#new-pattern-button").addEventListener("click", createPattern);
-    $("#new-pattern-sequencer-button").addEventListener("click", createPattern);
-    $("#add-pattern-button").addEventListener("click", () => addPatternClip());
     $("#source-browser-button").addEventListener("click", () => openAssetLibrary());
     $("#source-browser-close").addEventListener("click", () => $("#source-browser-dialog").close());
     $("#source-browser-dialog").addEventListener("close", closeSoundDurationMenu);
-    $("#import-recording-button").addEventListener("click", () => requestRecordingImport());
     $("#empty-import-button").addEventListener("click", () => requestRecordingImport());
     $("#side-add-recording").addEventListener("click", () => requestRecordingImport());
     $("#recording-input").addEventListener("change", async (event) => {
@@ -487,12 +474,6 @@
       state.pendingImportTrackId = null;
       event.target.value = "";
     });
-    $("#add-track-button").addEventListener("click", () => {
-      const track = createArrangementTrack();
-      renderArrangement();
-      requestRecordingImport(track.id);
-    });
-    $("#add-mel-track-button").addEventListener("click", createEmptyMelTrack);
     $("#add-bars-button").addEventListener("click", () => {
       if (state.arrangementBars >= MAX_ARRANGEMENT_BARS) {
         showToast(`Arrangements are limited to ${MAX_ARRANGEMENT_BARS} bars.`);
@@ -508,21 +489,6 @@
     });
     $("#arrangement-scale-slider").addEventListener("change", saveState);
     $("#record-audio-button").addEventListener("click", toggleAudioRecording);
-    $("#arrangement-clear-button").addEventListener("click", () => {
-      if (!state.arrangementTracks.length && !state.patternClips.length && !state.melTracks.length) return;
-      if (!window.confirm("Remove all clips from this arrangement?")) return;
-      state.arrangementTracks.forEach((track) => track.clips.forEach((clip) => deletePersistedClip(clip.id)));
-      [...state.arrangementTracks, ...state.melTracks].forEach(disconnectTrackAudio);
-      state.arrangementTracks = [];
-      state.patternClips = [];
-      state.melTracks = [];
-      state.scheduledPianoNotes.clear();
-      state.arrangementBars = 32;
-      state.arrangementCursor = 0;
-      renderArrangement();
-      saveState();
-      showToast("Arrangement cleared");
-    });
     $("#project-name").addEventListener("click", () => {
       renderProjectList();
       $("#project-dialog").showModal();

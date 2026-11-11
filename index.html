@@ -129,26 +129,6 @@
             <div class="arrangement-title">
               <h1>Arrangement</h1>
             </div>
-            <div class="arrangement-actions" id="arrangement-actions">
-              <button class="quiet-button" id="source-browser-button" type="button">Browser</button>
-              <label class="pattern-select-control">
-                <span>PATTERN</span>
-                <select id="arrangement-pattern-select" aria-label="Select pattern"></select>
-              </label>
-              <button class="quiet-button" id="rename-pattern-button" type="button">Rename</button>
-              <button class="quiet-button pattern-drag-source" id="pattern-drag-source" type="button" draggable="true">Drag pattern to timeline</button>
-              <button class="quiet-button" id="new-pattern-button" type="button">＋ New pattern</button>
-              <button class="quiet-button add-pattern-button" id="add-pattern-button" type="button">Add to song</button>
-              <button class="quiet-button record-audio-button" id="record-audio-button" type="button" aria-pressed="false">
-                <span class="record-dot"></span>
-                <span id="record-button-label">Record input</span>
-              </button>
-              <button class="export-button import-recording-button" id="import-recording-button" type="button">
-                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 13V3m0 0L6.5 6.5M10 3l3.5 3.5M4 12v4h12v-4" /></svg>
-                Add recordings
-              </button>
-              <button class="quiet-button" id="arrangement-clear-button" type="button">Clear</button>
-            </div>
           </div>
 
           <div class="arrangement-card" id="arrangement-card">
@@ -167,7 +147,7 @@
                     <div class="arrangement-empty" id="arrangement-empty">
                       <span class="empty-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
                       <h2>Start arranging your song</h2>
-                      <p>Choose a pattern above and drag it into the track view below, or import recordings to get started.</p>
+                      <p>Open Browser below to drag patterns, Mels, instruments, or audio into Track View.</p>
                       <button class="quiet-button" id="empty-import-button" type="button">＋ Add audio files</button>
                     </div>
                     <section class="workspace workspace-tool-panel" id="sequencer-view" role="tabpanel" aria-labelledby="sequencer-tab" hidden>
@@ -599,6 +579,10 @@
                   <div class="track-view-heading">
                     <span>TRACK VIEW</span>
                     <div class="track-view-controls">
+                      <button class="quiet-button record-audio-button" id="record-audio-button" type="button" aria-pressed="false" title="Record input">
+                        <span class="record-dot" aria-hidden="true"></span>
+                        <span id="record-button-label" class="visually-hidden">Record input</span>
+                      </button>
                       <button class="quiet-button" id="show-workspace-button" type="button" hidden>Show Workspace</button>
                       <button class="quiet-button" id="hide-track-view-button" type="button">Hide</button>
                       <button class="quiet-button" id="arrangement-snap-button" type="button" aria-pressed="true" title="Snap the playhead and clips to quarter-note beats">SNAP ON</button>
@@ -616,8 +600,7 @@
                     <div class="arrangement-track-column">
                       <div class="arrangement-track-header">TRACKS <span id="arrangement-track-count">01</span></div>
                       <div class="arrangement-track-labels" id="arrangement-track-labels"></div>
-                      <button class="add-track-button" id="add-mel-track-button" type="button">＋ Add instrument track</button>
-                      <button class="add-track-button" id="add-track-button" type="button">＋ Add audio track</button>
+                      <button class="quiet-button track-browser-button" id="source-browser-button" type="button">Browser</button>
                     </div>
                     <div class="timeline-scroll" id="timeline-scroll">
                       <div class="timeline-content" id="timeline-content"></div>
