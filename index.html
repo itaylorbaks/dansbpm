@@ -98,6 +98,11 @@
           <div class="transport-right">
             <span class="now-playing" id="now-playing"><span class="live-dot"></span>READY TO PLAY</span>
             <span class="transport-divider transport-divider-small"></span>
+            <label class="metronome-volume-control" title="Metronome volume">
+              <span>CLICK</span>
+              <input id="metronome-volume" type="range" min="0" max="100" step="1" value="100" aria-label="Metronome volume" />
+              <output id="metronome-volume-value">100%</output>
+            </label>
             <button class="icon-button metronome-button" id="metronome-button" type="button" aria-label="Toggle metronome" aria-pressed="false" title="Metronome">
               <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 3h4l4 14H4L8 3Z" /><path d="m10 8 3-2" /><path d="M10 14h.01" /></svg>
             </button>

@@ -186,6 +186,9 @@ input[type="range"]::-moz-range-thumb { width: 7px; height: 7px; border: 2px sol
 .live-dot { width: 6px; height: 6px; border-radius: 50%; background: #55565b; }
 .now-playing.is-live { color: var(--accent); }
 .now-playing.is-live .live-dot { background: var(--accent); box-shadow: 0 0 9px rgba(211,243,107,.6); }
+.metronome-volume-control { display: flex; align-items: center; gap: 6px; color: var(--faint); font: 8px var(--mono); }
+.metronome-volume-control input { width: 64px; margin: 0; }
+.metronome-volume-control output { min-width: 29px; color: var(--muted); text-align: right; }
 .metronome-button.is-active { color: var(--accent); border-color: #687641; background: var(--accent-soft); }
 
 .workspace-tabs { display: flex; align-items: center; gap: 6px; height: 51px; border-bottom: 1px solid var(--stroke-soft); }
@@ -693,7 +696,8 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
   .swing-control { width: 70px; margin-left: 4px; }
   .transport-panel .transport-divider-small { margin: 0 7px; }
   .length-button { padding: 5px 6px; }
-  .transport-right { display: none; }
+  .transport-right { display: flex; flex: 1 0 100%; justify-content: flex-end; }
+  .transport-right .now-playing, .transport-right .transport-divider-small { display: none; }
   .section-heading { align-items: flex-start; gap: 12px; flex-direction: column; padding: 26px 0 16px; }
   h1 { font-size: 25px; }
   .sequencer-actions { width: 100%; max-width: 100%; align-self: flex-end; margin-top: -1px; }

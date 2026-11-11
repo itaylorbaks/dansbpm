@@ -521,9 +521,10 @@
     const osc = state.audioContext.createOscillator();
     registerArrangementPlaybackSource(osc);
     const gain = state.audioContext.createGain();
+    const peakGain = Math.max(0.0001, 0.22 * userSettings.metronomeVolume / 100);
     osc.frequency.setValueAtTime(downbeat ? 1350 : 950, time);
     gain.gain.setValueAtTime(0.0001, time);
-    gain.gain.exponentialRampToValueAtTime(0.22, time + 0.002);
+    gain.gain.exponentialRampToValueAtTime(peakGain, time + 0.002);
     gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.028);
     osc.connect(gain);
     gain.connect(getMetronomeOutputNode(state.isPlaying && state.playbackMode === "arrangement"));

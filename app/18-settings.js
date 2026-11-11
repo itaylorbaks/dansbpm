@@ -5,6 +5,7 @@
     audioInputDeviceId: "",
     audioOutputDeviceId: "",
     drummerDeviceId: "",
+    metronomeVolume: 100,
     theme: "dark",
     accent: "lime",
   };
@@ -21,6 +22,9 @@
           audioInputDeviceId: typeof saved.audioInputDeviceId === "string" ? saved.audioInputDeviceId : "",
           audioOutputDeviceId: typeof saved.audioOutputDeviceId === "string" ? saved.audioOutputDeviceId : "",
           drummerDeviceId: typeof saved.drummerDeviceId === "string" ? saved.drummerDeviceId : "",
+          metronomeVolume: Number.isFinite(saved.metronomeVolume)
+            ? Math.round(Math.max(0, Math.min(100, saved.metronomeVolume)))
+            : 100,
           theme: saved.theme === "light" ? "light" : "dark",
           accent: ["lime", "blue", "violet", "coral"].includes(saved.accent) ? saved.accent : "lime",
         });
@@ -36,6 +40,14 @@
     $("#settings-audio-input").value = userSettings.audioInputDeviceId;
     $("#settings-audio-output").value = userSettings.audioOutputDeviceId;
     $("#settings-drummer-output").value = userSettings.drummerDeviceId;
+    const metronomeVolume = $("#metronome-volume");
+    metronomeVolume.value = String(userSettings.metronomeVolume);
+    updateMetronomeVolumeUI();
+    metronomeVolume.addEventListener("input", () => {
+      userSettings.metronomeVolume = Number(metronomeVolume.value);
+      updateMetronomeVolumeUI();
+    });
+    metronomeVolume.addEventListener("change", persistUserSettings);
     $("#settings-button").addEventListener("click", () => {
       $("#settings-dialog").showModal();
       void refreshAudioDevices();
@@ -97,6 +109,12 @@
     } catch (error) {
       showToast(`Could not save settings: ${error.message || "browser storage is unavailable"}`);
       return false;
+    }
+
+    function updateMetronomeVolumeUI() {
+      const volume = userSettings.metronomeVolume;
+      $("#metronome-volume-value").textContent = `${volume}%`;
+      $("#metronome-volume").style.setProperty("--range-progress", `${volume}%`);
     }
   }
 
@@ -259,9 +277,10 @@
   function triggerDjMetronomeClick(time, downbeat, pitchRatio) {
     const oscillator = state.audioContext.createOscillator();
     const envelope = state.audioContext.createGain();
+    const peakGain = Math.max(0.0001, 0.2 * userSettings.metronomeVolume / 100);
     oscillator.frequency.setValueAtTime((downbeat ? 1350 : 950) * pitchRatio, time);
     envelope.gain.setValueAtTime(0.0001, time);
-    envelope.gain.exponentialRampToValueAtTime(0.2, time + 0.002);
+    envelope.gain.exponentialRampToValueAtTime(peakGain, time + 0.002);
     envelope.gain.exponentialRampToValueAtTime(0.0001, time + 0.028);
     oscillator.connect(envelope);
     envelope.connect(getMetronomeOutputNode(drummerConnected));
