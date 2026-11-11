@@ -465,7 +465,7 @@
     gain.gain.exponentialRampToValueAtTime(0.22, time + 0.002);
     gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.028);
     osc.connect(gain);
-    gain.connect(state.masterTrack.gainNode || state.masterGain);
+    gain.connect(getMetronomeOutputNode(state.isPlaying && state.playbackMode === "arrangement"));
     osc.start(time);
     osc.stop(time + 0.035);
   }

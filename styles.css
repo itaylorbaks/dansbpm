@@ -15,6 +15,70 @@
   --sans: "Momo Trust Display", ui-sans-serif, system-ui, sans-serif;
 }
 
+:root[data-accent="blue"] { --accent: #82bfff; --accent-soft: rgba(130, 191, 255, .13); }
+:root[data-accent="violet"] { --accent: #c3a0ff; --accent-soft: rgba(195, 160, 255, .13); }
+:root[data-accent="coral"] { --accent: #ff9a83; --accent-soft: rgba(255, 154, 131, .13); }
+:root[data-theme="light"] {
+  color-scheme: light;
+  --page: #f2f3f5;
+  --panel: #ffffff;
+  --panel-raised: #f7f8fa;
+  --panel-hover: #ebedf0;
+  --stroke: #d7d9de;
+  --stroke-soft: #e3e5e9;
+  --text: #20232a;
+  --muted: #656a73;
+  --faint: #858a93;
+}
+:root[data-theme="light"] body { background: var(--page); color: var(--text); }
+:root[data-theme="light"] .workspace-content,
+:root[data-theme="light"] .piano-roll-view,
+:root[data-theme="light"] .sequencer-grid-scroll,
+:root[data-theme="light"] .timeline-automation-lane { background-color: #f7f8fa; }
+:root[data-theme="light"] .sequencer-card,
+:root[data-theme="light"] .arrangement-card,
+:root[data-theme="light"] .workspace-tab.is-selected,
+:root[data-theme="light"] .transport-button,
+:root[data-theme="light"] .quiet-button,
+:root[data-theme="light"] .export-button,
+:root[data-theme="light"] .step-length-control,
+:root[data-theme="light"] .segmented-control,
+:root[data-theme="light"] .grid-header,
+:root[data-theme="light"] .track-meta,
+:root[data-theme="light"] .track-header-label,
+:root[data-theme="light"] .grid-footer,
+:root[data-theme="light"] .arrangement-track-column,
+:root[data-theme="light"] .timeline-ruler,
+:root[data-theme="light"] .arrangement-footer,
+:root[data-theme="light"] .source-sidebar,
+:root[data-theme="light"] .project-dialog,
+:root[data-theme="light"] .export-dialog,
+:root[data-theme="light"] .collaboration-dialog,
+:root[data-theme="light"] .help-dialog,
+:root[data-theme="light"] .settings-dialog,
+:root[data-theme="light"] .audio-clip-edit-dialog { background-color: var(--panel); color: var(--text); }
+:root[data-theme="light"] .track-row:nth-child(even),
+:root[data-theme="light"] .timeline-lane { background-color: #f0f2f5; }
+:root[data-theme="light"] .collaboration-presence-bar { background: #e9f1dc; color: #3d4c22; }
+:root[data-theme="light"] .project-list-item,
+:root[data-theme="light"] .login-option,
+:root[data-theme="light"] .sound-library-search-results,
+:root[data-theme="light"] .toast,
+:root[data-theme="light"] .master-pitch-popover { background-color: var(--panel-raised); color: var(--text); }
+:root[data-theme="light"] .collaboration-field input,
+:root[data-theme="light"] .create-profile-controls input,
+:root[data-theme="light"] .sound-library-search-control input { background: #fff; color: var(--text); }
+:root[data-theme="light"] .project-name,
+:root[data-theme="light"] .topbar-save-button,
+:root[data-theme="light"] .icon-button,
+:root[data-theme="light"] .workspace-tab:hover,
+:root[data-theme="light"] .settings-field { color: var(--text); }
+:root[data-theme="light"] .step-instrument-choice,
+:root[data-theme="light"] .sound-variant,
+:root[data-theme="light"] .arrangement-track-context-menu,
+:root[data-theme="light"] .project-list-item { background-color: var(--panel-raised); color: var(--text); }
+:root[data-theme="light"] .timeline-lane { background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(var(--bar-width) - 1px), #d9dce1 calc(var(--bar-width) - 1px), #d9dce1 var(--bar-width)), repeating-linear-gradient(to right, transparent 0, transparent calc(var(--beat-width) - 1px), rgba(170, 174, 182, .35) calc(var(--beat-width) - 1px), rgba(170, 174, 182, .35) var(--beat-width)); }
+
 * { box-sizing: border-box; }
 
 body {
@@ -63,6 +127,7 @@ body.is-exporting .app-shell { cursor: wait; opacity: .7; pointer-events: none; 
 .topbar-actions .workspace-open-button.is-active { border-color: #687641; background: var(--accent-soft); color: var(--accent); }
 .icon-button { display: grid; place-items: center; width: 31px; height: 31px; padding: 0; border: 1px solid var(--stroke); border-radius: 7px; background: transparent; color: #a3a4aa; cursor: pointer; }
 .icon-button:hover { background: var(--panel-hover); color: var(--text); }
+.settings-button { font-size: 16px; }
 .help-button { border-radius: 50%; font-family: var(--mono); font-size: 12px; }
 .export-button { height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid #3c3e42; border-radius: 7px; background: #222327; color: #e4e4e1; font-size: 11px; font-weight: 600; cursor: pointer; }
 .export-button:hover { border-color: #606251; background: #292a2b; }
@@ -252,6 +317,18 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .export-dialog-options { display: grid; gap: 8px; margin-top: 20px; }
 .export-dialog-options .quiet-button { justify-content: flex-start; }
 .collaboration-dialog { width: min(480px, calc(100vw - 30px)); }
+.settings-dialog { position: fixed; width: min(520px, calc(100vw - 30px)); max-height: min(780px, calc(100dvh - 30px)); overflow: auto; border: 1px solid #3a3b40; border-radius: 10px; background: #1b1c1f; padding: 22px; color: var(--text); box-shadow: 0 20px 60px #0009; }
+.settings-dialog::backdrop { background: #0009; backdrop-filter: blur(3px); }
+.settings-section { display: grid; gap: 10px; border-top: 1px solid var(--stroke-soft); margin-top: 16px; padding-top: 14px; }
+.settings-section h3 { margin: 0; font-size: 12px; }
+.settings-field { display: grid; grid-template-columns: 130px minmax(0, 1fr); align-items: center; gap: 10px; color: var(--muted); font-size: 11px; }
+.settings-field select { min-width: 0; height: 32px; border: 1px solid var(--stroke); border-radius: 5px; background: var(--panel-raised); padding: 0 8px; color: var(--text); font: 11px var(--sans); }
+.settings-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.settings-note { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.collaboration-activity-list { display: grid; max-height: 180px; gap: 6px; overflow: auto; margin: 0; padding: 0 0 0 20px; color: var(--text); font-size: 10px; }
+.collaboration-activity-list time { display: block; color: var(--muted); font-family: var(--mono); font-size: 9px; }
+:root[data-theme="light"] .settings-dialog { background: var(--panel); color: var(--text); }
+.settings-audio-sink { display: none; }
 .collaboration-note, .collaboration-status, .collaboration-participants { color: var(--muted); font-size: 11px; line-height: 1.5; }
 .collaboration-note { margin: 14px 0; }
 .collaboration-status { min-height: 18px; margin: 12px 0; }

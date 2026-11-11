@@ -20,6 +20,7 @@ const parts = [
   "13-playback.js",
   "14-collaboration.js",
   "15-projects.js",
+  "18-settings.js",
   "16-events.js",
   "17-midi.js",
 ];

@@ -641,6 +641,7 @@
   }
 
   function drawDjLiveView() {
+    scheduleDjMetronome();
     updateDjArrangementAutoScroll();
     drawDjArrangementRuler();
     DJ_DECK_IDS.forEach(updateDjDeckDisplays);

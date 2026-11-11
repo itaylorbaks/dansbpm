@@ -1160,6 +1160,7 @@
   }
 
   async function connectMasterPitchProcessor(context) {
+    if (context === state.audioContext) await applySelectedAudioOutput(context);
     if (state.masterPitchNode?.context === context) return state.masterPitchNode;
     if (!context.audioWorklet || typeof window.AudioWorkletNode !== "function") {
       state.masterPitchSupported = false;

@@ -1,3 +1,5 @@
+  let collaborationLeaveTimeout = null;
+
   function renderCollaborationStatus(message = "Not connected") {
     const status = $("#collaboration-status");
     const activeRoom = $("#collaboration-active-room");
@@ -547,6 +549,13 @@
       return;
     }
     if (!message || typeof message !== "object") return;
+    if (typeof message.hostName === "string" || Array.isArray(message.activityLog)) {
+      applyCollaborationMetadata(message);
+    }
+    if (message.type === "left") {
+      if (collaboration.manualLeave) finishLeavingCollaborationRoom(true);
+      return;
+    }
     if (message.type === "snapshotConflict") {
       if (Number.isInteger(message.updateId) && message.updateId !== collaboration.lastUpdateId) {
         collaboration.sentUpdates.delete(message.updateId);
@@ -579,6 +588,7 @@
         projectId: "",
         revision: message.revision,
       };
+      collaboration.lastRoomCode = message.roomCode;
       collaboration.participantNames = message.participants || [];
       collaboration.participantId = message.participantId || null;
       collaboration.viewers = message.viewers || [];
@@ -830,7 +840,23 @@
     if (!collaboration.session) return;
     flushSaveState();
     collaboration.manualLeave = true;
-    sendCollaborationMessage({ type: "leave" });
+    if (!sendCollaborationMessage({ type: "leave" })) {
+      finishLeavingCollaborationRoom();
+      return;
+    }
+    renderCollaborationStatus("Leaving room…");
+    window.clearTimeout(collaborationLeaveTimeout);
+    collaborationLeaveTimeout = window.setTimeout(finishLeavingCollaborationRoom, 1800);
+  }
+
+  function finishLeavingCollaborationRoom(serverConfirmed = false) {
+    window.clearTimeout(collaborationLeaveTimeout);
+    collaborationLeaveTimeout = null;
+    if (!collaboration.session) return;
+    collaboration.lastRoomCode = collaboration.session.roomCode;
+    if (!serverConfirmed) {
+      recordLocalCollaborationActivity("left", getCurrentUserName());
+    }
     collaboration.socket?.close();
     collaboration.socket = null;
     collaboration.session = null;

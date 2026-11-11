@@ -76,7 +76,7 @@
     try {
       $("#record-audio-button").disabled = true;
       $("#record-button-label").textContent = "Requesting mic…";
-      const stream = await window.navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await window.navigator.mediaDevices.getUserMedia({ audio: getRecordingAudioConstraints() });
       state.recordingStream = stream;
       await ensureAudio();
       state.recordingChunks = [];

@@ -748,6 +748,7 @@
   }
 
   function initialize() {
+    initializeSettings();
     initializeUsers();
     state.currentUser = getSessionUser();
     loadEffectPresets();

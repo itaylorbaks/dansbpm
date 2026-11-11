@@ -50,6 +50,8 @@ test("room creation, joining, and snapshot broadcasts work", async (t) => {
   const created = await createdMessage;
   assert.equal(created.type, "roomCreated");
   assert.match(created.roomCode, /^[0-9A-F]{20}$/);
+  assert.equal(created.hostName, "Ada");
+  assert.deepEqual(created.activityLog.map(({ action, name }) => [action, name]), [["created", "Ada"]]);
 
   const joinedMessage = nextJson(joined);
   joined.send(JSON.stringify({
@@ -62,6 +64,11 @@ test("room creation, joining, and snapshot broadcasts work", async (t) => {
   assert.equal(roomState.type, "roomState");
   assert.deepEqual(roomState.snapshot, snapshot);
   assert.equal(roomState.projectName, "Shared song");
+  assert.equal(roomState.hostName, "Ada");
+  assert.deepEqual(roomState.activityLog.map(({ action, name }) => [action, name]), [
+    ["created", "Ada"],
+    ["joined", "Grace"],
+  ]);
   assert.deepEqual(roomState.participants, ["Ada", "Grace"]);
   assert.deepEqual(roomState.viewers.map(({ name, view }) => [name, view]), [
     ["Ada", "arrangement"],
@@ -76,8 +83,16 @@ test("room creation, joining, and snapshot broadcasts work", async (t) => {
   const creatorUpdate = nextJson(creator);
   const acknowledgement = nextJson(joined);
   joined.send(JSON.stringify({ type: "update", baseRevision: 1, snapshot: { bpm: 132, patterns: [] } }));
-  assert.equal((await creatorUpdate).snapshot.bpm, 132);
-  assert.equal((await acknowledgement).revision, 2);
+  const updatedSnapshot = await creatorUpdate;
+  assert.equal(updatedSnapshot.snapshot.bpm, 132);
+  assert.deepEqual(updatedSnapshot.activityLog.at(-1), {
+    action: "edit",
+    name: "Grace",
+    timestamp: updatedSnapshot.lastUpdatedAt,
+  });
+  const editAck = await acknowledgement;
+  assert.equal(editAck.revision, 2);
+  assert.equal(editAck.lastUpdatedBy, "Grace");
 
   const creatorAssets = nextJson(creator);
   const assetAcknowledgement = nextJson(joined);
@@ -115,6 +130,16 @@ test("room creation, joining, and snapshot broadcasts work", async (t) => {
     startAtMs: Date.now() + 1000,
   }));
   assert.equal((await synchronizedPlay).type, "transport");
+
+  const creatorPresenceAfterLeave = nextJson(creator);
+  const leaveAcknowledgement = nextJson(joined);
+  joined.send(JSON.stringify({ type: "leave" }));
+  const [presenceAfterLeave, left] = await Promise.all([creatorPresenceAfterLeave, leaveAcknowledgement]);
+  assert.equal(left.type, "left");
+  assert.equal(left.activityLog.at(-1).action, "left");
+  assert.equal(left.activityLog.at(-1).name, "Grace");
+  assert.ok(Number.isFinite(left.activityLog.at(-1).timestamp));
+  assert.deepEqual(presenceAfterLeave.activityLog, left.activityLog);
 });
 
 test("connections from unlisted origins are rejected", async (t) => {

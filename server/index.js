@@ -75,8 +75,29 @@ export function createCollaborationServer({
     return [...room.clients.values()].map(({ id, name, view }) => ({ id, name, view }));
   }
 
+  function roomMetadata(room) {
+    return {
+      roomCode: room.code,
+      hostName: room.hostName,
+      lastUpdatedBy: room.lastUpdatedBy,
+      lastUpdatedAt: room.lastUpdatedAt,
+      activityLog: room.activityLog,
+    };
+  }
+
+  function addRoomActivity(room, action, name, timestamp = Date.now()) {
+    const entry = { action, name: safeName(name), timestamp };
+    room.activityLog.push(entry);
+    if (room.activityLog.length > 100) room.activityLog.shift();
+    if (action === "edit") {
+      room.lastUpdatedBy = entry.name;
+      room.lastUpdatedAt = timestamp;
+    }
+    return entry;
+  }
+
   function presence(room) {
-    return { type: "presence", participants: participants(room), viewers: viewers(room) };
+    return { type: "presence", participants: participants(room), viewers: viewers(room), ...roomMetadata(room) };
   }
 
   function totalRoomBytes() {
@@ -99,8 +120,10 @@ export function createCollaborationServer({
     if (!room) return;
     room.clients.delete(client.id);
     room.lastActiveAt = Date.now();
+    addRoomActivity(room, "left", client.name, room.lastActiveAt);
     if (room.clients.size === 0) room.expiresAt = Date.now() + roomTtlMs;
     broadcast(room, presence(room));
+    return room;
   }
 
   function sendError(socket, message) {
@@ -123,6 +146,7 @@ export function createCollaborationServer({
     room.clients.set(id, client);
     room.lastActiveAt = Date.now();
     room.expiresAt = null;
+    addRoomActivity(room, "joined", client.name, room.lastActiveAt);
     send(socket, {
       type: "roomState",
       roomCode,
@@ -133,6 +157,7 @@ export function createCollaborationServer({
       projectName: room.projectName,
       participants: participants(room),
       viewers: viewers(room),
+      ...roomMetadata(room),
     });
     broadcast(room, presence(room), socket);
   }
@@ -189,11 +214,15 @@ export function createCollaborationServer({
         sizeBytes,
         projectName: safeProjectName(message.projectName),
         revision: 1,
-        lastUpdatedBy: safeName(message.name),
+        hostName: safeName(message.name),
+        lastUpdatedBy: "",
+        lastUpdatedAt: null,
+        activityLog: [],
         clients: new Map(),
         lastActiveAt: Date.now(),
         expiresAt: null,
       };
+      addRoomActivity(room, "created", room.hostName, room.lastActiveAt);
       rooms.set(roomCode, room);
       const id = randomUUID();
       const client = {
@@ -213,6 +242,7 @@ export function createCollaborationServer({
         revision: room.revision,
         participants: participants(room),
         viewers: viewers(room),
+        ...roomMetadata(room),
       });
       return;
     }
@@ -259,6 +289,7 @@ export function createCollaborationServer({
           assets: room.assets,
           sender: room.lastUpdatedBy,
           updateId: message.updateId,
+          ...roomMetadata(room),
         });
         return;
       }
@@ -271,14 +302,15 @@ export function createCollaborationServer({
       room.sizeBytes = sizeBytes;
       room.revision += 1;
       client.lastAcceptedRevision = room.revision;
-      room.lastUpdatedBy = client.name;
       room.lastActiveAt = now;
-      send(socket, { type: "snapshotAck", revision: room.revision, updateId: message.updateId });
+      addRoomActivity(room, "edit", client.name, now);
+      send(socket, { type: "snapshotAck", revision: room.revision, updateId: message.updateId, ...roomMetadata(room) });
       broadcast(room, {
         type: "snapshot",
         revision: room.revision,
         snapshot: room.snapshot,
         sender: client.name,
+        ...roomMetadata(room),
       }, socket);
       return;
     }
@@ -293,6 +325,7 @@ export function createCollaborationServer({
           assets: room.assets,
           sender: room.lastUpdatedBy,
           updateId: message.updateId,
+          ...roomMetadata(room),
         });
         return;
       }
@@ -306,9 +339,9 @@ export function createCollaborationServer({
       room.sizeBytes = sizeBytes;
       room.revision += 1;
       client.lastAcceptedRevision = room.revision;
-      room.lastUpdatedBy = client.name;
       room.lastActiveAt = now;
-      send(socket, { type: "snapshotAck", revision: room.revision, updateId: message.updateId });
+      addRoomActivity(room, "edit", client.name, now);
+      send(socket, { type: "snapshotAck", revision: room.revision, updateId: message.updateId, ...roomMetadata(room) });
       broadcast(room, {
         type: "roomState",
         roomCode: room.code,
@@ -319,6 +352,7 @@ export function createCollaborationServer({
         participants: participants(room),
         viewers: viewers(room),
         sender: client.name,
+        ...roomMetadata(room),
       }, socket);
       return;
     }
@@ -356,8 +390,8 @@ export function createCollaborationServer({
       return;
     }
     if (message.type === "leave") {
-      detach(socket);
-      send(socket, { type: "left" });
+      const room = detach(socket);
+      send(socket, { type: "left", ...(room ? roomMetadata(room) : {}) });
       return;
     }
     sendError(socket, "Unknown collaboration message.");
