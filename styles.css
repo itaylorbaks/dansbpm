@@ -1255,3 +1255,4 @@ body:has(#dj-view:not([hidden])).is-dj-expanded #workspace-area { grid-row: 1; b
 #piano-roll-view .piano-roll-toolbar::-webkit-scrollbar { height: 4px; }
 #piano-roll-view .piano-roll-loop-range { bottom: 50%; }
 #piano-roll-view .piano-roll-sticky-playhead::after { top: 50%; }
+#piano-roll-view .piano-roll-bar > span { align-items: flex-end; padding: 0 0 2px 5px; }
