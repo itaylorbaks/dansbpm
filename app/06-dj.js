@@ -365,7 +365,8 @@
       if (instrument) tracks = [instrument];
     }
     const samples = new Map();
-    tracks.filter((track) => track?.sampleUrl).forEach((track) => samples.set(track.sampleUrl, track));
+    tracks.filter((track) => track && (track.sampleUrl || track.kind === "sample"))
+      .forEach((track) => samples.set(track.sampleUrl || track.id, track));
     await Promise.all([...samples.values()].map(loadLibrarySample));
   }
 
@@ -2356,6 +2357,7 @@
         showToast("Add a drum-kit instrument track to use the DJ pads.");
         return;
       }
+      await loadLibrarySample(track);
       playPianoNote(track, state.audioContext.currentTime + 0.01, DJ_PAD_NOTES[index],
         getStepDuration(), 0.85, track, deck.eqLowNode);
     } catch (error) {

@@ -1174,8 +1174,11 @@
       key.setAttribute("aria-label", `Preview ${midiNoteName(midi)}`);
       key.addEventListener("click", async () => {
         try {
+          const track = getPianoTrack();
+          if (!track) throw new Error("Choose an instrument before previewing notes.");
           await ensureAudio();
-          playPianoNote(getPianoTrack(), state.audioContext.currentTime + 0.015, midi, 0.4, 0.75);
+          await loadLibrarySample(track);
+          playPianoNote(track, state.audioContext.currentTime + 0.015, midi, 0.4, 0.75);
         } catch (error) {
           showToast(error.message || "The instrument could not be played.");
         }
@@ -1545,9 +1548,15 @@
     updateArrangementLength();
     renderArrangement();
     saveState();
-    ensureAudio().then(() => playPianoNote(getPianoTrack(note.trackId), state.audioContext.currentTime + 0.015,
-      note.midi, note.durationTicks / PIANO_TICKS_PER_BAR * (240 / state.bpm), note.velocity, getPianoTrack(note.trackId), null, note))
-      .catch((error) => showToast(error.message || "The instrument could not be played."));
+    const track = getPianoTrack(note.trackId);
+    if (track) {
+      void (async () => {
+        await ensureAudio();
+        await loadLibrarySample(track);
+        playPianoNote(track, state.audioContext.currentTime + 0.015,
+          note.midi, note.durationTicks / PIANO_TICKS_PER_BAR * (240 / state.bpm), note.velocity, track, null, note);
+      })().catch((error) => showToast(error.message || "The instrument could not be played."));
+    }
   }
 
   function scaleSelectedPianoNoteDurations(originals, anchorId, requestedDuration, totalTicks) {

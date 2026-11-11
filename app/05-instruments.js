@@ -638,7 +638,13 @@
   }
 
   async function loadLibrarySample(track) {
-    if (!track.sampleUrl || track.sample?.buffer) return;
+    if (track.sample?.buffer) return;
+    if (!track.sampleUrl) {
+      if (track.kind === "sample") {
+        throw new Error(`The audio for ${track.name} is unavailable.`);
+      }
+      return;
+    }
     await ensureAudio();
     let load = librarySampleLoads.get(track.sampleUrl);
     if (!load) {
@@ -669,12 +675,18 @@
       const track = getPianoTrack(trackId);
       if (track) tracks = [track];
     } else if (workspace === "arrangement") {
-      const trackIds = state.patterns.flatMap((pattern) => getPatternTrackIds(pattern));
+      const arrangedPatterns = new Set(state.patternClips.map((clip) => clip.patternId));
+      const trackIds = [...arrangedPatterns].flatMap((patternId) => {
+        const pattern = getPattern(patternId);
+        return pattern ? getPatternTrackIds(pattern) : [];
+      });
       tracks = trackIds.map((trackId) => state.tracks.find((track) => track.id === trackId));
-      tracks.push(...state.melTracks.map((track) => getPianoTrack(track.instrumentId)));
+      tracks.push(...state.melTracks.filter((track) => track.clips.length)
+        .map((track) => getPianoTrack(track.instrumentId)));
     }
     const uniqueSamples = new Map();
-    tracks.filter((track) => track?.sampleUrl).forEach((track) => uniqueSamples.set(track.sampleUrl, track));
+    tracks.filter((track) => track && (track.sampleUrl || track.kind === "sample"))
+      .forEach((track) => uniqueSamples.set(track.sampleUrl || track.id, track));
     await Promise.all(Array.from(uniqueSamples.values(), loadLibrarySample));
   }
 
@@ -1019,7 +1031,7 @@
 
   function recordStepKeyboardHit(event) {
     if (!state.keyboardRecording || state.keyboardRecording.mode !== "sequencer" ||
-      state.view !== "sequencer" || !state.audioContext || event.repeat) return false;
+      state.view !== "sequencer" || !state.isPlaying || !state.audioContext || event.repeat) return false;
     const keyIndex = LIVE_KEY_CODES.indexOf(event.code);
     if (keyIndex < 0) return false;
     const trackIndex = keyIndex + (event.shiftKey ? LIVE_KEY_CODES.length : 0);
@@ -1058,7 +1070,7 @@
 
   function recordPianoKeyboardNote(event) {
     if (!state.keyboardRecording || state.keyboardRecording.mode !== "piano-roll" ||
-      state.view !== "piano-roll" || !state.audioContext || event.repeat) return false;
+      state.view !== "piano-roll" || !state.isPlaying || !state.audioContext || event.repeat) return false;
     const midi = PIANO_KEY_MIDI.get(event.code);
     if (midi === undefined) return false;
     const mel = getMel(state.keyboardRecording.targetId);

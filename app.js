@@ -2587,8 +2587,11 @@
       key.setAttribute("aria-label", `Preview ${midiNoteName(midi)}`);
       key.addEventListener("click", async () => {
         try {
+          const track = getPianoTrack();
+          if (!track) throw new Error("Choose an instrument before previewing notes.");
           await ensureAudio();
-          playPianoNote(getPianoTrack(), state.audioContext.currentTime + 0.015, midi, 0.4, 0.75);
+          await loadLibrarySample(track);
+          playPianoNote(track, state.audioContext.currentTime + 0.015, midi, 0.4, 0.75);
         } catch (error) {
           showToast(error.message || "The instrument could not be played.");
         }
@@ -2958,9 +2961,15 @@
     updateArrangementLength();
     renderArrangement();
     saveState();
-    ensureAudio().then(() => playPianoNote(getPianoTrack(note.trackId), state.audioContext.currentTime + 0.015,
-      note.midi, note.durationTicks / PIANO_TICKS_PER_BAR * (240 / state.bpm), note.velocity, getPianoTrack(note.trackId), null, note))
-      .catch((error) => showToast(error.message || "The instrument could not be played."));
+    const track = getPianoTrack(note.trackId);
+    if (track) {
+      void (async () => {
+        await ensureAudio();
+        await loadLibrarySample(track);
+        playPianoNote(track, state.audioContext.currentTime + 0.015,
+          note.midi, note.durationTicks / PIANO_TICKS_PER_BAR * (240 / state.bpm), note.velocity, track, null, note);
+      })().catch((error) => showToast(error.message || "The instrument could not be played."));
+    }
   }
 
   function scaleSelectedPianoNoteDurations(originals, anchorId, requestedDuration, totalTicks) {
@@ -3923,7 +3932,13 @@
   }
 
   async function loadLibrarySample(track) {
-    if (!track.sampleUrl || track.sample?.buffer) return;
+    if (track.sample?.buffer) return;
+    if (!track.sampleUrl) {
+      if (track.kind === "sample") {
+        throw new Error(`The audio for ${track.name} is unavailable.`);
+      }
+      return;
+    }
     await ensureAudio();
     let load = librarySampleLoads.get(track.sampleUrl);
     if (!load) {
@@ -3954,12 +3969,18 @@
       const track = getPianoTrack(trackId);
       if (track) tracks = [track];
     } else if (workspace === "arrangement") {
-      const trackIds = state.patterns.flatMap((pattern) => getPatternTrackIds(pattern));
+      const arrangedPatterns = new Set(state.patternClips.map((clip) => clip.patternId));
+      const trackIds = [...arrangedPatterns].flatMap((patternId) => {
+        const pattern = getPattern(patternId);
+        return pattern ? getPatternTrackIds(pattern) : [];
+      });
       tracks = trackIds.map((trackId) => state.tracks.find((track) => track.id === trackId));
-      tracks.push(...state.melTracks.map((track) => getPianoTrack(track.instrumentId)));
+      tracks.push(...state.melTracks.filter((track) => track.clips.length)
+        .map((track) => getPianoTrack(track.instrumentId)));
     }
     const uniqueSamples = new Map();
-    tracks.filter((track) => track?.sampleUrl).forEach((track) => uniqueSamples.set(track.sampleUrl, track));
+    tracks.filter((track) => track && (track.sampleUrl || track.kind === "sample"))
+      .forEach((track) => uniqueSamples.set(track.sampleUrl || track.id, track));
     await Promise.all(Array.from(uniqueSamples.values(), loadLibrarySample));
   }
 
@@ -4304,7 +4325,7 @@
 
   function recordStepKeyboardHit(event) {
     if (!state.keyboardRecording || state.keyboardRecording.mode !== "sequencer" ||
-      state.view !== "sequencer" || !state.audioContext || event.repeat) return false;
+      state.view !== "sequencer" || !state.isPlaying || !state.audioContext || event.repeat) return false;
     const keyIndex = LIVE_KEY_CODES.indexOf(event.code);
     if (keyIndex < 0) return false;
     const trackIndex = keyIndex + (event.shiftKey ? LIVE_KEY_CODES.length : 0);
@@ -4343,7 +4364,7 @@
 
   function recordPianoKeyboardNote(event) {
     if (!state.keyboardRecording || state.keyboardRecording.mode !== "piano-roll" ||
-      state.view !== "piano-roll" || !state.audioContext || event.repeat) return false;
+      state.view !== "piano-roll" || !state.isPlaying || !state.audioContext || event.repeat) return false;
     const midi = PIANO_KEY_MIDI.get(event.code);
     if (midi === undefined) return false;
     const mel = getMel(state.keyboardRecording.targetId);
@@ -4896,7 +4917,8 @@
       if (instrument) tracks = [instrument];
     }
     const samples = new Map();
-    tracks.filter((track) => track?.sampleUrl).forEach((track) => samples.set(track.sampleUrl, track));
+    tracks.filter((track) => track && (track.sampleUrl || track.kind === "sample"))
+      .forEach((track) => samples.set(track.sampleUrl || track.id, track));
     await Promise.all([...samples.values()].map(loadLibrarySample));
   }
 
@@ -6887,6 +6909,7 @@
         showToast("Add a drum-kit instrument track to use the DJ pads.");
         return;
       }
+      await loadLibrarySample(track);
       playPianoNote(track, state.audioContext.currentTime + 0.01, DJ_PAD_NOTES[index],
         getStepDuration(), 0.85, track, deck.eqLowNode);
     } catch (error) {
@@ -13386,10 +13409,12 @@
     const soundDurationScale = getSoundDurationScale(track);
     ensureTrackAudio(outputTrack);
     const output = outputNode || outputTrack.gainNode;
-    if (track.sample) {
+    if (track.sample || track.sampleUrl || track.kind === "sample") {
+      const sampleBuffer = getLibrarySamplePlaybackBuffer(track);
+      if (!sampleBuffer) throw new Error(`The audio for ${track.name} is unavailable.`);
       const source = context.createBufferSource();
       registerArrangementPlaybackSource(source);
-      source.buffer = getLibrarySamplePlaybackBuffer(track);
+      source.buffer = sampleBuffer;
       const envelope = context.createGain();
       const sampleDuration = source.buffer.duration * soundDurationScale;
       source.playbackRate.setValueAtTime(pitchRatio, time);
@@ -13438,7 +13463,9 @@
       playPianoAudioSlice(noteOptions.audioSlice, time, midi, duration, velocity, outputNode, noteOptions);
       return;
     }
-    if (track.sample) {
+    if (track.sample || track.sampleUrl || track.kind === "sample") {
+      const sampleBuffer = getLibrarySamplePlaybackBuffer(track);
+      if (!sampleBuffer) throw new Error(`The audio for ${track.name} is unavailable.`);
       const context = state.audioContext;
       const source = context.createBufferSource();
       registerArrangementPlaybackSource(source);
@@ -13446,7 +13473,7 @@
       const detune = Number.isFinite(noteOptions.detune) ? noteOptions.detune : 0;
       const rootMidi = Number.isFinite(track.sampleRootMidi) ? track.sampleRootMidi : 60;
       const rate = Math.pow(2, (midi - rootMidi + detune / 100) / 12);
-      source.buffer = getLibrarySamplePlaybackBuffer(track);
+      source.buffer = sampleBuffer;
       source.playbackRate.setValueAtTime(rate, time);
       const bufferDuration = Math.min(source.buffer.duration * soundDurationScale, Math.max(0.01, duration) * rate);
       const outputDuration = bufferDuration / rate;
@@ -13939,7 +13966,14 @@
       updateTrackGains();
       if (arrangementPlayback) scheduleArrangementClips(state.playbackStartTime, startBar);
       scheduler();
-      state.schedulerId = window.setInterval(scheduler, 25);
+      state.schedulerId = window.setInterval(() => {
+        try {
+          scheduler();
+        } catch (error) {
+          stopPlayback();
+          showToast(error.message || "Audio playback stopped unexpectedly.");
+        }
+      }, 25);
       syncMixerMeters();
       playButton.classList.toggle("is-playing", arrangementPlayback);
       playButton.setAttribute("aria-label", arrangementPlayback ? "Pause Track View" : "Play Track View");
@@ -16597,6 +16631,7 @@
   }
 
   async function exportArrangementAudio(format = "wav") {
+    if (state.isExporting) return;
     if (state.mediaRecorder?.state === "recording") {
       showToast("Stop microphone recording before exporting the song.");
       return;
@@ -16619,6 +16654,23 @@
       return;
     }
 
+    const button = $(`#export-song-${format}-button`);
+    state.isExporting = true;
+    button.disabled = true;
+    document.body.classList.add("is-exporting");
+    $("#export-song-dialog").close();
+    showToast(`Preparing samples for ${format.toUpperCase()} export…`);
+    try {
+      await ensureAudio();
+      await loadLibrarySamplesForPlayback("arrangement");
+    } catch (error) {
+      state.isExporting = false;
+      button.disabled = false;
+      document.body.classList.remove("is-exporting");
+      showToast(`Could not prepare audio for export: ${error.message || "a sample could not be loaded"}`);
+      return;
+    }
+
     const previousContext = state.audioContext;
     const previousMaster = state.masterGain;
     const previousMasterPitchNode = state.masterPitchNode;
@@ -16633,11 +16685,6 @@
     const previousFxRuntimes = allTracks.map((track) => track.fxRuntime);
     const previousAnalysers = allTracks.map((track) => track.analyser);
     const previousSourceGains = allTracks.map((track) => track.sourceGains);
-    const button = $(`#export-song-${format}-button`);
-    state.isExporting = true;
-    button.disabled = true;
-    document.body.classList.add("is-exporting");
-    $("#export-song-dialog").close();
     showToast(`Rendering your song to ${format.toUpperCase()}…`);
     try {
       const context = new OfflineAudioContext(2, Math.ceil(duration * sampleRate), sampleRate);

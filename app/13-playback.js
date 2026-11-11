@@ -20,10 +20,12 @@
     const soundDurationScale = getSoundDurationScale(track);
     ensureTrackAudio(outputTrack);
     const output = outputNode || outputTrack.gainNode;
-    if (track.sample) {
+    if (track.sample || track.sampleUrl || track.kind === "sample") {
+      const sampleBuffer = getLibrarySamplePlaybackBuffer(track);
+      if (!sampleBuffer) throw new Error(`The audio for ${track.name} is unavailable.`);
       const source = context.createBufferSource();
       registerArrangementPlaybackSource(source);
-      source.buffer = getLibrarySamplePlaybackBuffer(track);
+      source.buffer = sampleBuffer;
       const envelope = context.createGain();
       const sampleDuration = source.buffer.duration * soundDurationScale;
       source.playbackRate.setValueAtTime(pitchRatio, time);
@@ -72,7 +74,9 @@
       playPianoAudioSlice(noteOptions.audioSlice, time, midi, duration, velocity, outputNode, noteOptions);
       return;
     }
-    if (track.sample) {
+    if (track.sample || track.sampleUrl || track.kind === "sample") {
+      const sampleBuffer = getLibrarySamplePlaybackBuffer(track);
+      if (!sampleBuffer) throw new Error(`The audio for ${track.name} is unavailable.`);
       const context = state.audioContext;
       const source = context.createBufferSource();
       registerArrangementPlaybackSource(source);
@@ -80,7 +84,7 @@
       const detune = Number.isFinite(noteOptions.detune) ? noteOptions.detune : 0;
       const rootMidi = Number.isFinite(track.sampleRootMidi) ? track.sampleRootMidi : 60;
       const rate = Math.pow(2, (midi - rootMidi + detune / 100) / 12);
-      source.buffer = getLibrarySamplePlaybackBuffer(track);
+      source.buffer = sampleBuffer;
       source.playbackRate.setValueAtTime(rate, time);
       const bufferDuration = Math.min(source.buffer.duration * soundDurationScale, Math.max(0.01, duration) * rate);
       const outputDuration = bufferDuration / rate;
@@ -573,7 +577,14 @@
       updateTrackGains();
       if (arrangementPlayback) scheduleArrangementClips(state.playbackStartTime, startBar);
       scheduler();
-      state.schedulerId = window.setInterval(scheduler, 25);
+      state.schedulerId = window.setInterval(() => {
+        try {
+          scheduler();
+        } catch (error) {
+          stopPlayback();
+          showToast(error.message || "Audio playback stopped unexpectedly.");
+        }
+      }, 25);
       syncMixerMeters();
       playButton.classList.toggle("is-playing", arrangementPlayback);
       playButton.setAttribute("aria-label", arrangementPlayback ? "Pause Track View" : "Play Track View");

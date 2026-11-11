@@ -671,6 +671,7 @@
   }
 
   async function exportArrangementAudio(format = "wav") {
+    if (state.isExporting) return;
     if (state.mediaRecorder?.state === "recording") {
       showToast("Stop microphone recording before exporting the song.");
       return;
@@ -693,6 +694,23 @@
       return;
     }
 
+    const button = $(`#export-song-${format}-button`);
+    state.isExporting = true;
+    button.disabled = true;
+    document.body.classList.add("is-exporting");
+    $("#export-song-dialog").close();
+    showToast(`Preparing samples for ${format.toUpperCase()} export…`);
+    try {
+      await ensureAudio();
+      await loadLibrarySamplesForPlayback("arrangement");
+    } catch (error) {
+      state.isExporting = false;
+      button.disabled = false;
+      document.body.classList.remove("is-exporting");
+      showToast(`Could not prepare audio for export: ${error.message || "a sample could not be loaded"}`);
+      return;
+    }
+
     const previousContext = state.audioContext;
     const previousMaster = state.masterGain;
     const previousMasterPitchNode = state.masterPitchNode;
@@ -707,11 +725,6 @@
     const previousFxRuntimes = allTracks.map((track) => track.fxRuntime);
     const previousAnalysers = allTracks.map((track) => track.analyser);
     const previousSourceGains = allTracks.map((track) => track.sourceGains);
-    const button = $(`#export-song-${format}-button`);
-    state.isExporting = true;
-    button.disabled = true;
-    document.body.classList.add("is-exporting");
-    $("#export-song-dialog").close();
     showToast(`Rendering your song to ${format.toUpperCase()}…`);
     try {
       const context = new OfflineAudioContext(2, Math.ceil(duration * sampleRate), sampleRate);
