@@ -192,8 +192,36 @@
       return mel ? { type, id, name: mel.name, item: mel } : null;
     }
     if (type === "audio") {
-      const track = state.arrangementTracks.find((item) => item.id === id);
-      return track ? { type, id, name: track.name, item: track } : null;
+      const [trackId, clipId] = id.split(":");
+      const track = state.arrangementTracks.find((item) => item.id === trackId);
+      if (!track) return null;
+      const clip = clipId
+        ? track.clips.find((item) => item.id === clipId && item.buffer)
+        : track.clips.find((item) => item.buffer);
+      return clip ? {
+        type,
+        id: track.id,
+        name: clip.name || track.name,
+        item: { ...track, clips: [clip] },
+      } : null;
+    }
+    if (type === "sample") {
+      const track = state.tracks.find((item) => item.id === id && item.sample?.buffer);
+      if (!track) return null;
+      const clip = {
+        id: track.id,
+        name: track.sample.name || track.name,
+        buffer: track.sample.buffer,
+        durationSeconds: track.sample.buffer.duration,
+        sourceOffsetSeconds: 0,
+        audioMetadata: track.audioMetadata,
+      };
+      return {
+        type: "audio",
+        id: track.id,
+        name: clip.name,
+        item: { ...track, clips: [clip] },
+      };
     }
     if (type === "song" && id === "current" && getDjArrangementDurationBars() > 0) {
       return { type, id, name: `${state.projectName || "Current Song"} (Full Song)`, item: state };
@@ -212,8 +240,15 @@
     const groups = [
       { label: "Patterns", items: (state.patterns || []).map((item) => ({ key: `pattern:${item.id}`, name: item.name })) },
       { label: "Mels", items: (state.mels || []).map((item) => ({ key: `mel:${item.id}`, name: item.name })) },
-      { label: "Imported audio", items: state.arrangementTracks.filter((item) => item.clips.length)
-        .map((item) => ({ key: `audio:${item.id}`, name: item.name })) },
+      { label: "Audio files", items: state.arrangementTracks.flatMap((track) =>
+        track.clips.filter((clip) => clip.buffer).map((clip, index) => ({
+          key: index === 0 ? `audio:${track.id}` : `audio:${track.id}:${clip.id}`,
+          name: clip.name || track.name,
+        }))) },
+      { label: "Uploaded samples", items: state.tracks
+        .filter((track) => track.sample?.buffer &&
+          (track.kind === "sample" || track.sample.name !== track.name))
+        .map((track) => ({ key: `sample:${track.id}`, name: track.sample.name || track.name })) },
     ];
     if (getDjArrangementDurationBars() > 0) {
       groups.unshift({ label: "Arrangement", items: [{ key: "song:current", name: `${state.projectName || "Current Song"} (Full Song)` }] });
@@ -303,7 +338,7 @@
       select.replaceChildren();
       const placeholder = document.createElement("option");
       placeholder.value = "";
-      placeholder.textContent = "Choose a song, pattern, Mel, or audio track";
+      placeholder.textContent = "Choose a song, pattern, Mel, or audio file";
       select.append(placeholder);
       groups.forEach((group) => {
         if (!group.items.length) return;
@@ -1958,8 +1993,8 @@
 
   function handleDjKeydown(event) {
     if (state.view !== "dj") return;
+    djHeldKeys.add(event.code);
     if (djViewExpanded) {
-      djHeldKeys.add(event.code);
       if ((event.code === "BracketLeft" || event.code === "BracketRight") &&
         (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey)) {
         djDeckChordUsed.add(event.code);
@@ -1969,9 +2004,6 @@
       if (selectors.length > 1 || (selectors.length && (knobKeyHeld || djHeldKeys.has("Space")))) {
         selectors.forEach((code) => djDeckChordUsed.add(code));
       }
-    } else {
-      djHeldKeys.clear();
-      djDeckChordUsed.clear();
     }
     const dialogOpen = $("#help-dialog").open || $("#project-dialog").open || $("#source-browser-dialog").open ||
       $("#step-instrument-dialog").open || $("#step-track-mix-dialog").open;
@@ -2015,7 +2047,7 @@
       setDjViewExpanded(false);
       return;
     }
-    if (djViewExpanded && event.code === "Space") {
+    if (event.code === "Space") {
       const selectors = ["BracketLeft", "BracketRight"].filter((code) => djHeldKeys.has(code));
       if (dialogOpen || (djControlFocused && !selectors.length &&
         !(event.ctrlKey || event.altKey || event.metaKey))) return;
@@ -2046,8 +2078,6 @@
       if (!event.repeat) playDjPad(padIndex);
     } else if (slotIndex >= 0) {
       if (!event.repeat) activateDjLiveSlot(slotIndex);
-    } else if (event.code === "Space") {
-      if (!event.repeat) toggleDjDeck(djState.activeDeck);
     } else if (event.code === "BracketLeft") {
       if (!djViewExpanded) setActiveDjDeck("A");
     } else if (event.code === "BracketRight") {
