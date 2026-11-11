@@ -827,7 +827,6 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .dj-master-panel h2 { margin: 0; color: #d7d8d4; font-size: 11px; }
 .dj-master-controls { display: grid; grid-template-columns: repeat(5, minmax(54px, 1fr)); gap: 8px; }
 .dj-crossfader-control { width: auto; min-width: 0; flex: 1; }
-.dj-expand-button { flex: 0 0 auto; white-space: nowrap; }
 .dj-crossfader-control > label, .dj-knob-control > span, .dj-source-control { color: var(--faint); font-family: var(--mono); font-size: 8px; letter-spacing: .6px; }
 .dj-crossfader-labels { display: flex; justify-content: space-between; margin-top: 3px; color: #b6b7bb; font-family: var(--mono); font-size: 8px; }
 .dj-crossfader-control input, .dj-knob-control input { display: block; width: 100%; }

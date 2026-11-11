@@ -48,7 +48,7 @@
   const djDeckChordUsed = new Set();
   const reversedDjBuffers = new WeakMap();
 
-  function setDjViewExpanded(expanded, restoreFocus = true) {
+  function setDjViewExpanded(expanded) {
     if (expanded && state.view !== "dj") return;
     djViewExpanded = expanded;
     if (!expanded) {
@@ -70,16 +70,11 @@
         showToast(`Could not exit browser fullscreen: ${error.message || "browser denied the request"}`);
       });
     }
-    const button = $("#dj-expand-button");
-    button.textContent = expanded ? "Exit full screen" : "Expand";
-    button.setAttribute("aria-label", expanded ? "Exit expanded DJ view" : "Expand DJ view");
-    button.setAttribute("aria-pressed", String(expanded));
-    if (!expanded && restoreFocus) button.focus();
     window.requestAnimationFrame(drawDjLiveView);
   }
 
   document.addEventListener("fullscreenchange", () => {
-    if (!document.fullscreenElement && djViewExpanded) setDjViewExpanded(false, false);
+    if (!document.fullscreenElement && djViewExpanded) setDjViewExpanded(false);
   });
 
   function getDjStorageKey() {
@@ -2105,7 +2100,6 @@
   }
 
   function bindDjEvents() {
-    $("#dj-expand-button").addEventListener("click", () => setDjViewExpanded(!djViewExpanded));
     $("#dj-arrangement-scroll").addEventListener("input", (event) => {
       djState.arrangementViewStartBar = Math.max(0, Math.min(DJ_MAX_OFFSET_BARS, Number(event.target.value)));
       renderDjLiveView();
