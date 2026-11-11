@@ -989,6 +989,9 @@
           pianoLoopEnabled: saved.pianoLoopEnabled,
           pianoLoopStartBar: saved.pianoLoopStartBar,
           pianoLoopEndBar: saved.pianoLoopEndBar,
+          pianoScaleRoot: saved.pianoScaleRoot,
+          pianoScaleType: saved.pianoScaleType,
+          pianoScaleLock: saved.pianoScaleLock,
         }),
         serialized: saved,
         mels: state.mels.map(cloneHistoryMel),
@@ -1111,6 +1114,9 @@
       state.pianoLoopEnabled = saved.pianoLoopEnabled;
       state.pianoLoopStartBar = saved.pianoLoopStartBar;
       state.pianoLoopEndBar = saved.pianoLoopEndBar;
+      state.pianoScaleRoot = saved.pianoScaleRoot;
+      state.pianoScaleType = saved.pianoScaleType;
+      state.pianoScaleLock = saved.pianoScaleLock;
       state.selectedPianoTrackId = saved.selectedPianoTrackId;
       renderMelOptions();
       renderPianoRoll();

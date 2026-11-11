@@ -243,6 +243,29 @@
                         <button class="quiet-button loop-toggle-button" id="piano-loop-button" type="button" aria-pressed="false">LOOP OFF</button>
                         <button class="quiet-button" id="piano-draw-mode-button" type="button" aria-pressed="false" title="Toggle note draw mode">Draw</button>
                         <button class="quiet-button" id="piano-humanize-button" type="button" title="Slightly vary note timing and velocity">Humanize</button>
+                        <button class="quiet-button" id="piano-quantize-button" type="button" title="Align selected notes (or all notes) to the current grid">Quantize</button>
+                        <label class="pattern-select-control">
+                          <span>KEY</span>
+                          <select id="piano-scale-root" aria-label="Piano roll scale root">
+                            <option value="0">C</option><option value="1">C#</option><option value="2">D</option>
+                            <option value="3">D#</option><option value="4">E</option><option value="5">F</option>
+                            <option value="6">F#</option><option value="7">G</option><option value="8">G#</option>
+                            <option value="9">A</option><option value="10">A#</option><option value="11">B</option>
+                          </select>
+                        </label>
+                        <label class="pattern-select-control">
+                          <span>SCALE</span>
+                          <select id="piano-scale-type" aria-label="Piano roll scale">
+                            <option value="major">Major</option>
+                            <option value="minor">Minor</option>
+                            <option value="major-pentatonic">Maj. pentatonic</option>
+                            <option value="minor-pentatonic">Min. pentatonic</option>
+                          </select>
+                        </label>
+                        <label class="piano-scale-lock-control" title="Snap new notes to the selected scale">
+                          <input id="piano-scale-lock" type="checkbox">
+                          <span>Scale lock</span>
+                        </label>
                         <label class="pattern-select-control">
                           <span>MEL</span>
                           <select id="mel-select" aria-label="Select a Mel"></select>

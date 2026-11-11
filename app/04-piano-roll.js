@@ -525,6 +525,27 @@
     return `${names[midi % 12]}${Math.floor(midi / 12) - 1}`;
   }
 
+  const PIANO_SCALE_INTERVALS = {
+    major: [0, 2, 4, 5, 7, 9, 11],
+    minor: [0, 2, 3, 5, 7, 8, 10],
+    "major-pentatonic": [0, 2, 4, 7, 9],
+    "minor-pentatonic": [0, 3, 5, 7, 10],
+  };
+
+  function isPianoPitchInScale(midi) {
+    const intervals = PIANO_SCALE_INTERVALS[state.pianoScaleType] || PIANO_SCALE_INTERVALS.major;
+    return intervals.includes(((midi - state.pianoScaleRoot) % 12 + 12) % 12);
+  }
+
+  function constrainPianoPitchToScale(midi) {
+    if (!state.pianoScaleLock || isPianoPitchInScale(midi)) return midi;
+    for (let distance = 1; distance < 12; distance += 1) {
+      if (midi - distance >= PIANO_BOTTOM_MIDI && isPianoPitchInScale(midi - distance)) return midi - distance;
+      if (midi + distance <= PIANO_TOP_MIDI && isPianoPitchInScale(midi + distance)) return midi + distance;
+    }
+    return midi;
+  }
+
   function updatePianoRulerViewport() {
     const view = $("#piano-roll-view");
     const workspace = $(".workspace-content");
@@ -746,7 +767,11 @@
     $("#piano-scale-slider").value = String(Math.round(state.pianoScale * 100));
     $("#piano-scale-value").textContent = `${Math.round(state.pianoScale * 100)}%`;
     $("#piano-snap-select").value = state.pianoSnapEnabled ? String(state.pianoSnap) : "off";
+    $("#piano-quantize-button").disabled = !state.pianoSnapEnabled;
     $("#piano-note-length-select").value = String(state.pianoNoteLength);
+    $("#piano-scale-root").value = String(state.pianoScaleRoot);
+    $("#piano-scale-type").value = state.pianoScaleType;
+    $("#piano-scale-lock").checked = state.pianoScaleLock;
     const keys = $("#piano-roll-keys");
     const ruler = $("#piano-roll-ruler");
     const grid = $("#piano-roll-grid");
@@ -807,11 +832,13 @@
       const row = document.createElement("div");
       const pitchClass = midi % 12;
       row.className = `piano-roll-row${[1, 3, 6, 8, 10].includes(pitchClass) ? " is-black" : ""}${pitchClass === 0 ? " is-c" : ""}`;
+      row.classList.toggle("is-scale-note", isPianoPitchInScale(midi));
       row.style.top = `${(PIANO_TOP_MIDI - midi) * PIANO_ROW_HEIGHT}px`;
       grid.append(row);
       const key = document.createElement("button");
       key.type = "button";
       key.className = `piano-roll-key${[1, 3, 6, 8, 10].includes(pitchClass) ? " is-black" : ""}${pitchClass === 0 ? " is-octave" : ""}`;
+      key.classList.toggle("is-scale-note", isPianoPitchInScale(midi));
       key.textContent = pitchClass === 0 ? midiNoteName(midi) : "";
       key.setAttribute("aria-label", `Preview ${midiNoteName(midi)}`);
       key.addEventListener("click", async () => {
@@ -920,6 +947,41 @@
     saveState();
   }
 
+  function quantizePianoNotes() {
+    if (!state.pianoSnapEnabled) {
+      showToast("Choose a grid snap before quantizing notes.");
+      return;
+    }
+    const selectedIds = new Set(state.selectedPianoNoteIds);
+    if (state.selectedPianoNoteId) selectedIds.add(state.selectedPianoNoteId);
+    const notes = state.pianoNotes.filter((note) => !selectedIds.size || selectedIds.has(note.id));
+    if (!notes.length) {
+      showToast("Add notes to the Piano Roll before quantizing.");
+      return;
+    }
+    const step = state.pianoSnap;
+    const totalTicks = state.pianoBars * PIANO_TICKS_PER_BAR;
+    let changed = false;
+    notes.forEach((note) => {
+      const originalStart = note.startTick;
+      const originalEnd = note.startTick + note.durationTicks;
+      const start = Math.max(0, Math.min(totalTicks - step, Math.round(originalStart / step) * step));
+      const end = Math.max(start + step, Math.min(totalTicks, Math.round(originalEnd / step) * step));
+      changed ||= start !== note.startTick || end - start !== note.durationTicks;
+      note.startTick = start;
+      note.durationTicks = end - start;
+    });
+    if (!changed) {
+      showToast("The notes are already on the selected grid.");
+      return;
+    }
+    renderPianoRoll();
+    updateArrangementLength();
+    renderArrangement();
+    saveState();
+    showToast(`Quantized ${notes.length} note${notes.length === 1 ? "" : "s"}`);
+  }
+
   function humanizePianoNotes() {
     const selectedIds = new Set(state.selectedPianoNoteIds);
     if (state.selectedPianoNoteId) selectedIds.add(state.selectedPianoNoteId);
@@ -956,7 +1018,7 @@
     return {
       id: makeId(),
       trackId: state.selectedPianoTrackId,
-      midi: PIANO_TOP_MIDI - row,
+      midi: constrainPianoPitchToScale(PIANO_TOP_MIDI - row),
       startTick,
       durationTicks: Math.max(1, Math.min(state.pianoNoteLength, totalTicks - startTick)),
       velocity: 0.8,

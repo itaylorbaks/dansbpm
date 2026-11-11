@@ -1074,7 +1074,14 @@
     const elapsedTicks = elapsedSeconds / secondsPerBar * PIANO_TICKS_PER_BAR;
     const startTick = Math.max(0, Math.min(loopTicks - 0.5, snapPianoTick(elapsedTicks % loopTicks, Math.floor)));
     const durationTicks = Math.max(0.5, Math.min(state.pianoNoteLength, loopTicks - startTick));
-    const note = { id: makeId(), trackId: instrument.id, midi, startTick, durationTicks, velocity: 0.8 };
+    const note = {
+      id: makeId(),
+      trackId: instrument.id,
+      midi: constrainPianoPitchToScale(midi),
+      startTick,
+      durationTicks,
+      velocity: 0.8,
+    };
     mel.notes.push(note);
     mel.notes.sort((left, right) => left.startTick - right.startTick);
     state.pianoNotes = mel.notes.map((item) => ({ ...item, trackId: instrument.id }));
@@ -1084,7 +1091,8 @@
     updateArrangementSelection();
     const loopIndex = Math.floor(elapsedSeconds / (loopTicks / PIANO_TICKS_PER_BAR * secondsPerBar));
     state.scheduledPianoNotes.add(`${note.id}:${loopIndex}`);
-    playPianoNote(instrument, state.audioContext.currentTime + 0.01, midi, durationTicks / PIANO_TICKS_PER_BAR * secondsPerBar, note.velocity);
+    playPianoNote(instrument, state.audioContext.currentTime + 0.01, note.midi,
+      durationTicks / PIANO_TICKS_PER_BAR * secondsPerBar, note.velocity);
     renderPianoRoll();
     renderArrangement();
     saveState();

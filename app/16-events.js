@@ -161,6 +161,21 @@
       renderPianoRoll();
     });
     $("#piano-humanize-button").addEventListener("click", humanizePianoNotes);
+    $("#piano-quantize-button").addEventListener("click", quantizePianoNotes);
+    $("#piano-scale-root").addEventListener("change", (event) => {
+      state.pianoScaleRoot = Number(event.target.value);
+      renderPianoRoll();
+      saveState();
+    });
+    $("#piano-scale-type").addEventListener("change", (event) => {
+      state.pianoScaleType = event.target.value;
+      renderPianoRoll();
+      saveState();
+    });
+    $("#piano-scale-lock").addEventListener("change", (event) => {
+      state.pianoScaleLock = event.target.checked;
+      saveState();
+    });
     $("#piano-roll-grid").addEventListener("contextmenu", (event) => {
       const noteElement = event.target.closest(".piano-roll-note");
       if (!noteElement) return;
@@ -181,6 +196,7 @@
     $("#piano-snap-select").addEventListener("change", (event) => {
       state.pianoSnapEnabled = event.target.value !== "off";
       if (state.pianoSnapEnabled) state.pianoSnap = Number(event.target.value);
+      $("#piano-quantize-button").disabled = !state.pianoSnapEnabled;
       saveState();
     });
     $("#piano-loop-button").addEventListener("click", () => {
@@ -554,6 +570,9 @@
       state.pianoSnap = 2;
       state.pianoSnapEnabled = true;
       state.pianoNoteLength = 2;
+      state.pianoScaleRoot = 0;
+      state.pianoScaleType = "major";
+      state.pianoScaleLock = false;
       state.selectedPianoTrackId = "piano-grand";
       state.selectedPianoNoteId = null;
       state.selectedPianoNoteIds.clear();

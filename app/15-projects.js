@@ -448,6 +448,11 @@
       if (Number.isFinite(saved.pianoStartBar)) state.pianoStartBar = Math.max(0, Math.min(MAX_ARRANGEMENT_BARS - 1, Math.floor(saved.pianoStartBar)));
       if (Number.isInteger(saved.pianoSnap) && [1, 2, 4, 8].includes(saved.pianoSnap)) state.pianoSnap = saved.pianoSnap;
       if (typeof saved.pianoSnapEnabled === "boolean") state.pianoSnapEnabled = saved.pianoSnapEnabled;
+      state.pianoScaleRoot = Number.isInteger(saved.pianoScaleRoot) && saved.pianoScaleRoot >= 0 && saved.pianoScaleRoot < 12
+        ? saved.pianoScaleRoot : 0;
+      state.pianoScaleType = ["major", "minor", "major-pentatonic", "minor-pentatonic"].includes(saved.pianoScaleType)
+        ? saved.pianoScaleType : "major";
+      state.pianoScaleLock = saved.pianoScaleLock === true;
       if (saved.soundDurationEdits && typeof saved.soundDurationEdits === "object" && !Array.isArray(saved.soundDurationEdits)) {
         state.soundDurationEdits = Object.fromEntries(Object.entries(saved.soundDurationEdits)
           .filter(([soundId, scale]) => typeof soundId === "string" && Number.isFinite(scale) && scale >= 0.01 && scale < 1));
