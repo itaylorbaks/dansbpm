@@ -8285,6 +8285,22 @@
     return Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
   }
 
+  function isProjectEmptyForAudioImport() {
+    const hasArrangementContent = state.patternClips.length > 0 ||
+      state.arrangementTracks.some((track) => track.clips.length > 0) ||
+      state.melTracks.some((track) => track.clips.length > 0);
+    const hasMelodicContent = state.pianoNotes.some((note) => Number.isFinite(note?.midi)) ||
+      state.mels.some((mel) => Array.isArray(mel.notes) &&
+        mel.notes.some((note) => Number.isFinite(note?.midi))) ||
+      state.patterns.some((pattern) => Object.values(pattern.stepPianoNotes || {})
+        .some((notes) => Array.isArray(notes) && notes.some((note) => Number.isFinite(note?.midi))));
+    const hasAudioMetadata = state.tracks.some((track) => {
+      const metadata = normalizeAudioMetadata(track.audioMetadata);
+      return metadata.bpm !== null || metadata.key !== null;
+    });
+    return !hasArrangementContent && !hasMelodicContent && !hasAudioMetadata && !getProjectKey(false);
+  }
+
   function getAudioClipProjectAdjustment(metadata) {
     const { bpm, key } = normalizeAudioMetadata(metadata);
     const tempoRatio = bpm ? state.bpm / bpm : 1;
@@ -12660,7 +12676,13 @@
       await ensureAudio();
       const buffer = await state.audioContext.decodeAudioData(await file.arrayBuffer());
       const audioMetadata = detectAudioMetadata(buffer);
-      let audioAdjustment = getAudioClipProjectAdjustment(audioMetadata);
+      const projectWasEmpty = isProjectEmptyForAudioImport();
+      const detectedMetadata = normalizeAudioMetadata(audioMetadata);
+      if (projectWasEmpty && detectedMetadata.bpm !== null) {
+        state.bpm = Math.max(60, Math.min(180, detectedMetadata.bpm));
+        tempoValue.textContent = String(state.bpm);
+      }
+      let audioAdjustment = projectWasEmpty ? null : getAudioClipProjectAdjustment(audioMetadata);
       const adjustmentBlocked = Boolean(audioAdjustment && state.masterPitchSupported === false);
       if (adjustmentBlocked) audioAdjustment = null;
       let track = state.arrangementTracks.find((item) => item.id === trackId);
@@ -12683,6 +12705,7 @@
       track.clips.sort((left, right) => left.startBar - right.startBar);
       updateArrangementLength();
       renderArrangement();
+      updateProjectKeyIndicator();
       if (state.view === "dj") renderDjView();
       saveState();
       try {
@@ -12698,6 +12721,15 @@
           audioAdjustment.targetBpm ? `${audioAdjustment.targetBpm} BPM` : null,
         ].filter(Boolean);
         if (targets.length) showToast(`${file.name} matched to ${targets.join(" and ")}.`);
+      } else if (projectWasEmpty) {
+        const detected = [
+          detectedMetadata.bpm === null ? null :
+            `${state.bpm} BPM${state.bpm !== detectedMetadata.bpm ? ` (detected ${detectedMetadata.bpm} BPM)` : ""}`,
+          detectedMetadata.key,
+        ].filter(Boolean);
+        showToast(detected.length
+          ? `Project set to ${detected.join(" / ")} from ${file.name}.`
+          : `Added ${file.name}; tempo and key could not be confidently detected.`);
       }
       return clip;
     } catch (error) {

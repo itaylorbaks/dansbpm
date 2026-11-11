@@ -419,6 +419,22 @@
     return Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
   }
 
+  function isProjectEmptyForAudioImport() {
+    const hasArrangementContent = state.patternClips.length > 0 ||
+      state.arrangementTracks.some((track) => track.clips.length > 0) ||
+      state.melTracks.some((track) => track.clips.length > 0);
+    const hasMelodicContent = state.pianoNotes.some((note) => Number.isFinite(note?.midi)) ||
+      state.mels.some((mel) => Array.isArray(mel.notes) &&
+        mel.notes.some((note) => Number.isFinite(note?.midi))) ||
+      state.patterns.some((pattern) => Object.values(pattern.stepPianoNotes || {})
+        .some((notes) => Array.isArray(notes) && notes.some((note) => Number.isFinite(note?.midi))));
+    const hasAudioMetadata = state.tracks.some((track) => {
+      const metadata = normalizeAudioMetadata(track.audioMetadata);
+      return metadata.bpm !== null || metadata.key !== null;
+    });
+    return !hasArrangementContent && !hasMelodicContent && !hasAudioMetadata && !getProjectKey(false);
+  }
+
   function getAudioClipProjectAdjustment(metadata) {
     const { bpm, key } = normalizeAudioMetadata(metadata);
     const tempoRatio = bpm ? state.bpm / bpm : 1;
