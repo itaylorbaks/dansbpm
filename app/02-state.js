@@ -45,6 +45,7 @@
     arrangementScale: 1,
     mels: [],
     selectedMelId: null,
+    pianoRollAudioClipId: null,
     melTracks: [],
     pianoNotes: [],
     pianoStartBar: 0,

@@ -480,6 +480,7 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .piano-instrument-picker-arrow { color: #85868b; }
 .piano-roll-toolbar .quiet-button { height: 30px; }
 .piano-roll-toolbar #piano-draw-mode-button[aria-pressed="true"] { border-color: #687641; background: var(--accent-soft); color: var(--accent); }
+.piano-audio-source-label { max-width: 180px; overflow: hidden; color: #91b4ca; font-family: var(--mono); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .piano-scale-lock-control { display: flex; height: 30px; align-items: center; gap: 5px; border: 1px solid var(--stroke); border-radius: 5px; background: #1a1b1e; padding: 0 7px; color: #a7a8ad; font-size: 9px; white-space: nowrap; }
 .piano-scale-lock-control input { accent-color: var(--accent); }
 .piano-roll-scroll { min-height: 0; flex: 1; display: flex; overflow: auto; border: 1px solid #303136; background: #17181b; scrollbar-color: #45464a #1b1c1f; scrollbar-width: thin; }
@@ -504,6 +505,7 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .piano-roll-bar > span { display: flex; align-items: center; border-right: 1px solid #333439; padding-left: 5px; }
 .piano-roll-bar > span:first-child { color: var(--accent); }
 .piano-roll-grid { position: relative; overflow: hidden; background-color: #1a1b1e; background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(var(--piano-tick-width, 16px) - 1px), #2a2b30 calc(var(--piano-tick-width, 16px) - 1px), #2a2b30 var(--piano-tick-width, 16px)), repeating-linear-gradient(to right, transparent 0, transparent calc(var(--piano-beat-width, 128px) - 1px), #44454a calc(var(--piano-beat-width, 128px) - 1px), #44454a var(--piano-beat-width, 128px)), repeating-linear-gradient(to right, transparent 0, transparent calc(var(--piano-bar-width, 512px) - 1px), #707176 calc(var(--piano-bar-width, 512px) - 1px), #707176 var(--piano-bar-width, 512px)); touch-action: none; }
+.piano-roll-audio-waveform { position: absolute; top: 0; left: 0; z-index: 0; pointer-events: none; }
 .piano-roll-grid.is-draw-mode { cursor: crosshair; }
 .piano-roll-playhead { position: absolute; top: 0; bottom: 0; z-index: 4; width: 12px; transform: translateX(-6px); border: 0; background: transparent; padding: 0; cursor: ew-resize; touch-action: none; }
 .piano-roll-playhead::before { position: absolute; top: 0; left: 1px; width: 10px; height: 8px; background: #f3f4e8; clip-path: polygon(0 0, 100% 0, 50% 100%); content: ""; }

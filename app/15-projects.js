@@ -513,6 +513,7 @@
               instrumentId,
               bars: [1, 2, 4, 8].includes(mel.bars) ? mel.bars : 4,
               notes,
+              audioSourceClipId: typeof mel.audioSourceClipId === "string" ? mel.audioSourceClipId : null,
             };
           });
       }

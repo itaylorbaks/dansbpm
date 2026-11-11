@@ -230,6 +230,151 @@
     return { bpm, key: getKeyFromChroma(chroma) };
   }
 
+  function estimateAudioPitchNotes(buffer) {
+    const secondsPerBar = 240 / state.bpm;
+    const analysisDuration = Math.min(buffer.duration, secondsPerBar * 8);
+    const stride = Math.max(1, Math.floor(buffer.sampleRate / 22050));
+    const sampleRate = buffer.sampleRate / stride;
+    const sampleCount = Math.min(buffer.length, Math.ceil(analysisDuration * buffer.sampleRate));
+    const frameSize = 4096;
+    const hopSize = Math.max(1, Math.floor(sampleRate * 0.055));
+    if (sampleCount < frameSize * stride) return [];
+
+    const channels = Array.from({ length: buffer.numberOfChannels }, (_, index) => buffer.getChannelData(index));
+    const cosine = new Float64Array(frameSize / 2);
+    const sine = new Float64Array(frameSize / 2);
+    const reversedIndices = new Uint16Array(frameSize);
+    for (let index = 0; index < frameSize / 2; index += 1) {
+      cosine[index] = Math.cos(2 * Math.PI * index / frameSize);
+      sine[index] = Math.sin(2 * Math.PI * index / frameSize);
+    }
+    for (let index = 0; index < frameSize; index += 1) {
+      let reversed = 0;
+      for (let bit = 1, source = index; bit < frameSize; bit <<= 1, source >>= 1) {
+        reversed = (reversed << 1) | (source & 1);
+      }
+      reversedIndices[index] = reversed;
+    }
+
+    const window = Float32Array.from({ length: frameSize }, (_, index) =>
+      0.5 - 0.5 * Math.cos(2 * Math.PI * index / (frameSize - 1)));
+    const real = new Float64Array(frameSize);
+    const imaginary = new Float64Array(frameSize);
+    const magnitudes = new Float32Array(frameSize / 2);
+    const framesByMidi = new Map();
+    const frameEnd = sampleCount - frameSize * stride;
+
+    for (let offset = 0; offset <= frameEnd; offset += hopSize * stride) {
+      let frameEnergy = 0;
+      for (let index = 0; index < frameSize; index += 1) {
+        let sample = 0;
+        const sourceIndex = offset + index * stride;
+        channels.forEach((channel) => { sample += channel[sourceIndex] || 0; });
+        sample /= channels.length;
+        frameEnergy += sample * sample;
+        real[reversedIndices[index]] = sample * window[index];
+        imaginary[reversedIndices[index]] = 0;
+      }
+      if (frameEnergy / frameSize < 0.0000005) continue;
+
+      for (let size = 2; size <= frameSize; size <<= 1) {
+        const halfSize = size >> 1;
+        const tableStep = frameSize / size;
+        for (let start = 0; start < frameSize; start += size) {
+          for (let index = 0; index < halfSize; index += 1) {
+            const tableIndex = index * tableStep;
+            const cosineValue = cosine[tableIndex];
+            const sineValue = -sine[tableIndex];
+            const even = start + index;
+            const odd = even + halfSize;
+            const oddReal = real[odd] * cosineValue - imaginary[odd] * sineValue;
+            const oddImaginary = real[odd] * sineValue + imaginary[odd] * cosineValue;
+            real[odd] = real[even] - oddReal;
+            imaginary[odd] = imaginary[even] - oddImaginary;
+            real[even] += oddReal;
+            imaginary[even] += oddImaginary;
+          }
+        }
+      }
+
+      let maximum = 0;
+      for (let bin = 1; bin < frameSize / 2; bin += 1) {
+        const magnitude = Math.hypot(real[bin], imaginary[bin]);
+        magnitudes[bin] = magnitude;
+        const frequency = bin * sampleRate / frameSize;
+        if (frequency >= 55 && frequency <= 1600) maximum = Math.max(maximum, magnitude);
+      }
+      if (maximum < 0.001) continue;
+
+      const candidates = [];
+      for (let bin = Math.max(1, Math.floor(55 * frameSize / sampleRate));
+        bin < Math.min(frameSize / 2 - 1, Math.ceil(1600 * frameSize / sampleRate)); bin += 1) {
+        const magnitude = magnitudes[bin];
+        if (magnitude < maximum * 0.18 || magnitude < magnitudes[bin - 1] || magnitude < magnitudes[bin + 1]) continue;
+        const left = magnitudes[bin - 1];
+        const right = magnitudes[bin + 1];
+        const curvature = left - 2 * magnitude + right;
+        const correction = curvature ? Math.max(-0.5, Math.min(0.5, 0.5 * (left - right) / curvature)) : 0;
+        const frequency = (bin + correction) * sampleRate / frameSize;
+        const midi = Math.round(69 + 12 * Math.log2(frequency / 440));
+        if (midi < PIANO_BOTTOM_MIDI || midi > PIANO_TOP_MIDI) continue;
+        candidates.push({ midi, frequency, magnitude });
+      }
+      candidates.sort((left, right) => right.magnitude - left.magnitude);
+      const accepted = [];
+      candidates.forEach((candidate) => {
+        if (accepted.some((item) => item.midi === candidate.midi)) return;
+        const isHarmonic = accepted.some((item) => {
+          const ratio = candidate.frequency / item.frequency;
+          const harmonic = Math.round(ratio);
+          return harmonic >= 2 && harmonic <= 6 &&
+            Math.abs(ratio - harmonic) < 0.045 && item.magnitude >= candidate.magnitude * 0.85;
+        });
+        if (!isHarmonic && accepted.length < 6) accepted.push(candidate);
+      });
+
+      const frameIndex = Math.round(offset / (hopSize * stride));
+      accepted.forEach(({ midi, magnitude }) => {
+        if (!framesByMidi.has(midi)) framesByMidi.set(midi, []);
+        framesByMidi.get(midi).push({ frameIndex, strength: magnitude / maximum });
+      });
+    }
+
+    const notes = [];
+    const secondsPerFrame = hopSize / sampleRate;
+    framesByMidi.forEach((frames, midi) => {
+      let startFrame = frames[0]?.frameIndex;
+      let previousFrame = startFrame;
+      let strength = 0;
+      let count = 0;
+      const emit = (endFrame) => {
+        const startSeconds = startFrame * secondsPerFrame;
+        const endSeconds = Math.min(analysisDuration, (endFrame + 1) * secondsPerFrame);
+        if (endSeconds - startSeconds >= 0.075) {
+          notes.push({
+            midi,
+            startSeconds,
+            endSeconds,
+            velocity: Math.max(0.35, Math.min(0.95, 0.45 + strength / Math.max(1, count) * 0.5)),
+          });
+        }
+      };
+      frames.forEach((frame, index) => {
+        if (index && frame.frameIndex > previousFrame + 2) {
+          emit(previousFrame);
+          startFrame = frame.frameIndex;
+          strength = 0;
+          count = 0;
+        }
+        previousFrame = frame.frameIndex;
+        strength += frame.strength;
+        count += 1;
+      });
+      if (count) emit(previousFrame);
+    });
+    return notes.sort((left, right) => left.startSeconds - right.startSeconds || left.midi - right.midi).slice(0, 4096);
+  }
+
   function normalizeAudioMetadata(metadata) {
     return {
       bpm: Number.isFinite(metadata?.bpm) && metadata.bpm >= 40 && metadata.bpm <= 240

@@ -77,6 +77,13 @@
       if (file) void importMidiFile(file);
       event.target.value = "";
     });
+    $("#piano-audio-import-button").addEventListener("click", () => $("#piano-audio-import-input").click());
+    $("#piano-audio-import-input").addEventListener("change", (event) => {
+      const [file] = event.target.files || [];
+      if (file) void importAudioToPianoRoll(file);
+      event.target.value = "";
+    });
+    $("#piano-autotune-button").addEventListener("click", tunePianoNotesToScale);
     $("#export-midi-button").addEventListener("click", exportMidi);
     $("#export-song-button").addEventListener("click", openSongExportMenu);
     $("#export-song-wav-button").addEventListener("click", () => exportArrangementAudio("wav"));

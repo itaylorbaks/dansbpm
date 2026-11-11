@@ -245,6 +245,7 @@
                         <button class="quiet-button" id="piano-draw-mode-button" type="button" aria-pressed="false" title="Toggle note draw mode">Draw</button>
                         <button class="quiet-button" id="piano-humanize-button" type="button" title="Slightly vary note timing and velocity">Humanize</button>
                         <button class="quiet-button" id="piano-quantize-button" type="button" title="Align selected notes (or all notes) to the current grid">Quantize</button>
+                        <button class="quiet-button" id="piano-autotune-button" type="button" title="Tune selected notes, or all notes, to the selected key and scale">Tune to key</button>
                         <label class="pattern-select-control">
                           <span>KEY</span>
                           <select id="piano-scale-root" aria-label="Piano roll scale root">
@@ -274,6 +275,8 @@
                         <button class="quiet-button" id="new-mel-button" type="button">＋ New Mel</button>
                         <button class="quiet-button" id="export-mel-button" type="button">Export Mel</button>
                         <button class="quiet-button" id="import-midi-button" type="button">Import MIDI</button>
+                        <button class="quiet-button" id="piano-audio-import-button" type="button">Import audio</button>
+                        <span class="piano-audio-source-label" id="piano-audio-source-label">No audio source</span>
                         <button class="quiet-button" id="export-midi-button" type="button">Export MIDI</button>
                         <button class="quiet-button" id="rename-mel-button" type="button">Rename</button>
                         <button class="quiet-button pattern-drag-source" id="mel-drag-source" type="button" draggable="true">Drag Mel to Track View</button>
@@ -330,7 +333,7 @@
                           <div class="piano-roll-grid" id="piano-roll-grid" aria-label="Piano roll note grid"></div>
                         </div>
                       </div>
-                      <div class="piano-roll-footer">Click to add · Drag notes to move/resize · Shift-click to add/select · Drag empty space to select · Delete removes selected notes · Drum kits use GM keys B1-A5</div>
+                      <div class="piano-roll-footer">Drag notes to move or resize · Delete removes selected notes · Imported audio appears as a waveform with editable pitch notes; playback renders them through the selected instrument while the source stays in Track View.</div>
                       <div class="piano-note-context-menu" id="piano-note-context-menu" role="group" aria-label="Selected note controls" hidden>
                         <div class="piano-note-context-heading">
                           <span>NOTE CONTROLS</span>
@@ -714,6 +717,7 @@
       <input id="recording-input" type="file" accept="audio/*" multiple hidden />
       <input id="project-import-input" type="file" accept=".bpm,application/json" hidden />
       <input id="midi-import-input" type="file" accept=".mid,.midi,audio/midi,audio/x-midi" hidden />
+      <input id="piano-audio-import-input" type="file" accept="audio/*,.wav,.wave,.mp3,.m4a,.aac,.flac,.ogg,.opus,.webm,.aiff,.aif" hidden />
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
       <dialog class="help-dialog" id="help-dialog">
         <form method="dialog">

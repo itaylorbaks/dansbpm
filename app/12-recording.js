@@ -467,6 +467,7 @@
       if (sampleRecords.length) renderTracks();
       updateArrangementLength();
       renderArrangement();
+      if (state.pianoRollAudioClipId) renderPianoRoll();
       if (state.arrangementTracks.length) showToast("Your saved recordings are ready.");
       else if (sampleRecords.length) showToast("Your saved drum sounds are ready.");
     } catch {

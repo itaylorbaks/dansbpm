@@ -941,7 +941,7 @@
   async function importRecording(file, trackId = null, startBar = state.arrangementCursor, snapStart = true) {
     if (!isAudioFile(file)) {
       showToast(`"${file.name}" is not an audio file.`);
-      return;
+      return null;
     }
     try {
       await ensureAudio();
@@ -972,8 +972,10 @@
       } catch {
         showToast("Recording added for this session, but browser storage is unavailable.");
       }
+      return clip;
     } catch (error) {
       showToast(`Could not import ${file.name}: ${error.message || "unsupported audio format"}`);
+      return null;
     }
   }
 

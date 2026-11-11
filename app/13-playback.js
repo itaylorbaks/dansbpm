@@ -1021,6 +1021,7 @@
         instrumentId: mel.instrumentId,
         bars: mel.bars,
         notes: mel.notes.map((note) => ({ ...note })),
+        audioSourceClipId: mel.audioSourceClipId || null,
       })),
       selectedMelId: state.selectedMelId,
       melTracks: state.melTracks.map((track) => ({
