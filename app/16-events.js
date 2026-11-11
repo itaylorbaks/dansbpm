@@ -142,6 +142,7 @@
     $("#hide-track-view-button").addEventListener("click", () => setViewVisibility(false, true));
     $("#show-track-view-button").addEventListener("click", () => setViewVisibility(false, false, "hide-track-view-button"));
     $("#workspace-fullscreen-button").addEventListener("click", toggleWorkspaceFullscreen);
+    $("#track-view-fullscreen-button").addEventListener("click", toggleTrackViewFullscreen);
     const viewResizer = $("#view-resizer");
     viewResizer.addEventListener("pointerdown", (event) => {
       if (event.button !== 0) return;

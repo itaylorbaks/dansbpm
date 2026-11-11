@@ -1013,6 +1013,7 @@ body:has(#arrangement-view:not([hidden])) .workspace-tabs {
 .view-panel-actions .quiet-button { height: 21px; padding: 0 8px; font-size: 8px; letter-spacing: 0; }
 #workspace-area:fullscreen { position: fixed; inset: 0; z-index: 100; width: 100vw; height: 100dvh; border: 0; background: #141518; }
 #workspace-area:fullscreen .workspace-content { width: 100%; min-height: 0; height: auto; }
+#track-view-area:fullscreen { position: fixed; inset: 0; z-index: 100; width: 100vw; height: 100dvh; border: 0; background: #141518; }
 .view-panel-actions [hidden], .track-view-controls [hidden] { display: none; }
 .view-resizer { display: grid; min-height: 0; grid-row: 2; place-items: center; border-top: 1px solid #303136; border-bottom: 1px solid #303136; background: #202125; cursor: ns-resize; touch-action: none; user-select: none; }
 .view-resizer > span { width: 48px; height: 4px; border-radius: 2px; background: #85868c; }

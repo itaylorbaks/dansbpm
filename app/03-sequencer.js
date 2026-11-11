@@ -422,6 +422,7 @@
     $("#hide-track-view-button").hidden = state.trackViewHidden;
     $("#show-workspace-button").hidden = !state.workspaceHidden;
     updateWorkspaceFullscreenButton();
+    updateTrackViewFullscreenButton();
     updatePianoRulerViewport();
   }
 
@@ -430,6 +431,14 @@
     const isFullscreen = document.fullscreenElement === $("#workspace-area");
     button.textContent = isFullscreen ? "Restore" : "Expand";
     button.setAttribute("aria-label", isFullscreen ? "Restore workspace from fullscreen" : "Expand workspace to fullscreen");
+    button.setAttribute("aria-pressed", String(isFullscreen));
+  }
+
+  function updateTrackViewFullscreenButton() {
+    const button = $("#track-view-fullscreen-button");
+    const isFullscreen = document.fullscreenElement === $("#track-view-area");
+    button.textContent = isFullscreen ? "Restore" : "Expand";
+    button.setAttribute("aria-label", isFullscreen ? "Restore Track View" : "Expand Track View to fullscreen");
     button.setAttribute("aria-pressed", String(isFullscreen));
   }
 
@@ -450,8 +459,26 @@
     }
   }
 
+  async function toggleTrackViewFullscreen() {
+    const trackView = $("#track-view-area");
+    try {
+      if (document.fullscreenElement === trackView) {
+        await document.exitFullscreen();
+      } else if (document.fullscreenElement) {
+        showToast("Exit the current fullscreen view first.");
+      } else if (!trackView.requestFullscreen) {
+        showToast("Fullscreen is unavailable in this browser.");
+      } else {
+        await trackView.requestFullscreen();
+      }
+    } catch (error) {
+      showToast(`Could not change Track View fullscreen: ${error.message || "the browser denied the request"}`);
+    }
+  }
+
   document.addEventListener("fullscreenchange", () => {
     updateWorkspaceFullscreenButton();
+    updateTrackViewFullscreenButton();
     updatePianoRulerViewport();
   });
 
