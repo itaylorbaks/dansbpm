@@ -4560,8 +4560,8 @@
     masterFilter: 20000,
     liveSlots: Array(8).fill(null),
     decks: {
-      A: { sourceKey: "", volume: 0.8, muted: false, filter: 20000, eqLow: 0, eqMid: 0, eqHigh: 0, pitch: 0, syncRate: 1, reverse: false, startOffsetBars: 0, loop: null, playing: false, timerId: null, audioSource: null, songSources: new Set(), songGains: new Map(), songEvents: new Set(), songAnchorTime: 0, songPositionBar: 0, songRate: 1, songDurationBars: 0, songEndTime: 0, filterNode: null, eqLowNode: null, eqMidNode: null, eqHighNode: null, gainNode: null, audioContext: null, djMasterInput: null, nextStepTime: 0, stepIndex: 0, scratchRate: 1, nudgeRate: 1, isScratching: false },
-      B: { sourceKey: "", volume: 0.8, muted: false, filter: 20000, eqLow: 0, eqMid: 0, eqHigh: 0, pitch: 0, syncRate: 1, reverse: false, startOffsetBars: 0, loop: null, playing: false, timerId: null, audioSource: null, songSources: new Set(), songGains: new Map(), songEvents: new Set(), songAnchorTime: 0, songPositionBar: 0, songRate: 1, songDurationBars: 0, songEndTime: 0, filterNode: null, eqLowNode: null, eqMidNode: null, eqHighNode: null, gainNode: null, audioContext: null, djMasterInput: null, nextStepTime: 0, stepIndex: 0, scratchRate: 1, nudgeRate: 1, isScratching: false },
+      A: { sourceKey: "", volume: 0.8, muted: false, filter: 20000, eqLow: 0, eqMid: 0, eqHigh: 0, pitch: 0, syncRate: 1, reverse: false, startOffsetBars: 0, loop: null, playing: false, isStarting: false, startRequestId: 0, timerId: null, audioSource: null, songSources: new Set(), songGains: new Map(), songEvents: new Set(), songAnchorTime: 0, songPositionBar: 0, songRate: 1, songDurationBars: 0, songEndTime: 0, filterNode: null, eqLowNode: null, eqMidNode: null, eqHighNode: null, gainNode: null, audioContext: null, djMasterInput: null, nextStepTime: 0, stepIndex: 0, scratchRate: 1, nudgeRate: 1, isScratching: false },
+      B: { sourceKey: "", volume: 0.8, muted: false, filter: 20000, eqLow: 0, eqMid: 0, eqHigh: 0, pitch: 0, syncRate: 1, reverse: false, startOffsetBars: 0, loop: null, playing: false, isStarting: false, startRequestId: 0, timerId: null, audioSource: null, songSources: new Set(), songGains: new Map(), songEvents: new Set(), songAnchorTime: 0, songPositionBar: 0, songRate: 1, songDurationBars: 0, songEndTime: 0, filterNode: null, eqLowNode: null, eqMidNode: null, eqHighNode: null, gainNode: null, audioContext: null, djMasterInput: null, nextStepTime: 0, stepIndex: 0, scratchRate: 1, nudgeRate: 1, isScratching: false },
     },
   };
   let djOpenLiveSlot = null;
@@ -4884,6 +4884,20 @@
       groups.unshift({ label: "Arrangement", items: [{ key: "song:current", name: `${state.projectName || "Current Song"} (Full Song)` }] });
     }
     return groups;
+  }
+
+  async function loadDjSourceSamples(source) {
+    let tracks = [];
+    if (source.type === "pattern") {
+      tracks = getPatternTrackIds(source.item)
+        .map((trackId) => state.tracks.find((track) => track.id === trackId));
+    } else if (source.type === "mel") {
+      const instrument = getPianoTrack(source.item.instrumentId);
+      if (instrument) tracks = [instrument];
+    }
+    const samples = new Map();
+    tracks.filter((track) => track?.sampleUrl).forEach((track) => samples.set(track.sampleUrl, track));
+    await Promise.all([...samples.values()].map(loadLibrarySample));
   }
 
   function getDjSourceMetadata(source) {
@@ -5962,6 +5976,8 @@
 
   function stopDjDeck(deckId) {
     const deck = djState.decks[deckId];
+    deck.startRequestId += 1;
+    deck.isStarting = false;
     const stoppedAt = deck.playing ? state.audioContext?.currentTime : null;
     const stoppedAtBar = deck.playing ? getDjArrangementPositionBar() : null;
     if (deck.timerId !== null) window.clearInterval(deck.timerId);
@@ -6013,15 +6029,30 @@
 
   async function startDjDeck(deckId) {
     const deck = djState.decks[deckId];
+    if (deck.playing || deck.isStarting) return;
     const source = getDjSource(deck.sourceKey);
     if (!source) {
       showToast("Choose a live source for this deck first.");
       return;
     }
+    const sourceKey = deck.sourceKey;
+    const requestId = ++deck.startRequestId;
+    deck.isStarting = true;
     clampDjLoopToSource(deckId);
     try {
       await ensureAudio();
+      if (requestId !== deck.startRequestId) return;
+      if (sourceKey !== deck.sourceKey) {
+        deck.isStarting = false;
+        return;
+      }
       if (source.type === "song") await loadLibrarySamplesForPlayback("arrangement");
+      else if (source.type === "pattern" || source.type === "mel") await loadDjSourceSamples(source);
+      if (requestId !== deck.startRequestId) return;
+      if (sourceKey !== deck.sourceKey) {
+        deck.isStarting = false;
+        return;
+      }
       ensureDjDeckAudio(deck);
       const syncedStart = deck.syncedStartTime > 0;
       const anotherDeckPlaying = DJ_DECK_IDS.some((id) => id !== deckId && djState.decks[id].playing);
@@ -6073,6 +6104,7 @@
       deck.resumeRate = null;
       deck.visualStopTime = null;
       deck.nextStepTime = startTime;
+      deck.isStarting = false;
       deck.playing = true;
       if (source.type === "song") {
         deck.songSources = new Set();
@@ -6100,6 +6132,7 @@
         const clip = source.item.clips.find((item) => item.buffer);
         if (!clip) {
           deck.playing = false;
+          deck.isStarting = false;
           showToast("This audio track has no available decoded clip.");
           updateDjDeckUI(deckId);
           return;
@@ -6108,6 +6141,7 @@
         const duration = Math.min(clip.buffer.duration - offset, clip.durationSeconds ?? clip.buffer.duration);
         if (duration <= 0) {
           deck.playing = false;
+          deck.isStarting = false;
           showToast("This audio clip has no playable duration.");
           updateDjDeckUI(deckId);
           return;
@@ -6180,13 +6214,15 @@
       updateDjDeckUI(deckId);
       refreshDjVisualTimer();
     } catch (error) {
+      if (requestId !== deck.startRequestId) return;
+      deck.isStarting = false;
       stopDjDeck(deckId);
       showToast(error.message || "DJ deck audio could not start.");
     }
   }
 
   function toggleDjDeck(deckId) {
-    if (djState.decks[deckId].playing) stopDjDeck(deckId);
+    if (djState.decks[deckId].playing || djState.decks[deckId].isStarting) stopDjDeck(deckId);
     else startDjDeck(deckId);
   }
 
@@ -6315,11 +6351,12 @@
       showToast("Load a track into a deck first.");
       return;
     }
-    if (loadedDeckIds.some((deckId) => djState.decks[deckId].playing)) {
+    if (loadedDeckIds.some((deckId) =>
+      djState.decks[deckId].playing || djState.decks[deckId].isStarting)) {
       const positionBar = getDjArrangementPositionBar();
       const stoppedAt = state.audioContext?.currentTime ?? 0;
       loadedDeckIds.forEach((deckId) => {
-        if (djState.decks[deckId].playing) stopDjDeck(deckId);
+        if (djState.decks[deckId].playing || djState.decks[deckId].isStarting) stopDjDeck(deckId);
         else djState.decks[deckId].resumeContentPosition = null;
         djState.decks[deckId].resumeArrangementBar = positionBar;
         djState.decks[deckId].pausedViewStartBar = djState.arrangementViewStartBar;
