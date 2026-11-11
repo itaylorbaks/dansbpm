@@ -860,6 +860,7 @@
   function getPianoNoteContextValue(note, property) {
     if (property === "volume") return note.volume ?? 1;
     if (property === "velocity") return note.velocity ?? 0.8;
+    if (property === "pan") return note.pan ?? 0;
     if (property === "attack") {
       const track = getPianoTrack(note.trackId);
       const defaultAttack = track?.kind === "instrument" ? Number(track.patch?.attack) || 0.005 : 0;
@@ -870,6 +871,10 @@
 
   function updatePianoNoteContextOutput(property, value) {
     const output = $(`#piano-note-${property}-value`);
+    if (property === "pan") {
+      output.textContent = value === 0 ? "Center" : `${value < 0 ? "L" : "R"} ${Math.abs(Math.round(value))}%`;
+      return;
+    }
     output.textContent = property === "attack" ? `${Math.round(value)} ms`
       : property === "detune" ? `${Math.round(value)} cents`
         : `${Math.round(value)}%`;
@@ -884,10 +889,10 @@
       .filter((item) => state.selectedPianoNoteIds.has(item.id))
       .map((item) => item.id);
     const menu = $("#piano-note-context-menu");
-    ["volume", "attack", "velocity", "detune"].forEach((property) => {
+    ["volume", "attack", "velocity", "detune", "pan"].forEach((property) => {
       const input = $(`#piano-note-${property}`);
       const value = getPianoNoteContextValue(note, property);
-      input.value = String(property === "volume" || property === "velocity" ? value * 100 : value);
+      input.value = String(property === "volume" || property === "velocity" || property === "pan" ? value * 100 : value);
       updatePianoNoteContextOutput(property, Number(input.value));
     });
     menu.hidden = false;
@@ -905,7 +910,7 @@
     if (!input) return;
     const property = input.dataset.noteProperty;
     const sliderValue = Number(input.value);
-    const value = property === "volume" || property === "velocity" ? sliderValue / 100 : sliderValue;
+    const value = property === "volume" || property === "velocity" || property === "pan" ? sliderValue / 100 : sliderValue;
     const noteValue = property === "attack" ? value / 1000 : value;
     const targets = new Set(pianoNoteContextTargetIds);
     state.pianoNotes.forEach((note) => {

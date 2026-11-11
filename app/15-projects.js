@@ -370,6 +370,7 @@
                         durationTicks: Math.max(0.5, Math.min(patternSteps * 2 - startTick, note.durationTicks)),
                         midi: Math.max(PIANO_BOTTOM_MIDI, Math.min(PIANO_TOP_MIDI, note.midi)),
                         velocity: Number.isFinite(note.velocity) ? Math.max(0.1, Math.min(1, note.velocity)) : 0.8,
+                        pan: Number.isFinite(note.pan) ? Math.max(-1, Math.min(1, note.pan)) : 0,
                       };
                     })])),
               } : {}),
@@ -461,6 +462,7 @@
               startTick,
               durationTicks: Math.max(0.5, Math.min(8 * PIANO_TICKS_PER_BAR - startTick, note.durationTicks)),
               velocity: Number.isFinite(note.velocity) ? Math.max(0.1, Math.min(1, note.velocity)) : 0.8,
+              pan: Number.isFinite(note.pan) ? Math.max(-1, Math.min(1, note.pan)) : 0,
             };
           });
       }
@@ -484,6 +486,7 @@
                   startTick,
                   durationTicks: Math.max(0.5, Math.min(8 * PIANO_TICKS_PER_BAR - startTick, note.durationTicks)),
                   velocity: Number.isFinite(note.velocity) ? Math.max(0.1, Math.min(1, note.velocity)) : 0.8,
+                  pan: Number.isFinite(note.pan) ? Math.max(-1, Math.min(1, note.pan)) : 0,
                 };
               })
               : [];

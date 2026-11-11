@@ -94,7 +94,7 @@
 
   function stepPianoNoteSignature(notes) {
     return JSON.stringify(notes
-      .map((note) => [note.startTick, note.durationTicks, note.midi, note.velocity, note.volume, note.attack, note.detune])
+      .map((note) => [note.startTick, note.durationTicks, note.midi, note.velocity, note.volume, note.attack, note.detune, note.pan])
       .sort((left, right) => left[0] - right[0] || left[2] - right[2] || left[1] - right[1]));
   }
 
@@ -140,6 +140,7 @@
       volume: note.volume,
       attack: note.attack,
       detune: note.detune,
+      pan: note.pan,
     }));
     const cells = Array(STEP_COUNT).fill(false);
     const ticksPerStep = getGridTicksPerStep(pattern);

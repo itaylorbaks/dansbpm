@@ -61,6 +61,13 @@
     ensureSequencerTrackAudio(track);
     ensureTrackAudio(outputTrack);
     outputNode ||= outputTrack.gainNode;
+    const pan = Number.isFinite(noteOptions.pan) ? Math.max(-1, Math.min(1, noteOptions.pan)) : 0;
+    if (pan !== 0) {
+      const panner = state.audioContext.createStereoPanner();
+      panner.pan.setValueAtTime(pan, time);
+      panner.connect(outputNode);
+      outputNode = panner;
+    }
     if (track.sample) {
       const context = state.audioContext;
       const source = context.createBufferSource();
