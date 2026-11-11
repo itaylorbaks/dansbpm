@@ -571,6 +571,9 @@
     conflictMessage: "",
     participantId: null,
     viewers: [],
+    sharedSnapshot: null,
+    sharedAssets: null,
+    sentUpdates: new Map(),
     reconnectTimer: null,
     manualLeave: false,
     pendingCreate: null,
@@ -12160,11 +12163,128 @@
     renderCollaborationStatus();
   }
 
+  const COLLABORATION_MISSING = Symbol("missing collaboration value");
+
+  function collaborationValuesEqual(left, right) {
+    if (Object.is(left, right)) return true;
+    if (Array.isArray(left) && Array.isArray(right)) {
+      return left.length === right.length && left.every((value, index) =>
+        collaborationValuesEqual(value, right[index]),
+      );
+    }
+    if (left && right && typeof left === "object" && typeof right === "object") {
+      const leftKeys = Object.keys(left).sort();
+      const rightKeys = Object.keys(right).sort();
+      return leftKeys.length === rightKeys.length &&
+        leftKeys.every((key, index) => key === rightKeys[index] &&
+          collaborationValuesEqual(left[key], right[key]));
+    }
+    return false;
+  }
+
+  function collaborationArrayById(value) {
+    if (!Array.isArray(value)) return null;
+    const entries = new Map();
+    for (const item of value) {
+      if (!item || typeof item !== "object" || typeof item.id !== "string" || entries.has(item.id)) return null;
+      entries.set(item.id, item);
+    }
+    return entries;
+  }
+
+  function mergeCollaborationValues(base, local, remote, path, conflicts) {
+    if (collaborationValuesEqual(local, base)) return remote;
+    if (collaborationValuesEqual(remote, base) || collaborationValuesEqual(local, remote)) return local;
+
+    if (Array.isArray(local) && Array.isArray(remote) &&
+      (base === COLLABORATION_MISSING || Array.isArray(base))) {
+      const baseArray = base === COLLABORATION_MISSING ? [] : base;
+      const baseById = collaborationArrayById(baseArray);
+      const localById = collaborationArrayById(local);
+      const remoteById = collaborationArrayById(remote);
+      if (baseById && localById && remoteById &&
+        (baseArray.length + local.length + remote.length > 0)) {
+        const mergedById = new Map();
+        const ids = new Set([...baseById.keys(), ...localById.keys(), ...remoteById.keys()]);
+        ids.forEach((id) => {
+          const value = mergeCollaborationValues(
+            baseById.get(id) ?? COLLABORATION_MISSING,
+            localById.get(id) ?? COLLABORATION_MISSING,
+            remoteById.get(id) ?? COLLABORATION_MISSING,
+            `${path}[${id}]`,
+            conflicts,
+          );
+          if (value !== COLLABORATION_MISSING) mergedById.set(id, value);
+        });
+
+        const commonBaseIds = baseArray.map(({ id }) => id)
+          .filter((id) => localById.has(id) && remoteById.has(id) && mergedById.has(id));
+        const localBaseOrder = local.map(({ id }) => id).filter((id) => commonBaseIds.includes(id));
+        const remoteBaseOrder = remote.map(({ id }) => id).filter((id) => commonBaseIds.includes(id));
+        const localReordered = !collaborationValuesEqual(localBaseOrder, commonBaseIds);
+        const remoteReordered = !collaborationValuesEqual(remoteBaseOrder, commonBaseIds);
+        if (localReordered && remoteReordered &&
+          !collaborationValuesEqual(localBaseOrder, remoteBaseOrder)) {
+          conflicts.push(`${path} order`);
+        }
+
+        const preferredOrder = localReordered && !remoteReordered
+          ? local.map(({ id }) => id)
+          : remote.map(({ id }) => id);
+        const order = [...preferredOrder, ...local.map(({ id }) => id)];
+        return [...new Set(order)].filter((id) => mergedById.has(id)).map((id) => mergedById.get(id));
+      }
+
+      if (base !== COLLABORATION_MISSING && local.length === base.length && remote.length === base.length) {
+        return local.map((value, index) => mergeCollaborationValues(
+          base[index],
+          value,
+          remote[index],
+          `${path}[${index}]`,
+          conflicts,
+        ));
+      }
+    }
+
+    const baseIsRecord = base === COLLABORATION_MISSING ||
+      (base && typeof base === "object" && !Array.isArray(base));
+    if (baseIsRecord && local && remote &&
+      typeof local === "object" && !Array.isArray(local) &&
+      typeof remote === "object" && !Array.isArray(remote)) {
+      const merged = {};
+      const keys = new Set([
+        ...(base === COLLABORATION_MISSING ? [] : Object.keys(base)),
+        ...Object.keys(local),
+        ...Object.keys(remote),
+      ]);
+      keys.forEach((key) => {
+        const value = mergeCollaborationValues(
+          base !== COLLABORATION_MISSING && Object.hasOwn(base, key) ? base[key] : COLLABORATION_MISSING,
+          Object.hasOwn(local, key) ? local[key] : COLLABORATION_MISSING,
+          Object.hasOwn(remote, key) ? remote[key] : COLLABORATION_MISSING,
+          path ? `${path}.${key}` : key,
+          conflicts,
+        );
+        if (value !== COLLABORATION_MISSING) merged[key] = value;
+      });
+      return merged;
+    }
+
+    conflicts.push(path || "project");
+    return local;
+  }
+
   function sendCollaborationSnapshot(snapshot = createStateSnapshot()) {
     if (!collaboration.session || collaboration.applyingRemote || collaboration.conflicted) return;
     const updateId = (collaboration.lastUpdateId || 0) + 1;
     collaboration.lastUpdateId = updateId;
-    sendCollaborationMessage({ type: "update", snapshot, updateId, baseRevision: collaboration.revision });
+    const sent = sendCollaborationMessage({
+      type: "update",
+      snapshot,
+      updateId,
+      baseRevision: collaboration.revision,
+    });
+    if (sent) collaboration.sentUpdates.set(updateId, { snapshot });
     collaboration.localDirty = true;
     collaboration.session.localDirty = true;
     saveCollaborationSession();
@@ -12176,13 +12296,15 @@
       const assets = await getCollaborationAssets();
       const updateId = (collaboration.lastUpdateId || 0) + 1;
       collaboration.lastUpdateId = updateId;
+      const snapshot = createStateSnapshot();
       const sent = sendCollaborationMessage({
         type: "updateAssets",
-        snapshot: createStateSnapshot(),
+        snapshot,
         assets,
         updateId,
         baseRevision: collaboration.revision,
       });
+      if (sent) collaboration.sentUpdates.set(updateId, { snapshot, assets });
       collaboration.localDirty = true;
       collaboration.assetsDirty = !sent;
       collaboration.session.localDirty = true;
@@ -12200,10 +12322,87 @@
     collaboration.assetsTimer = window.setTimeout(() => { void sendCollaborationAssets(); }, 500);
   }
 
-  function markCollaborationConflict(revision, sender) {
+  async function reconcileCollaborationSnapshot(snapshot, assets, revision, sender) {
+    if (!collaboration.session || collaboration.conflicted || revision <= collaboration.revision) return;
+    if (!isValidCollaborativeSnapshot(snapshot) || !collaboration.sharedSnapshot ||
+      !Array.isArray(collaboration.sharedAssets)) {
+      markCollaborationConflict(revision, sender);
+      return;
+    }
+    if (state.mediaRecorder?.state === "recording") {
+      markCollaborationConflict(revision, sender);
+      return;
+    }
+    if (saveState.timeout) {
+      collaboration.applyingRemote = true;
+      try {
+        if (!flushSaveState()) {
+          markCollaborationConflict(revision, sender);
+          return;
+        }
+      } finally {
+        collaboration.applyingRemote = false;
+      }
+    }
+
+    let localAssets;
+    try {
+      localAssets = await getCollaborationAssets();
+    } catch (error) {
+      showToast(`Could not reconcile project audio: ${error.message || "audio storage is unavailable"}`);
+      markCollaborationConflict(revision, sender);
+      return;
+    }
+    const localSnapshot = createStateSnapshot();
+    const remoteAssets = Array.isArray(assets) ? assets : collaboration.sharedAssets;
+    const conflicts = [];
+    const mergedSnapshot = mergeCollaborationValues(
+      collaboration.sharedSnapshot,
+      localSnapshot,
+      snapshot,
+      "",
+      conflicts,
+    );
+    const localAssetsChanged = !collaborationValuesEqual(localAssets, collaboration.sharedAssets);
+    const remoteAssetsChanged = !collaborationValuesEqual(remoteAssets, collaboration.sharedAssets);
+    if (localAssetsChanged && remoteAssetsChanged &&
+      !collaborationValuesEqual(localAssets, remoteAssets)) {
+      conflicts.push("project audio");
+    }
+    if (conflicts.length) {
+      markCollaborationConflict(revision, sender, conflicts[0]);
+      return;
+    }
+
+    const mergedAssets = localAssetsChanged ? localAssets : remoteAssets;
+    if (!await applyCollaborationSnapshot(mergedSnapshot, mergedAssets, sender)) {
+      markCollaborationConflict(revision, sender);
+      return;
+    }
+    collaboration.conflicted = false;
+    collaboration.conflictMessage = "";
+    collaboration.revision = revision;
+    collaboration.sharedSnapshot = snapshot;
+    collaboration.sharedAssets = remoteAssets;
+    collaboration.localDirty = false;
+    collaboration.assetsDirty = false;
+    collaboration.session.revision = revision;
+    collaboration.session.localDirty = false;
+    collaboration.session.assetsDirty = false;
+    saveCollaborationSession();
+
+    if (!collaborationValuesEqual(mergedSnapshot, snapshot) ||
+      !collaborationValuesEqual(mergedAssets, remoteAssets)) {
+      if (!collaborationValuesEqual(mergedAssets, remoteAssets)) void sendCollaborationAssets();
+      else sendCollaborationSnapshot(mergedSnapshot);
+    }
+    renderCollaborationStatus(`Connected to room ${collaboration.session.roomCode}.`);
+  }
+
+  function markCollaborationConflict(revision, sender, detail = "") {
     collaboration.conflicted = true;
     collaboration.conflictMessage =
-      `Conflict: ${sender || "A collaborator"} updated the room. Your edits are saved locally and were not shared.`;
+      `Conflict: ${sender || "A collaborator"} updated the room${detail ? ` (${detail})` : ""}. Your edits are saved locally and were not shared.`;
     collaboration.localDirty = true;
     if (collaboration.session) {
       collaboration.session.localDirty = true;
@@ -12269,6 +12468,8 @@
     const previousProjects = [...state.projects];
     try {
       collaboration.session = { serverUrl, roomCode, projectId, revision };
+      collaboration.sharedSnapshot = snapshot;
+      collaboration.sharedAssets = assets || [];
       if (!saveCollaborationSession()) throw new Error("session storage is unavailable");
       window.localStorage.setItem(getProjectStorageKey(projectId), JSON.stringify(snapshot));
       state.projects.unshift(project);
@@ -12380,7 +12581,14 @@
     }
     if (!message || typeof message !== "object") return;
     if (message.type === "snapshotConflict") {
-      markCollaborationConflict(message.revision, message.sender);
+      if (Number.isInteger(message.updateId) && message.updateId !== collaboration.lastUpdateId) {
+        collaboration.sentUpdates.delete(message.updateId);
+        return;
+      }
+      collaboration.sentUpdates.delete(message.updateId);
+      collaboration.applyQueue = collaboration.applyQueue.then(() =>
+        reconcileCollaborationSnapshot(message.snapshot, message.assets, message.revision, message.sender),
+      );
       return;
     }
     if (message.type === "error") {
@@ -12407,6 +12615,8 @@
       collaboration.participantNames = message.participants || [];
       collaboration.participantId = message.participantId || null;
       collaboration.viewers = message.viewers || [];
+      collaboration.sharedSnapshot = pending.snapshot;
+      collaboration.sharedAssets = pending.assets || [];
       renderCollaborationStatus("Room created. Preparing a shared project copy…");
       await createLocalCollaborationProject({
         ...pending,
@@ -12423,6 +12633,10 @@
         const pending = collaboration.pendingJoin;
         if (!pending) return;
         collaboration.pendingJoin = null;
+        collaboration.sharedSnapshot = message.snapshot;
+        collaboration.sharedAssets = message.assets || [];
+        collaboration.participantId = message.participantId || null;
+        collaboration.viewers = message.viewers || [];
         renderCollaborationStatus("Joined. Preparing a shared project copy…");
         await createLocalCollaborationProject({
           serverUrl: pending.serverUrl,
@@ -12435,15 +12649,26 @@
         return;
       }
       const roomRevision = Number.isInteger(message.revision) ? message.revision : 0;
-      if (collaboration.localDirty || collaboration.assetsDirty) {
+      if (collaboration.localDirty || collaboration.assetsDirty || saveState.timeout) {
         if (roomRevision > collaboration.revision) {
-          markCollaborationConflict(roomRevision, "A collaborator");
+          collaboration.applyQueue = collaboration.applyQueue.then(() =>
+            reconcileCollaborationSnapshot(message.snapshot, message.assets, roomRevision, message.sender),
+          );
+        } else if (!collaboration.sharedSnapshot) {
+          collaboration.sharedSnapshot = message.snapshot;
+          collaboration.sharedAssets = message.assets || [];
+          if (collaboration.assetsDirty) void sendCollaborationAssets();
+          else sendCollaborationSnapshot(createStateSnapshot());
         } else if (collaboration.assetsDirty) {
           void sendCollaborationAssets();
         } else {
           sendCollaborationSnapshot(createStateSnapshot());
         }
         return;
+      }
+      if (roomRevision <= collaboration.revision) {
+        collaboration.sharedSnapshot = message.snapshot;
+        collaboration.sharedAssets = message.assets || [];
       }
       renderCollaborationStatus(`Connected to room ${collaboration.session.roomCode}.`);
     }
@@ -12453,6 +12678,7 @@
       renderCollaborationStatus(`Connected to room ${collaboration.session?.roomCode || ""}.`);
     }
     if (message.type === "snapshotAck") {
+      const sentUpdate = collaboration.sentUpdates.get(message.updateId);
       if (message.updateId === collaboration.lastUpdateId && !collaboration.conflicted) {
         collaboration.localDirty = false;
         collaboration.assetsDirty = false;
@@ -12462,12 +12688,19 @@
         }
       }
       if (Number.isInteger(message.revision)) {
-        collaboration.revision = message.revision;
-        if (collaboration.session && !collaboration.conflicted) {
+        if (message.revision >= collaboration.revision) {
+          collaboration.revision = message.revision;
+          if (sentUpdate && !collaboration.conflicted) {
+            collaboration.sharedSnapshot = sentUpdate.snapshot;
+            if (sentUpdate.assets) collaboration.sharedAssets = sentUpdate.assets;
+          }
+        }
+        if (collaboration.session && !collaboration.conflicted && message.revision >= collaboration.revision) {
           collaboration.session.revision = message.revision;
           saveCollaborationSession();
         }
       }
+      collaboration.sentUpdates.delete(message.updateId);
       renderCollaborationStatus(`Connected to room ${collaboration.session?.roomCode || ""}.`);
     }
     if (message.type === "transport") {
@@ -12486,13 +12719,21 @@
         collaboration.applyQueue = collaboration.applyQueue.then(async () => {
           if (revision <= collaboration.revision) return;
           if (saveState.timeout || collaboration.localDirty || state.mediaRecorder?.state === "recording") {
-            markCollaborationConflict(revision, message.sender);
+            await reconcileCollaborationSnapshot(
+              message.snapshot,
+              message.assets,
+              revision,
+              message.sender,
+            );
             return;
           }
           const applied = await applyCollaborationSnapshot(message.snapshot, message.assets, message.sender);
           if (applied && !collaboration.localDirty) {
             collaboration.assetsDirty = false;
             collaboration.revision = revision;
+            collaboration.sharedSnapshot = message.snapshot;
+            if (Array.isArray(message.assets)) collaboration.sharedAssets = message.assets;
+            else if (!Array.isArray(collaboration.sharedAssets)) collaboration.sharedAssets = [];
             collaboration.session.revision = revision;
             collaboration.session.localDirty = false;
             collaboration.session.assetsDirty = false;
@@ -12631,6 +12872,9 @@
     collaboration.conflictMessage = "";
     collaboration.participantId = null;
     collaboration.viewers = [];
+    collaboration.sharedSnapshot = null;
+    collaboration.sharedAssets = null;
+    collaboration.sentUpdates.clear();
     saveCollaborationSession();
     renderCollaborationStatus("Room left. This project's local copy is saved.");
   }

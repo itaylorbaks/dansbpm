@@ -255,6 +255,8 @@ export function createCollaborationServer({
         send(socket, {
           type: "snapshotConflict",
           revision: room.revision,
+          snapshot: room.snapshot,
+          assets: room.assets,
           sender: room.lastUpdatedBy,
           updateId: message.updateId,
         });
@@ -287,6 +289,8 @@ export function createCollaborationServer({
         send(socket, {
           type: "snapshotConflict",
           revision: room.revision,
+          snapshot: room.snapshot,
+          assets: room.assets,
           sender: room.lastUpdatedBy,
           updateId: message.updateId,
         });

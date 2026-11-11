@@ -169,6 +169,8 @@ test("stale snapshot and asset updates cannot overwrite a newer room revision", 
   assert.equal(conflict.type, "snapshotConflict");
   assert.equal(conflict.revision, 2);
   assert.equal(conflict.sender, "Grace");
+  assert.equal(conflict.snapshot.bpm, 132);
+  assert.deepEqual(conflict.assets, []);
   assert.equal(app.rooms.get(created.roomCode).snapshot.bpm, 132);
 
   const assetConflict = nextJson(creator);
