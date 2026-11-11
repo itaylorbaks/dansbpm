@@ -83,6 +83,9 @@
       if (file) void importAudioToPianoRoll(file);
       event.target.value = "";
     });
+    $("#piano-audio-source-select").addEventListener("change", (event) =>
+      selectPianoRollAudioSource(event.currentTarget.value));
+    $("#piano-audio-transcribe-button").addEventListener("click", transcribeSelectedPianoAudio);
     $("#piano-autotune-button").addEventListener("click", tunePianoNotesToScale);
     $("#export-midi-button").addEventListener("click", exportMidi);
     $("#export-song-button").addEventListener("click", openSongExportMenu);

@@ -1931,9 +1931,46 @@
     }
     const clip = await importRecording(file, null, 0, false);
     if (!clip) return;
+    await transcribeAudioClipToPianoRoll(clip);
+  }
+
+  function getPianoRollAudioClipById(clipId) {
+    if (!clipId) return null;
+    for (const track of state.arrangementTracks) {
+      const clip = track.clips.find((item) => item.id === clipId);
+      if (clip) return clip;
+    }
+    return null;
+  }
+
+  function selectPianoRollAudioSource(clipId) {
+    const clip = getPianoRollAudioClipById(clipId);
+    state.pianoRollAudioClipId = clip?.id || null;
+    const mel = getMel();
+    if (mel) mel.audioSourceClipId = state.pianoRollAudioClipId;
+    renderPianoRoll();
+    saveState();
+  }
+
+  async function transcribeSelectedPianoAudio() {
+    if (state.stepPianoEditContext) {
+      showToast("Return to the Piano Roll before transcribing audio.");
+      return;
+    }
+    const clip = getPianoRollAudioClipById(state.pianoRollAudioClipId);
+    if (!clip?.buffer) {
+      showToast("Choose an audio clip from Track View first.");
+      return;
+    }
+    await transcribeAudioClipToPianoRoll(clip);
+  }
+
+  async function transcribeAudioClipToPianoRoll(clip) {
     if (state.isPlaying) stopPlayback();
+    state.pianoRollAudioClipId = clip.id;
     try {
-      const detectedNotes = estimateAudioPitchNotes(clip.buffer);
+      const detectedNotes = estimateAudioPitchNotes(clip.buffer, clip.sourceOffsetSeconds || 0,
+        clip.durationSeconds ?? clip.buffer.duration);
       const secondsPerBar = 240 / state.bpm;
       const maxTicks = 8 * PIANO_TICKS_PER_BAR;
       const notes = detectedNotes
@@ -1952,7 +1989,11 @@
         })
         .filter(Boolean)
         .slice(0, 4096);
-      const clipDurationBars = clip.buffer.duration / secondsPerBar;
+      const clipSourceDuration = Math.max(0, Math.min(
+        clip.buffer.duration - (clip.sourceOffsetSeconds || 0),
+        clip.durationSeconds ?? clip.buffer.duration,
+      ));
+      const clipDurationBars = clipSourceDuration / secondsPerBar;
       const bars = [1, 2, 4, 8].find((bar) => bar * PIANO_TICKS_PER_BAR >=
         Math.min(maxTicks, clipDurationBars * PIANO_TICKS_PER_BAR)) || 8;
       const name = clip.name.replace(/\.[^.]+$/, "").trim() || "Audio transcription";
@@ -1976,13 +2017,13 @@
       renderArrangement();
       saveState();
       if (!notes.length) {
-        showToast("Audio imported. No stable pitches were detected; use the waveform as a reference for manual note entry.");
+        showToast("No stable pitches were detected; use the waveform as a reference for manual note entry.");
       } else {
-        const analysisLimit = clip.buffer.duration > secondsPerBar * 8 ? " Only the first 8 bars were analyzed." : "";
-        showToast(`Imported ${clip.name} with ${notes.length} editable pitch notes.${analysisLimit}`);
+        const analysisLimit = clipSourceDuration > secondsPerBar * 8 ? " Only the first 8 bars were analyzed." : "";
+        showToast(`Created ${notes.length} editable pitch notes from ${clip.name}.${analysisLimit}`);
       }
     } catch (error) {
-      showToast(`Audio was imported, but pitch analysis failed: ${error.message || "unknown error"}`);
+      showToast(`Could not transcribe ${clip.name}: ${error.message || "unknown error"}`);
     }
   }
 
@@ -2233,6 +2274,7 @@
     grid.style.setProperty("--piano-beat-width", `${tickWidth * 8}px`);
     grid.style.setProperty("--piano-bar-width", `${tickWidth * PIANO_TICKS_PER_BAR}px`);
     grid.classList.toggle("is-draw-mode", state.pianoDrawMode);
+    renderPianoAudioSourceOptions();
     renderPianoAudioWaveform(grid, width, height, totalTicks);
     $("#piano-draw-mode-button").setAttribute("aria-pressed", String(state.pianoDrawMode));
     let playhead = $("#piano-roll-playhead");
@@ -2445,12 +2487,27 @@
   }
 
   function getPianoRollAudioClip() {
-    if (!state.pianoRollAudioClipId) return null;
-    for (const track of state.arrangementTracks) {
-      const clip = track.clips.find((item) => item.id === state.pianoRollAudioClipId);
-      if (clip) return clip;
-    }
-    return null;
+    return getPianoRollAudioClipById(state.pianoRollAudioClipId);
+  }
+
+  function renderPianoAudioSourceOptions() {
+    const select = $("#piano-audio-source-select");
+    const selectedId = state.pianoRollAudioClipId || "";
+    select.replaceChildren();
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Choose Track View audio";
+    select.append(placeholder);
+    state.arrangementTracks.forEach((track) => {
+      track.clips.forEach((clip) => {
+        const option = document.createElement("option");
+        option.value = clip.id;
+        option.textContent = `${track.name} · ${clip.name}`;
+        option.title = option.textContent;
+        select.append(option);
+      });
+    });
+    select.value = selectedId;
   }
 
   function renderPianoAudioWaveform(grid, width, height, totalTicks) {
@@ -2474,7 +2531,10 @@
     if (!context) return;
     context.scale(pixelRatio, pixelRatio);
     const visibleSeconds = totalTicks / PIANO_TICKS_PER_BAR * (240 / state.bpm);
-    const duration = Math.min(clip.buffer.duration, visibleSeconds);
+    const sourceOffset = Math.max(0, clip.sourceOffsetSeconds || 0);
+    const sourceDuration = Math.min(clip.buffer.duration - sourceOffset,
+      clip.durationSeconds ?? clip.buffer.duration);
+    const duration = Math.min(sourceDuration, visibleSeconds);
     const channels = Array.from({ length: clip.buffer.numberOfChannels }, (_, index) =>
       clip.buffer.getChannelData(index));
     const center = height * 0.68;
@@ -2484,9 +2544,11 @@
     context.beginPath();
     const visibleWidth = Math.min(width, duration / visibleSeconds * width);
     for (let x = 0; x < visibleWidth; x += 1) {
-      const start = Math.floor(x / width * visibleSeconds * clip.buffer.sampleRate);
+      const start = Math.floor(sourceOffset * clip.buffer.sampleRate +
+        x / width * visibleSeconds * clip.buffer.sampleRate);
       const end = Math.min(clip.buffer.length, Math.max(start + 1,
-        Math.floor((x + 1) / width * visibleSeconds * clip.buffer.sampleRate)));
+        Math.floor(sourceOffset * clip.buffer.sampleRate +
+          (x + 1) / width * visibleSeconds * clip.buffer.sampleRate)));
       let minimum = 0;
       let maximum = 0;
       for (const channel of channels) {
@@ -7168,12 +7230,16 @@
     return { bpm, key: getKeyFromChroma(chroma) };
   }
 
-  function estimateAudioPitchNotes(buffer) {
+  function estimateAudioPitchNotes(buffer, sourceOffsetSeconds = 0, durationSeconds = buffer.duration) {
     const secondsPerBar = 240 / state.bpm;
-    const analysisDuration = Math.min(buffer.duration, secondsPerBar * 8);
+    const sourceOffset = Math.max(0, Math.min(buffer.duration, sourceOffsetSeconds));
+    const sourceDuration = Math.max(0, Math.min(buffer.duration - sourceOffset, durationSeconds));
+    const analysisDuration = Math.min(sourceDuration, secondsPerBar * 8);
     const stride = Math.max(1, Math.floor(buffer.sampleRate / 22050));
     const sampleRate = buffer.sampleRate / stride;
-    const sampleCount = Math.min(buffer.length, Math.ceil(analysisDuration * buffer.sampleRate));
+    const sourceStartSample = Math.floor(sourceOffset * buffer.sampleRate);
+    const sampleCount = Math.min(buffer.length - sourceStartSample,
+      Math.ceil(analysisDuration * buffer.sampleRate));
     const frameSize = 4096;
     const hopSize = Math.max(1, Math.floor(sampleRate * 0.055));
     if (sampleCount < frameSize * stride) return [];
@@ -7206,7 +7272,7 @@
       let frameEnergy = 0;
       for (let index = 0; index < frameSize; index += 1) {
         let sample = 0;
-        const sourceIndex = offset + index * stride;
+        const sourceIndex = sourceStartSample + offset + index * stride;
         channels.forEach((channel) => { sample += channel[sourceIndex] || 0; });
         sample /= channels.length;
         frameEnergy += sample * sample;
@@ -15566,6 +15632,9 @@
       if (file) void importAudioToPianoRoll(file);
       event.target.value = "";
     });
+    $("#piano-audio-source-select").addEventListener("change", (event) =>
+      selectPianoRollAudioSource(event.currentTarget.value));
+    $("#piano-audio-transcribe-button").addEventListener("click", transcribeSelectedPianoAudio);
     $("#piano-autotune-button").addEventListener("click", tunePianoNotesToScale);
     $("#export-midi-button").addEventListener("click", exportMidi);
     $("#export-song-button").addEventListener("click", openSongExportMenu);

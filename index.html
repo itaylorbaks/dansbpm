@@ -276,6 +276,11 @@
                         <button class="quiet-button" id="export-mel-button" type="button">Export Mel</button>
                         <button class="quiet-button" id="import-midi-button" type="button">Import MIDI</button>
                         <button class="quiet-button" id="piano-audio-import-button" type="button">Import audio</button>
+                        <label class="pattern-select-control">
+                          <span>AUDIO SOURCE</span>
+                          <select id="piano-audio-source-select" aria-label="Select audio from Track View"></select>
+                        </label>
+                        <button class="quiet-button" id="piano-audio-transcribe-button" type="button">Transcribe source</button>
                         <span class="piano-audio-source-label" id="piano-audio-source-label">No audio source</span>
                         <button class="quiet-button" id="export-midi-button" type="button">Export MIDI</button>
                         <button class="quiet-button" id="rename-mel-button" type="button">Rename</button>
@@ -333,7 +338,7 @@
                           <div class="piano-roll-grid" id="piano-roll-grid" aria-label="Piano roll note grid"></div>
                         </div>
                       </div>
-                      <div class="piano-roll-footer">Drag notes to move or resize · Delete removes selected notes · Imported audio appears as a waveform with editable pitch notes; playback renders them through the selected instrument while the source stays in Track View.</div>
+                      <div class="piano-roll-footer">Choose existing Track View audio or import a file; transcribe pitches into editable notes. Playback renders corrected notes through the selected instrument; source audio stays in Track View.</div>
                       <div class="piano-note-context-menu" id="piano-note-context-menu" role="group" aria-label="Selected note controls" hidden>
                         <div class="piano-note-context-heading">
                           <span>NOTE CONTROLS</span>

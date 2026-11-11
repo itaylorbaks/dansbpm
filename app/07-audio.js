@@ -230,12 +230,16 @@
     return { bpm, key: getKeyFromChroma(chroma) };
   }
 
-  function estimateAudioPitchNotes(buffer) {
+  function estimateAudioPitchNotes(buffer, sourceOffsetSeconds = 0, durationSeconds = buffer.duration) {
     const secondsPerBar = 240 / state.bpm;
-    const analysisDuration = Math.min(buffer.duration, secondsPerBar * 8);
+    const sourceOffset = Math.max(0, Math.min(buffer.duration, sourceOffsetSeconds));
+    const sourceDuration = Math.max(0, Math.min(buffer.duration - sourceOffset, durationSeconds));
+    const analysisDuration = Math.min(sourceDuration, secondsPerBar * 8);
     const stride = Math.max(1, Math.floor(buffer.sampleRate / 22050));
     const sampleRate = buffer.sampleRate / stride;
-    const sampleCount = Math.min(buffer.length, Math.ceil(analysisDuration * buffer.sampleRate));
+    const sourceStartSample = Math.floor(sourceOffset * buffer.sampleRate);
+    const sampleCount = Math.min(buffer.length - sourceStartSample,
+      Math.ceil(analysisDuration * buffer.sampleRate));
     const frameSize = 4096;
     const hopSize = Math.max(1, Math.floor(sampleRate * 0.055));
     if (sampleCount < frameSize * stride) return [];
@@ -268,7 +272,7 @@
       let frameEnergy = 0;
       for (let index = 0; index < frameSize; index += 1) {
         let sample = 0;
-        const sourceIndex = offset + index * stride;
+        const sourceIndex = sourceStartSample + offset + index * stride;
         channels.forEach((channel) => { sample += channel[sourceIndex] || 0; });
         sample /= channels.length;
         frameEnergy += sample * sample;
