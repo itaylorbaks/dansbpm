@@ -725,6 +725,8 @@
     const previousFxRuntimes = allTracks.map((track) => track.fxRuntime);
     const previousAnalysers = allTracks.map((track) => track.analyser);
     const previousSourceGains = allTracks.map((track) => track.sourceGains);
+    const previousSidechainInputs = allTracks.map((track) => track.sidechainInputNode);
+    const previousSidechainSources = allTracks.map((track) => track.sidechainSourceNode);
     showToast(`Rendering your song to ${format.toUpperCase()}…`);
     try {
       const context = new OfflineAudioContext(2, Math.ceil(duration * sampleRate), sampleRate);
@@ -869,6 +871,8 @@
         track.fxRuntime = previousFxRuntimes[index];
         track.analyser = previousAnalysers[index];
         track.sourceGains = previousSourceGains[index];
+        track.sidechainInputNode = previousSidechainInputs[index];
+        track.sidechainSourceNode = previousSidechainSources[index];
       });
       state.isExporting = false;
       button.disabled = false;

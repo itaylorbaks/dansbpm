@@ -723,7 +723,9 @@
     const masterSelected = state.selectedMixerTrackId === state.masterTrack.id;
     libraryTitle.textContent = masterSelected ? "Master effects" : "Available effects";
     const libraryHint = document.createElement("p");
-    libraryHint.textContent = masterSelected ? "Add effects to the master output" : "Drag an effect onto a track";
+    libraryHint.textContent = masterSelected
+      ? "Add effects to the master output"
+      : "Drag an effect onto a track; add Sidechain to choose its source and depth";
     const effectList = document.createElement("div");
     effectList.className = "mixer-effects-library-list";
     EFFECT_CATEGORIES.forEach((category) => {
@@ -1093,7 +1095,35 @@
     } else {
       const controls = document.createElement("div");
       controls.className = "mixer-effect-controls";
-      controls.append(makeMixerSettingRange("Mix", track.effects[effectId], 0, 100, 1, "%", (value) => {
+      if (effectId === "sidechain") {
+        const sourceLabel = document.createElement("label");
+        sourceLabel.className = "mixer-effect-control mixer-sidechain-source";
+        const sourceCaption = document.createElement("span");
+        sourceCaption.className = "mixer-control-caption";
+        sourceCaption.textContent = "Source track";
+        const sourceSelect = document.createElement("select");
+        sourceSelect.setAttribute("aria-label", `Sidechain source for ${track.name}`);
+        const noSource = document.createElement("option");
+        noSource.value = "";
+        noSource.textContent = "Choose a source track";
+        sourceSelect.append(noSource);
+        getMixerTracks()
+          .filter(({ track: sourceTrack }) => sourceTrack.id !== track.id && sourceTrack.kind !== "mixer-master")
+          .forEach(({ track: sourceTrack, type }) => {
+            const option = document.createElement("option");
+            option.value = sourceTrack.id;
+            option.textContent = `${sourceTrack.name} · ${type}`;
+            sourceSelect.append(option);
+          });
+        sourceSelect.value = track.effectSettings.sidechain.sourceTrackId || "";
+        sourceSelect.addEventListener("change", () => {
+          track.effectSettings.sidechain.sourceTrackId = sourceSelect.value;
+          refreshMixerEffectTrack(track);
+        });
+        sourceLabel.append(sourceCaption, sourceSelect);
+        controls.append(sourceLabel);
+      }
+      controls.append(makeMixerSettingRange(effectId === "sidechain" ? "Depth" : "Mix", track.effects[effectId], 0, 100, 1, "%", (value) => {
         track.effects[effectId] = value;
         refreshMixerEffectTrack(track);
       }));

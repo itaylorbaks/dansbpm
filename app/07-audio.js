@@ -848,6 +848,31 @@
     track.fxRuntime.push({ nodes: [analyser], sources: [] });
 
     track.effectChain.forEach((id) => {
+      if (id === "sidechain") {
+        const sidechainGain = context.createGain();
+        output.connect(sidechainGain);
+        output = sidechainGain;
+        const nodes = [sidechainGain];
+        if (track.effectSettings.sidechain.sourceTrackId && track.effects.sidechain > 0) {
+          const detector = context.createWaveShaper();
+          const curve = new Float32Array(4096);
+          curve.forEach((_, index) => {
+            const sample = index * 2 / (curve.length - 1) - 1;
+            curve[index] = -Math.min(0.85, Math.abs(sample) * 2.5) * track.effects.sidechain / 100;
+          });
+          detector.curve = curve;
+          const envelope = context.createBiquadFilter();
+          envelope.type = "lowpass";
+          envelope.frequency.value = 18;
+          envelope.Q.value = Math.SQRT1_2;
+          detector.connect(envelope);
+          envelope.connect(sidechainGain.gain);
+          track.sidechainInputNode = detector;
+          nodes.push(detector, envelope);
+        }
+        track.fxRuntime.push({ nodes, sources: [] });
+        return;
+      }
       const amount = track.effects[id];
       const module = createTrackEffect(context, id, amount, track.effectSettings[id]);
       output.connect(module.input);
@@ -858,6 +883,27 @@
     output.connect(track.automationGainNode);
     track.automationGainNode.connect(track.panNode);
     track.panNode.connect(getTrackOutputNode(track));
+    rebuildMixerSidechainRouting();
+  }
+
+  function rebuildMixerSidechainRouting() {
+    getMixerTracks().forEach(({ track }) => {
+      if (track.sidechainSourceNode && track.sidechainInputNode) {
+        try {
+          track.sidechainSourceNode.disconnect(track.sidechainInputNode);
+        } catch {
+          // A source-chain rebuild may already have removed this connection.
+        }
+      }
+      track.sidechainSourceNode = null;
+      if (!track.sidechainInputNode) return;
+      const source = getMixerTracks().find(({ track: sourceTrack }) =>
+        sourceTrack.id === track.effectSettings.sidechain.sourceTrackId &&
+        sourceTrack.kind !== "mixer-master" && sourceTrack.id !== track.id)?.track;
+      if (!source?.gainNode) return;
+      source.gainNode.connect(track.sidechainInputNode);
+      track.sidechainSourceNode = source.gainNode;
+    });
   }
 
   function rebuildMixerAudioRouting() {
@@ -871,6 +917,15 @@
   }
 
   function clearTrackEffectNodes(track) {
+    if (track.sidechainSourceNode && track.sidechainInputNode) {
+      try {
+        track.sidechainSourceNode.disconnect(track.sidechainInputNode);
+      } catch {
+        // A source-chain rebuild may already have removed this connection.
+      }
+    }
+    track.sidechainSourceNode = null;
+    track.sidechainInputNode = null;
     track.fxRuntime?.forEach(({ nodes, sources }) => {
       sources.forEach((source) => {
         try { source.stop(); } catch { /* already stopped */ }

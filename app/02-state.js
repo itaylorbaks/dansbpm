@@ -224,7 +224,7 @@
     { name: "Delay", effects: [["delay", "Delay"], ["pingPong", "Ping-pong delay"], ["slapback", "Slapback"], ["tapeDelay", "Tape delay"]] },
     { name: "Reverb", effects: [["reverb", "Reverb"], ["room", "Room"], ["hall", "Hall"], ["plate", "Plate"]] },
     { name: "Controllers", effects: [["autopan", "Auto-pan"], ["tremolo", "Tremolo"], ["autoFilter", "Auto-filter"], ["lfoGain", "LFO gain"]] },
-    { name: "Dynamics", effects: [["compressor", "Compressor"], ["multibandCompressor", "Multiband compressor"], ["limiter", "Limiter"], ["noiseGate", "Noise gate"], ["transientShaper", "Transient shaper"]] },
+    { name: "Dynamics", effects: [["compressor", "Compressor"], ["multibandCompressor", "Multiband compressor"], ["limiter", "Limiter"], ["noiseGate", "Noise gate"], ["transientShaper", "Transient shaper"], ["sidechain", "Sidechain"]] },
     { name: "Miscellaneous", effects: [["bitcrusher", "Bitcrusher"], ["pitchShifter", "Pitch shifter"], ["harmonizer", "Harmonizer"], ["vocoder", "Vocoder"]] },
   ];
   const EFFECT_NAMES = EFFECT_CATEGORIES.flatMap(({ effects }) => effects);
@@ -245,6 +245,7 @@
     saturator: [["drive", "Drive", 1, 12, 0.5, "×", 3]],
     softClipper: [["drive", "Drive", 1, 12, 0.5, "×", 2]],
     compressor: [["threshold", "Threshold", -60, 0, 1, " dB", -18], ["ratio", "Ratio", 1, 20, 0.5, ":1", 4], ["attack", "Attack", 1, 100, 1, " ms", 3], ["release", "Release", 10, 1000, 10, " ms", 180]],
+    sidechain: [],
     multibandCompressor: [
       ["lowCrossover", "Low crossover", 60, 400, 10, " Hz", 180],
       ["highCrossover", "High crossover", 800, 8000, 100, " Hz", 3500],
@@ -289,13 +290,17 @@
   }
 
   function makeDefaultEffectSettings(settings) {
-    return Object.fromEntries(Object.entries(EFFECT_PARAMETERS).map(([effectId, parameters]) => [
+    const defaults = Object.fromEntries(Object.entries(EFFECT_PARAMETERS).map(([effectId, parameters]) => [
       effectId,
       Object.fromEntries(parameters.map(([id, , min, max, , , defaultValue]) => {
         const savedValue = settings?.[effectId]?.[id];
         return [id, Number.isFinite(savedValue) ? Math.max(min, Math.min(max, savedValue)) : defaultValue];
       })),
     ]));
+    if (typeof settings?.sidechain?.sourceTrackId === "string") {
+      defaults.sidechain.sourceTrackId = settings.sidechain.sourceTrackId;
+    }
+    return defaults;
   }
 
   function ensureTrackMixerState(track) {
@@ -328,6 +333,8 @@
         routedTrackIds: Array.isArray(saved.routedTrackIds)
           ? [...new Set(saved.routedTrackIds.filter((trackId) => typeof trackId === "string"))]
           : [],
+        sidechainInputNode: null,
+        sidechainSourceNode: null,
       }),
     };
   }

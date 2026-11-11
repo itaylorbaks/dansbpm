@@ -692,7 +692,7 @@
     { name: "Delay", effects: [["delay", "Delay"], ["pingPong", "Ping-pong delay"], ["slapback", "Slapback"], ["tapeDelay", "Tape delay"]] },
     { name: "Reverb", effects: [["reverb", "Reverb"], ["room", "Room"], ["hall", "Hall"], ["plate", "Plate"]] },
     { name: "Controllers", effects: [["autopan", "Auto-pan"], ["tremolo", "Tremolo"], ["autoFilter", "Auto-filter"], ["lfoGain", "LFO gain"]] },
-    { name: "Dynamics", effects: [["compressor", "Compressor"], ["multibandCompressor", "Multiband compressor"], ["limiter", "Limiter"], ["noiseGate", "Noise gate"], ["transientShaper", "Transient shaper"]] },
+    { name: "Dynamics", effects: [["compressor", "Compressor"], ["multibandCompressor", "Multiband compressor"], ["limiter", "Limiter"], ["noiseGate", "Noise gate"], ["transientShaper", "Transient shaper"], ["sidechain", "Sidechain"]] },
     { name: "Miscellaneous", effects: [["bitcrusher", "Bitcrusher"], ["pitchShifter", "Pitch shifter"], ["harmonizer", "Harmonizer"], ["vocoder", "Vocoder"]] },
   ];
   const EFFECT_NAMES = EFFECT_CATEGORIES.flatMap(({ effects }) => effects);
@@ -713,6 +713,7 @@
     saturator: [["drive", "Drive", 1, 12, 0.5, "×", 3]],
     softClipper: [["drive", "Drive", 1, 12, 0.5, "×", 2]],
     compressor: [["threshold", "Threshold", -60, 0, 1, " dB", -18], ["ratio", "Ratio", 1, 20, 0.5, ":1", 4], ["attack", "Attack", 1, 100, 1, " ms", 3], ["release", "Release", 10, 1000, 10, " ms", 180]],
+    sidechain: [],
     multibandCompressor: [
       ["lowCrossover", "Low crossover", 60, 400, 10, " Hz", 180],
       ["highCrossover", "High crossover", 800, 8000, 100, " Hz", 3500],
@@ -757,13 +758,17 @@
   }
 
   function makeDefaultEffectSettings(settings) {
-    return Object.fromEntries(Object.entries(EFFECT_PARAMETERS).map(([effectId, parameters]) => [
+    const defaults = Object.fromEntries(Object.entries(EFFECT_PARAMETERS).map(([effectId, parameters]) => [
       effectId,
       Object.fromEntries(parameters.map(([id, , min, max, , , defaultValue]) => {
         const savedValue = settings?.[effectId]?.[id];
         return [id, Number.isFinite(savedValue) ? Math.max(min, Math.min(max, savedValue)) : defaultValue];
       })),
     ]));
+    if (typeof settings?.sidechain?.sourceTrackId === "string") {
+      defaults.sidechain.sourceTrackId = settings.sidechain.sourceTrackId;
+    }
+    return defaults;
   }
 
   function ensureTrackMixerState(track) {
@@ -796,6 +801,8 @@
         routedTrackIds: Array.isArray(saved.routedTrackIds)
           ? [...new Set(saved.routedTrackIds.filter((trackId) => typeof trackId === "string"))]
           : [],
+        sidechainInputNode: null,
+        sidechainSourceNode: null,
       }),
     };
   }
@@ -8859,6 +8866,31 @@
     track.fxRuntime.push({ nodes: [analyser], sources: [] });
 
     track.effectChain.forEach((id) => {
+      if (id === "sidechain") {
+        const sidechainGain = context.createGain();
+        output.connect(sidechainGain);
+        output = sidechainGain;
+        const nodes = [sidechainGain];
+        if (track.effectSettings.sidechain.sourceTrackId && track.effects.sidechain > 0) {
+          const detector = context.createWaveShaper();
+          const curve = new Float32Array(4096);
+          curve.forEach((_, index) => {
+            const sample = index * 2 / (curve.length - 1) - 1;
+            curve[index] = -Math.min(0.85, Math.abs(sample) * 2.5) * track.effects.sidechain / 100;
+          });
+          detector.curve = curve;
+          const envelope = context.createBiquadFilter();
+          envelope.type = "lowpass";
+          envelope.frequency.value = 18;
+          envelope.Q.value = Math.SQRT1_2;
+          detector.connect(envelope);
+          envelope.connect(sidechainGain.gain);
+          track.sidechainInputNode = detector;
+          nodes.push(detector, envelope);
+        }
+        track.fxRuntime.push({ nodes, sources: [] });
+        return;
+      }
       const amount = track.effects[id];
       const module = createTrackEffect(context, id, amount, track.effectSettings[id]);
       output.connect(module.input);
@@ -8869,6 +8901,27 @@
     output.connect(track.automationGainNode);
     track.automationGainNode.connect(track.panNode);
     track.panNode.connect(getTrackOutputNode(track));
+    rebuildMixerSidechainRouting();
+  }
+
+  function rebuildMixerSidechainRouting() {
+    getMixerTracks().forEach(({ track }) => {
+      if (track.sidechainSourceNode && track.sidechainInputNode) {
+        try {
+          track.sidechainSourceNode.disconnect(track.sidechainInputNode);
+        } catch {
+          // A source-chain rebuild may already have removed this connection.
+        }
+      }
+      track.sidechainSourceNode = null;
+      if (!track.sidechainInputNode) return;
+      const source = getMixerTracks().find(({ track: sourceTrack }) =>
+        sourceTrack.id === track.effectSettings.sidechain.sourceTrackId &&
+        sourceTrack.kind !== "mixer-master" && sourceTrack.id !== track.id)?.track;
+      if (!source?.gainNode) return;
+      source.gainNode.connect(track.sidechainInputNode);
+      track.sidechainSourceNode = source.gainNode;
+    });
   }
 
   function rebuildMixerAudioRouting() {
@@ -8882,6 +8935,15 @@
   }
 
   function clearTrackEffectNodes(track) {
+    if (track.sidechainSourceNode && track.sidechainInputNode) {
+      try {
+        track.sidechainSourceNode.disconnect(track.sidechainInputNode);
+      } catch {
+        // A source-chain rebuild may already have removed this connection.
+      }
+    }
+    track.sidechainSourceNode = null;
+    track.sidechainInputNode = null;
     track.fxRuntime?.forEach(({ nodes, sources }) => {
       sources.forEach((source) => {
         try { source.stop(); } catch { /* already stopped */ }
@@ -10223,7 +10285,9 @@
     const masterSelected = state.selectedMixerTrackId === state.masterTrack.id;
     libraryTitle.textContent = masterSelected ? "Master effects" : "Available effects";
     const libraryHint = document.createElement("p");
-    libraryHint.textContent = masterSelected ? "Add effects to the master output" : "Drag an effect onto a track";
+    libraryHint.textContent = masterSelected
+      ? "Add effects to the master output"
+      : "Drag an effect onto a track; add Sidechain to choose its source and depth";
     const effectList = document.createElement("div");
     effectList.className = "mixer-effects-library-list";
     EFFECT_CATEGORIES.forEach((category) => {
@@ -10593,7 +10657,35 @@
     } else {
       const controls = document.createElement("div");
       controls.className = "mixer-effect-controls";
-      controls.append(makeMixerSettingRange("Mix", track.effects[effectId], 0, 100, 1, "%", (value) => {
+      if (effectId === "sidechain") {
+        const sourceLabel = document.createElement("label");
+        sourceLabel.className = "mixer-effect-control mixer-sidechain-source";
+        const sourceCaption = document.createElement("span");
+        sourceCaption.className = "mixer-control-caption";
+        sourceCaption.textContent = "Source track";
+        const sourceSelect = document.createElement("select");
+        sourceSelect.setAttribute("aria-label", `Sidechain source for ${track.name}`);
+        const noSource = document.createElement("option");
+        noSource.value = "";
+        noSource.textContent = "Choose a source track";
+        sourceSelect.append(noSource);
+        getMixerTracks()
+          .filter(({ track: sourceTrack }) => sourceTrack.id !== track.id && sourceTrack.kind !== "mixer-master")
+          .forEach(({ track: sourceTrack, type }) => {
+            const option = document.createElement("option");
+            option.value = sourceTrack.id;
+            option.textContent = `${sourceTrack.name} · ${type}`;
+            sourceSelect.append(option);
+          });
+        sourceSelect.value = track.effectSettings.sidechain.sourceTrackId || "";
+        sourceSelect.addEventListener("change", () => {
+          track.effectSettings.sidechain.sourceTrackId = sourceSelect.value;
+          refreshMixerEffectTrack(track);
+        });
+        sourceLabel.append(sourceCaption, sourceSelect);
+        controls.append(sourceLabel);
+      }
+      controls.append(makeMixerSettingRange(effectId === "sidechain" ? "Depth" : "Mix", track.effects[effectId], 0, 100, 1, "%", (value) => {
         track.effects[effectId] = value;
         refreshMixerEffectTrack(track);
       }));
@@ -17079,6 +17171,8 @@
     const previousFxRuntimes = allTracks.map((track) => track.fxRuntime);
     const previousAnalysers = allTracks.map((track) => track.analyser);
     const previousSourceGains = allTracks.map((track) => track.sourceGains);
+    const previousSidechainInputs = allTracks.map((track) => track.sidechainInputNode);
+    const previousSidechainSources = allTracks.map((track) => track.sidechainSourceNode);
     showToast(`Rendering your song to ${format.toUpperCase()}…`);
     try {
       const context = new OfflineAudioContext(2, Math.ceil(duration * sampleRate), sampleRate);
@@ -17223,6 +17317,8 @@
         track.fxRuntime = previousFxRuntimes[index];
         track.analyser = previousAnalysers[index];
         track.sourceGains = previousSourceGains[index];
+        track.sidechainInputNode = previousSidechainInputs[index];
+        track.sidechainSourceNode = previousSidechainSources[index];
       });
       state.isExporting = false;
       button.disabled = false;
