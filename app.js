@@ -5115,6 +5115,7 @@
     DJ_DECK_IDS.forEach((deckId) => {
       djState.decks[deckId].resumeContentPosition = null;
       djState.decks[deckId].resumeArrangementBar = null;
+      djState.decks[deckId].pausedViewStartBar = null;
       djState.decks[deckId].visualSegments = [];
     });
     renderDjLiveView();
@@ -5394,15 +5395,21 @@
       const liveSpan = DJ_ARRANGEMENT_BARS * 240 / state.bpm;
       const visibleSpan = isLive ? liveSpan : isSong ? loopSpan : loopSpan * 2;
       const barSeconds = 240 / state.bpm;
-      const viewStartBar = djState.arrangementViewStartBar;
+      const viewStartBar = isLive && !deck.playing && Number.isFinite(deck.pausedViewStartBar)
+        ? deck.pausedViewStartBar
+        : djState.arrangementViewStartBar;
       const arrangementStart = Number.isFinite(djState.arrangementStartTime)
         ? djState.arrangementStartTime
         : now;
       const start = isLive
         ? arrangementStart + viewStartBar * barSeconds
         : Math.max(0, position - visibleSpan * 0.75);
+      const pausedAtBar = isLive && !deck.playing && Number.isFinite(deck.resumeArrangementBar)
+        ? deck.resumeArrangementBar
+        : null;
+      const playheadBar = pausedAtBar ?? getDjArrangementPositionBar();
       const playheadPosition = isLive
-        ? arrangementStart + getDjArrangementPositionBar() * barSeconds
+        ? arrangementStart + playheadBar * barSeconds
         : position;
       const isDragPreview = Number.isFinite(deck.dragPreviewStartTime);
       const unitsPerSecond = isAudio ? 1 : state.bpm / 60 * 8;
@@ -5493,14 +5500,17 @@
         }
       }
       const playheadX = 8 + Math.max(0, Math.min(1, (playheadPosition - start) / visibleSpan)) * timelineWidth;
-      context.strokeStyle = "#f3f5e8";
+      const isPausedPosition = pausedAtBar !== null;
+      context.strokeStyle = isPausedPosition ? color : "#f3f5e8";
       context.lineWidth = isLive ? 2 : 1.5;
+      if (isPausedPosition) context.setLineDash([3, 3]);
       context.beginPath();
       context.moveTo(playheadX, 1);
       context.lineTo(playheadX, height - 1);
       context.stroke();
+      context.setLineDash([]);
       if (isLive) {
-        const label = `BAR ${Math.floor(getDjArrangementPositionBar()) + 1}`;
+        const label = `BAR ${Math.floor(playheadBar) + 1}`;
         context.font = "8px monospace";
         context.textBaseline = "middle";
         const labelWidth = context.measureText(label).width + 8;
@@ -5849,7 +5859,10 @@
     deck.songGains.clear();
     deck.songEvents.clear();
     deck.playing = false;
-    if (Number.isFinite(stoppedAtBar)) deck.resumeArrangementBar = stoppedAtBar;
+    if (Number.isFinite(stoppedAtBar)) {
+      deck.resumeArrangementBar = stoppedAtBar;
+      deck.pausedViewStartBar = djState.arrangementViewStartBar;
+    }
     if (Number.isFinite(stoppedAt) && !DJ_DECK_IDS.some((id) => djState.decks[id].playing)) {
       djState.arrangementPositionBar = stoppedAtBar;
       djState.arrangementStopTime = stoppedAt;
@@ -5911,6 +5924,7 @@
       deck.dragPreviewStartTime = null;
       deck.resumeContentPosition = null;
       deck.resumeArrangementBar = null;
+      deck.pausedViewStartBar = null;
       deck.visualStopTime = null;
       deck.nextStepTime = startTime;
       deck.playing = true;
@@ -6039,6 +6053,7 @@
         if (djState.decks[deckId].playing) stopDjDeck(deckId);
         else djState.decks[deckId].resumeContentPosition = null;
         djState.decks[deckId].resumeArrangementBar = positionBar;
+        djState.decks[deckId].pausedViewStartBar = djState.arrangementViewStartBar;
       });
       djState.arrangementPositionBar = positionBar;
       djState.arrangementStopTime = stoppedAt;
@@ -6431,6 +6446,7 @@
       if (cycleTicks) deck.pendingStepIndex = deck.reverse ? cycleTicks - 1 : 0;
       deck.resumeContentPosition = null;
       deck.resumeArrangementBar = null;
+      deck.pausedViewStartBar = null;
       deck.syncedStartTime = getDjNextBeatTime(other, otherBpm, now);
     }
     updateDjDeckUI(deckId);
@@ -6519,6 +6535,7 @@
     djState.decks[deckId].syncRate = 1;
     djState.decks[deckId].resumeContentPosition = null;
     djState.decks[deckId].resumeArrangementBar = null;
+    djState.decks[deckId].pausedViewStartBar = null;
     djState.decks[deckId].visualStartTime = null;
     djState.decks[deckId].visualStopTime = null;
     djState.decks[deckId].visualStartPosition = 0;
@@ -6760,6 +6777,12 @@
     $("#dj-arrangement-scroll").addEventListener("input", (event) => {
       djState.arrangementViewStartBar = Math.max(-DJ_ARRANGEMENT_BARS / 2,
         Math.min(DJ_MAX_CENTERED_OFFSET_BARS, Number(event.target.value)));
+      DJ_DECK_IDS.forEach((deckId) => {
+        const deck = djState.decks[deckId];
+        if (!deck.playing && Number.isFinite(deck.resumeArrangementBar)) {
+          deck.pausedViewStartBar = djState.arrangementViewStartBar;
+        }
+      });
       renderDjLiveView();
     });
     $("#dj-arrangement-scroll").addEventListener("change", saveDjState);
@@ -6843,6 +6866,7 @@
         }
         deck.resumeContentPosition = null;
         deck.resumeArrangementBar = null;
+        deck.pausedViewStartBar = null;
         deck.syncedStartTime = 0;
         deck.dragPreviewStartTime = null;
         saveDjState();
@@ -6862,6 +6886,7 @@
         djState.decks[deckId].syncRate = 1;
         djState.decks[deckId].resumeContentPosition = null;
         djState.decks[deckId].resumeArrangementBar = null;
+        djState.decks[deckId].pausedViewStartBar = null;
         djState.decks[deckId].pendingStepIndex = 0;
         djState.decks[deckId].syncedStartTime = 0;
         djState.decks[deckId].visualStartTime = null;
