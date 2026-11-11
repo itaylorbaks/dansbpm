@@ -11862,6 +11862,8 @@
     const durationBars = elapsedSeconds / (240 / state.bpm);
     const endBar = preview.startBar + durationBars;
     extendArrangementForRecording(endBar);
+    state.arrangementCursor = Math.max(0, Math.min(state.arrangementBars - 0.001, endBar));
+    updateArrangementCursorMarker();
 
     preview.element.style.left = `${preview.startBar * BAR_WIDTH + 4}px`;
     preview.element.style.width = `${Math.max(4, durationBars * BAR_WIDTH - 8)}px`;
