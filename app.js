@@ -406,6 +406,7 @@
   const ACTIVE_USER_KEY = `${STORAGE_KEY}-active-user`;
   const OPEN_PROJECTS_KEY = `${STORAGE_KEY}-open-projects`;
   const COLLABORATION_URL_KEY = `${STORAGE_KEY}-collaboration-url`;
+  const DEFAULT_COLLABORATION_SERVER_URL = "wss://bpmcollab.onrender.com/collaboration";
   const COLLABORATION_SESSION_KEY = `${STORAGE_KEY}-collaboration-room`;
   const DEFAULT_USERS = [
     { id: "taylor", name: "Taylor" },
@@ -14291,9 +14292,10 @@
     $("#collaborate-button").addEventListener("click", () => {
       $("#project-dialog").close();
       try {
-        $("#collaboration-server-url").value = window.localStorage.getItem(COLLABORATION_URL_KEY) || "";
+        $("#collaboration-server-url").value =
+          window.localStorage.getItem(COLLABORATION_URL_KEY) || DEFAULT_COLLABORATION_SERVER_URL;
       } catch {
-        $("#collaboration-server-url").value = "";
+        $("#collaboration-server-url").value = DEFAULT_COLLABORATION_SERVER_URL;
       }
       renderCollaborationStatus(collaboration.session
         ? `Connected to room ${collaboration.session.roomCode}.`
