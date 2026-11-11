@@ -479,6 +479,7 @@
   document.addEventListener("fullscreenchange", () => {
     updateWorkspaceFullscreenButton();
     updateTrackViewFullscreenButton();
+    syncAssetLibraryDialogFullscreen();
     updatePianoRulerViewport();
   });
 

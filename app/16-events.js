@@ -466,7 +466,10 @@
     });
     $("#source-browser-button").addEventListener("click", () => openAssetLibrary());
     $("#source-browser-close").addEventListener("click", () => $("#source-browser-dialog").close());
-    $("#source-browser-dialog").addEventListener("close", closeSoundDurationMenu);
+    $("#source-browser-dialog").addEventListener("close", () => {
+      closeSoundDurationMenu();
+      restoreAssetLibraryDialogPosition();
+    });
     $("#empty-import-button").addEventListener("click", () => requestRecordingImport());
     $("#side-add-recording").addEventListener("click", () => requestRecordingImport());
     $("#recording-input").addEventListener("change", async (event) => {

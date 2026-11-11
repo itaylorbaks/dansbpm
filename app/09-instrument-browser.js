@@ -301,6 +301,28 @@
     });
   }
 
+  let assetLibraryDialogHome = null;
+
+  function restoreAssetLibraryDialogPosition() {
+    if (!assetLibraryDialogHome) return;
+    const dialog = $("#source-browser-dialog");
+    const { parent, nextSibling } = assetLibraryDialogHome;
+    parent.insertBefore(dialog, nextSibling?.parentNode === parent ? nextSibling : null);
+    assetLibraryDialogHome = null;
+  }
+
+  function syncAssetLibraryDialogFullscreen() {
+    const dialog = $("#source-browser-dialog");
+    const trackView = $("#track-view-area");
+    if (document.fullscreenElement !== trackView || !dialog.open) {
+      restoreAssetLibraryDialogPosition();
+      return;
+    }
+    if (trackView.contains(dialog)) return;
+    assetLibraryDialogHome = { parent: dialog.parentNode, nextSibling: dialog.nextSibling };
+    trackView.append(dialog);
+  }
+
   function openAssetLibrary() {
     captureCurrentPattern();
     captureCurrentMel();
@@ -309,6 +331,7 @@
     renderInstrumentBrowser();
     const dialog = $("#source-browser-dialog");
     if (!dialog.open) dialog.show();
+    syncAssetLibraryDialogFullscreen();
   }
 
   function addPatternClip(startBar = state.arrangementCursor, patternId = state.selectedPatternId, trackId = patternId) {
