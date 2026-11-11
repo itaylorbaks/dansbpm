@@ -922,6 +922,7 @@
 
   function saveState() {
     if (!state.currentUser || collaboration.applyingRemote) return;
+    if (state.view === "piano-roll") captureCurrentMel();
     const saveDot = $(".save-dot");
     $("#save-state").textContent = "Saving…";
     saveDot.style.background = "#c8a95a";

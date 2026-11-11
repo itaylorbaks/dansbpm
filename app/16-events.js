@@ -345,6 +345,8 @@
     document.addEventListener("pointerdown", clearMarqueeSelectionOnOutsidePointer, true);
     document.addEventListener("click", finishArrangementMarqueeDeselect, true);
     $("#sequencer-pattern-select").addEventListener("change", (event) => selectPattern(event.target.value));
+    $("#rename-pattern-sequencer-button").addEventListener("click", renamePattern);
+    $("#new-pattern-sequencer-button").addEventListener("click", () => createPattern());
     $("#grid-resolution-select").addEventListener("change", (event) => {
       setPatternGridResolution(event.target.value);
     });

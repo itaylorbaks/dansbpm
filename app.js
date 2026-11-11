@@ -3676,22 +3676,19 @@
     const source = getPattern();
     if (!source) return;
     let number = state.patterns.length + 1;
-    while (state.patterns.some((pattern) => pattern.name === `Pattern ${number}`)) number += 1;
+    while (state.patterns.some((pattern) => pattern.name.toLowerCase() === `pattern ${number}`)) number += 1;
+    const trackIds = [...getPatternTrackIds(source)];
     const pattern = {
       id: makeId(),
       name: `Pattern ${number}`,
       kind: "pattern",
       color: getPatternColor(state.patterns.length),
       steps: source.steps,
-      trackIds: [...getPatternTrackIds(source)],
-      cells: Object.fromEntries(Object.entries(source.cells).map(([trackId, cells]) => [trackId, [...cells]])),
+      trackIds,
+      cells: Object.fromEntries(trackIds.map((trackId) => [trackId, Array(STEP_COUNT).fill(false)])),
       variants: { ...source.variants },
-      automation: normalizeTrackAutomation(source.automation),
-      automationOpen: source.automationOpen === true,
-      ...(source.stepPianoNotes ? {
-        stepPianoNotes: Object.fromEntries(Object.entries(source.stepPianoNotes).map(([trackId, notes]) =>
-          [trackId, notes.map((note) => ({ ...note }))])),
-      } : {}),
+      automation: normalizeTrackAutomation(),
+      automationOpen: false,
       gridResolution: getPatternGridResolution(source),
       volume: 1,
       effects: makeDefaultEffects(),
@@ -15026,6 +15023,7 @@
 
   function saveState() {
     if (!state.currentUser || collaboration.applyingRemote) return;
+    if (state.view === "piano-roll") captureCurrentMel();
     const saveDot = $(".save-dot");
     $("#save-state").textContent = "Saving…";
     saveDot.style.background = "#c8a95a";
@@ -17282,6 +17280,8 @@
     document.addEventListener("pointerdown", clearMarqueeSelectionOnOutsidePointer, true);
     document.addEventListener("click", finishArrangementMarqueeDeselect, true);
     $("#sequencer-pattern-select").addEventListener("change", (event) => selectPattern(event.target.value));
+    $("#rename-pattern-sequencer-button").addEventListener("click", renamePattern);
+    $("#new-pattern-sequencer-button").addEventListener("click", () => createPattern());
     $("#grid-resolution-select").addEventListener("change", (event) => {
       setPatternGridResolution(event.target.value);
     });
