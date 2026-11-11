@@ -77,6 +77,16 @@
       if (file) void importMidiFile(file);
       event.target.value = "";
     });
+    $("#piano-roll-toolbar").addEventListener("click", (event) => {
+      const toggle = event.target.closest("[data-piano-toolbar-toggle]");
+      if (!toggle) return;
+      const options = document.getElementById(toggle.getAttribute("aria-controls"));
+      if (!options) return;
+      const expanded = toggle.getAttribute("aria-expanded") !== "true";
+      toggle.setAttribute("aria-expanded", String(expanded));
+      toggle.title = `${expanded ? "Collapse" : "Expand"} ${toggle.textContent.trim()} options`;
+      options.hidden = !expanded;
+    });
     $("#piano-audio-import-button").addEventListener("click", () => $("#piano-audio-import-input").click());
     $("#piano-audio-import-input").addEventListener("change", (event) => {
       const [file] = event.target.files || [];
