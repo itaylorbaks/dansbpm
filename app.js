@@ -17294,12 +17294,12 @@
       showToast(`Could not save settings: ${error.message || "browser storage is unavailable"}`);
       return false;
     }
+  }
 
-    function updateMetronomeVolumeUI() {
-      const volume = userSettings.metronomeVolume;
-      $("#metronome-volume-value").textContent = `${volume}%`;
-      $("#metronome-volume").style.setProperty("--range-progress", `${volume}%`);
-    }
+  function updateMetronomeVolumeUI() {
+    const volume = userSettings.metronomeVolume;
+    $("#metronome-volume-value").textContent = `${volume}%`;
+    $("#metronome-volume").style.setProperty("--range-progress", `${volume}%`);
   }
 
   function getRecordingAudioConstraints() {
