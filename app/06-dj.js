@@ -1444,7 +1444,7 @@
       return;
     }
     const now = state.audioContext.currentTime;
-    const lookAhead = 0.12;
+    const lookAhead = AUDIO_SCHEDULER_LOOKAHEAD;
     const endTime = deck.songEndTime;
     const secondsPerBar = 240 / state.bpm / deck.songRate;
     const currentBar = deck.songPositionBar + Math.max(0, now - deck.songAnchorTime) / secondsPerBar;
@@ -2426,7 +2426,7 @@
       updateArrangementCursorMarker();
     }
     if (pianoLoopPlayback && state.isPlaying) updatePianoCursorFromTime(state.playbackStartTime);
-    const lookAhead = 0.12;
+    const lookAhead = AUDIO_SCHEDULER_LOOKAHEAD;
     if (arrangementPlayback && state.isPlaying) {
       const now = state.audioContext.currentTime;
       scheduleArrangementPatternClips(now, lookAhead);

@@ -68,6 +68,7 @@
 
     const clipDuration = getArrangementClipDuration("audio", clip) * secondsPerBar;
     const segmentOffset = Math.max(0, (segment.startBar - clip.startBar) * secondsPerBar);
+    const clipGain = Math.max(0, Math.min(2, Number.isFinite(clip.clipGain) ? clip.clipGain : 1));
     const fadeIn = Math.min(clipDuration, Math.max(0, Number(clip.fadeInSeconds) || 0));
     const fadeOut = Math.min(clipDuration, Math.max(0, Number(clip.fadeOutSeconds) || 0));
     if (fadeIn || fadeOut) {
@@ -76,9 +77,11 @@
         const clipTime = segmentOffset + segment.durationSeconds * index / (curve.length - 1);
         const fadeInGain = fadeIn ? Math.min(1, clipTime / fadeIn) : 1;
         const fadeOutGain = fadeOut ? Math.min(1, Math.max(0, (clipDuration - clipTime) / fadeOut)) : 1;
-        curve[index] = Math.min(fadeInGain, fadeOutGain);
+        curve[index] = Math.min(fadeInGain, fadeOutGain) * clipGain;
       }
       envelope.gain.setValueCurveAtTime(curve, when, segment.durationSeconds);
+    } else {
+      envelope.gain.value = clipGain;
     }
 
     const sourceOffset = clip.reversed
@@ -93,12 +96,18 @@
     dialog.dataset.trackId = track.id;
     dialog.dataset.clipId = clip.id;
     $("#audio-clip-edit-name").textContent = clip.name;
+    $("#audio-clip-gain").value = String(Math.round(Math.max(0, Math.min(2, clip.clipGain ?? 1)) * 100));
     $("#audio-clip-fade-in").value = String(Math.max(0, Math.min(10, clip.fadeInSeconds || 0)));
     $("#audio-clip-fade-out").value = String(Math.max(0, Math.min(10, clip.fadeOutSeconds || 0)));
     $("#audio-clip-reverse").checked = clip.reversed === true;
+    updateAudioClipGainOutput(Number($("#audio-clip-gain").value));
     updateAudioClipFadeOutput("fadeInSeconds", Number($("#audio-clip-fade-in").value));
     updateAudioClipFadeOutput("fadeOutSeconds", Number($("#audio-clip-fade-out").value));
     dialog.showModal();
+  }
+
+  function updateAudioClipGainOutput(value) {
+    $("#audio-clip-gain-value").textContent = `${value}%`;
   }
 
   function updateAudioClipFadeOutput(property, value) {
@@ -116,6 +125,10 @@
 
     if (input.dataset.audioClipProperty === "reversed") {
       clip.reversed = input.checked;
+    } else if (input.dataset.audioClipProperty === "clipGain") {
+      const value = Math.max(0, Math.min(200, Number(input.value) || 0));
+      clip.clipGain = value / 100;
+      updateAudioClipGainOutput(value);
     } else {
       const property = input.dataset.audioClipProperty;
       const value = Math.max(0, Math.min(10, Number(input.value) || 0));

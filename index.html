@@ -599,6 +599,10 @@
             <button class="quiet-button" id="audio-clip-edit-close" type="button" aria-label="Close audio clip editor">×</button>
           </div>
           <label class="audio-clip-edit-control">
+            <span>Clip volume <output id="audio-clip-gain-value">100%</output></span>
+            <input id="audio-clip-gain" type="range" min="0" max="200" step="1" value="100" data-audio-clip-property="clipGain" aria-label="Audio clip volume">
+          </label>
+          <label class="audio-clip-edit-control">
             <span>Fade in <output id="audio-clip-fade-in-value">Off</output></span>
             <input id="audio-clip-fade-in" type="range" min="0" max="10" step="0.05" value="0" data-audio-clip-property="fadeInSeconds" aria-label="Audio clip fade in">
           </label>
@@ -610,7 +614,7 @@
             <input id="audio-clip-reverse" type="checkbox" data-audio-clip-property="reversed">
             <span>Reverse audio</span>
           </label>
-          <p class="audio-clip-edit-hint">Double-click a clip in Track View to edit fades and playback direction.</p>
+          <p class="audio-clip-edit-hint">Edit this clip’s volume, fades, and playback direction. Drag its edges in Track View to trim or extend it.</p>
         </dialog>
 
         <dialog class="source-browser-dialog" id="source-browser-dialog" aria-label="Asset library">

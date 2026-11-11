@@ -20,7 +20,7 @@
     const player = state.workspacePlayers[workspace];
     if (!player || !state.audioContext) return;
     const now = state.audioContext.currentTime;
-    const lookAhead = 0.12;
+    const lookAhead = AUDIO_SCHEDULER_LOOKAHEAD;
     while (player.nextStepTime < now + lookAhead) {
       const clockStep = player.stepIndex;
       if (workspace === "sequencer") {
