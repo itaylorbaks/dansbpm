@@ -3724,16 +3724,22 @@
     saveState();
   }
 
+  function getNextPatternName() {
+    const highestNumber = state.patterns.reduce((highest, pattern) => {
+      const match = /^Pattern (\d+)$/i.exec(pattern.name.trim());
+      return match ? Math.max(highest, Number(match[1])) : highest;
+    }, 0);
+    return `Pattern ${highestNumber + 1}`;
+  }
+
   function createPattern(showNotification = true, selectCreated = true) {
     captureCurrentPattern();
     const source = getPattern();
     if (!source) return;
-    let number = state.patterns.length + 1;
-    while (state.patterns.some((pattern) => pattern.name.toLowerCase() === `pattern ${number}`)) number += 1;
     const trackIds = [...getPatternTrackIds(source)];
     const pattern = {
       id: makeId(),
-      name: `Pattern ${number}`,
+      name: getNextPatternName(),
       kind: "pattern",
       color: getPatternColor(state.patterns.length),
       steps: source.steps,
@@ -4243,12 +4249,10 @@
     captureCurrentPattern();
     const source = getPattern();
     if (!source) return null;
-    let number = 1;
-    while (state.patterns.some((pattern) => pattern.name === `Live Pattern ${number}`)) number += 1;
     const trackIds = [...getPatternTrackIds(source)];
     const pattern = {
       id: makeId(),
-      name: `Live Pattern ${number}`,
+      name: getNextPatternName(),
       color: getPatternColor(state.patterns.length),
       steps: source.steps,
       trackIds,
@@ -11122,7 +11126,7 @@
     const currentSource = getPattern(source.id) || source;
     const pattern = {
       id: makeId(),
-      name: currentSource.name,
+      name: getNextPatternName(),
       kind: "pattern",
       color: getPatternColor(state.patterns.length),
       steps: currentSource.steps,

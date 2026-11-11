@@ -527,7 +527,7 @@
     const currentSource = getPattern(source.id) || source;
     const pattern = {
       id: makeId(),
-      name: currentSource.name,
+      name: getNextPatternName(),
       kind: "pattern",
       color: getPatternColor(state.patterns.length),
       steps: currentSource.steps,
