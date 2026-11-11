@@ -266,7 +266,6 @@
       volume,
     }));
   }
-
   const LIVE_SAMPLE_TRACKS = [
     ...makeLiveSampleTracks("Live Drums", "Kicks", "#d4f16c", [
       ["virtuosity-kick-dry-soft", "Virtuosity Kick · Soft · Snare Off", "virtuosity/oh_kick_snoff_vl1_rr1.ogg", 36],
