@@ -559,11 +559,13 @@
         ))
           .forEach((segment) => {
             const when = startTime + (segment.startBar - startBar) * secondsPerBar;
-            const source = state.audioContext.createBufferSource();
-            source.buffer = clip.buffer;
-            source.connect(track.gainNode);
-            source.onended = () => state.arrangementSources.delete(source);
-            source.start(when, segment.sourceOffsetSeconds, segment.durationSeconds);
+            const { source, envelope } = createAudioClipPlaybackSource(
+              state.audioContext, track, clip, segment, when, secondsPerBar,
+            );
+            source.onended = () => {
+              state.arrangementSources.delete(source);
+              envelope.disconnect();
+            };
             state.arrangementSources.add(source);
           });
       });

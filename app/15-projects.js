@@ -718,10 +718,7 @@
         track.clips.forEach((clip) => {
           getAudioClipSegments(clip, clip.startBar, duration / secondsPerBar).forEach((segment) => {
             const startTime = segment.startBar * secondsPerBar;
-            const source = context.createBufferSource();
-            source.buffer = clip.buffer;
-            source.connect(track.gainNode);
-            source.start(startTime, segment.sourceOffsetSeconds, segment.durationSeconds);
+            createAudioClipPlaybackSource(context, track, clip, segment, startTime, secondsPerBar);
           });
         });
       });

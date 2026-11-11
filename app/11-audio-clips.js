@@ -1,3 +1,5 @@
+  const reversedAudioClipBuffers = new WeakMap();
+
   function drawAudioClipWaveform(canvas, clip, displayWidth, color) {
     const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
     const width = Math.min(16384, Math.max(1, Math.ceil(displayWidth * pixelRatio)));
@@ -40,10 +42,99 @@
     context.globalAlpha = 1;
   }
 
+  function getReversedAudioClipBuffer(context, buffer) {
+    let buffersForContext = reversedAudioClipBuffers.get(context);
+    if (!buffersForContext) {
+      buffersForContext = new WeakMap();
+      reversedAudioClipBuffers.set(context, buffersForContext);
+    }
+    let reversed = buffersForContext.get(buffer);
+    if (reversed) return reversed;
+    reversed = context.createBuffer(buffer.numberOfChannels, buffer.length, buffer.sampleRate);
+    for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
+      reversed.getChannelData(channel).set(buffer.getChannelData(channel).slice().reverse());
+    }
+    buffersForContext.set(buffer, reversed);
+    return reversed;
+  }
+
+  function createAudioClipPlaybackSource(context, track, clip, segment, when, secondsPerBar) {
+    const source = context.createBufferSource();
+    const buffer = clip.reversed ? getReversedAudioClipBuffer(context, clip.buffer) : clip.buffer;
+    const envelope = context.createGain();
+    source.buffer = buffer;
+    source.connect(envelope);
+    envelope.connect(track.gainNode);
+
+    const clipDuration = getArrangementClipDuration("audio", clip) * secondsPerBar;
+    const segmentOffset = Math.max(0, (segment.startBar - clip.startBar) * secondsPerBar);
+    const fadeIn = Math.min(clipDuration, Math.max(0, Number(clip.fadeInSeconds) || 0));
+    const fadeOut = Math.min(clipDuration, Math.max(0, Number(clip.fadeOutSeconds) || 0));
+    if (fadeIn || fadeOut) {
+      const curve = new Float32Array(65);
+      for (let index = 0; index < curve.length; index += 1) {
+        const clipTime = segmentOffset + segment.durationSeconds * index / (curve.length - 1);
+        const fadeInGain = fadeIn ? Math.min(1, clipTime / fadeIn) : 1;
+        const fadeOutGain = fadeOut ? Math.min(1, Math.max(0, (clipDuration - clipTime) / fadeOut)) : 1;
+        curve[index] = Math.min(fadeInGain, fadeOutGain);
+      }
+      envelope.gain.setValueCurveAtTime(curve, when, segment.durationSeconds);
+    }
+
+    const sourceOffset = clip.reversed
+      ? clip.buffer.duration - segment.sourceOffsetSeconds - segment.durationSeconds
+      : segment.sourceOffsetSeconds;
+    source.start(when, Math.max(0, sourceOffset), segment.durationSeconds);
+    return { source, envelope };
+  }
+
+  function openAudioClipEditor(track, clip) {
+    const dialog = $("#audio-clip-edit-dialog");
+    dialog.dataset.trackId = track.id;
+    dialog.dataset.clipId = clip.id;
+    $("#audio-clip-edit-name").textContent = clip.name;
+    $("#audio-clip-fade-in").value = String(Math.max(0, Math.min(10, clip.fadeInSeconds || 0)));
+    $("#audio-clip-fade-out").value = String(Math.max(0, Math.min(10, clip.fadeOutSeconds || 0)));
+    $("#audio-clip-reverse").checked = clip.reversed === true;
+    updateAudioClipFadeOutput("fadeInSeconds", Number($("#audio-clip-fade-in").value));
+    updateAudioClipFadeOutput("fadeOutSeconds", Number($("#audio-clip-fade-out").value));
+    dialog.showModal();
+  }
+
+  function updateAudioClipFadeOutput(property, value) {
+    const output = $(`#audio-clip-${property === "fadeInSeconds" ? "fade-in" : "fade-out"}-value`);
+    output.textContent = value > 0 ? `${value.toFixed(2)} s` : "Off";
+  }
+
+  function updateAudioClipEditor(event) {
+    const input = event.target.closest("[data-audio-clip-property]");
+    if (!(input instanceof HTMLInputElement)) return;
+    const dialog = $("#audio-clip-edit-dialog");
+    const track = state.arrangementTracks.find((item) => item.id === dialog.dataset.trackId);
+    const clip = track?.clips.find((item) => item.id === dialog.dataset.clipId);
+    if (!track || !clip) return;
+
+    if (input.dataset.audioClipProperty === "reversed") {
+      clip.reversed = input.checked;
+    } else {
+      const property = input.dataset.audioClipProperty;
+      const value = Math.max(0, Math.min(10, Number(input.value) || 0));
+      if (property === "fadeInSeconds") clip.fadeInSeconds = value;
+      else if (property === "fadeOutSeconds") clip.fadeOutSeconds = value;
+      updateAudioClipFadeOutput(property, value);
+    }
+    saveState();
+    renderArrangement();
+    if (event.type === "change") {
+      persistClip(track, clip).catch(() => showToast("Clip settings changed, but browser storage could not be updated."));
+    }
+  }
+
   function createAudioClip(track, clip) {
     const element = document.createElement("div");
     const durationBars = getArrangementClipDuration("audio", clip);
     element.className = "audio-clip";
+    element.classList.toggle("is-reversed", clip.reversed === true);
     element.draggable = true;
     element.dataset.clipId = clip.id;
     element.dataset.selectableType = "audio";
@@ -60,6 +151,9 @@
     const name = document.createElement("span");
     name.className = "clip-name";
     name.textContent = clip.name;
+    const reverseBadge = document.createElement("span");
+    reverseBadge.className = "audio-clip-reverse-badge";
+    reverseBadge.textContent = "REV";
     element.style.setProperty("--pattern-color", track.color);
     const repeatHandle = makeArrangementResizeHandle("audio", clip, track, element, name, "repeat");
     const resizeHandle = makeArrangementResizeHandle("audio", clip, track, element, name);
@@ -79,7 +173,15 @@
       if (!selectArrangementItem("audio", clip.id, event)) return;
       setArrangementCursor(clip.startBar);
     });
-    element.append(waveform, name, repeatHandle, resizeHandle);
+    element.addEventListener("dblclick", (event) => {
+      if (event.target.closest(".clip-resize-handle")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openAudioClipEditor(track, clip);
+    });
+    element.append(waveform, name);
+    if (clip.reversed) element.append(reverseBadge);
+    element.append(repeatHandle, resizeHandle);
     return element;
   }
 
@@ -588,12 +690,14 @@
         const leftDuration = (cursor - clip.startBar) * secondsPerBar;
         const totalDuration = clip.durationSeconds ?? clip.buffer.duration;
         clip.durationSeconds = leftDuration;
+        clip.fadeOutSeconds = 0;
         const right = {
           ...clip,
           id: makeId(),
           startBar: cursor,
           durationSeconds: totalDuration - leftDuration,
           sourceOffsetSeconds: (clip.sourceOffsetSeconds || 0) + leftDuration,
+          fadeInSeconds: 0,
         };
         track.clips.push(right);
         splitKeys.add(arrangementSelectionKey("audio", clip.id));

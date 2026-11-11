@@ -259,6 +259,9 @@
     });
     $("#arrangement-track-labels").addEventListener("contextmenu", openArrangementTrackContextMenu);
     $("#timeline-content").addEventListener("contextmenu", openArrangementTrackContextMenu);
+    $("#audio-clip-edit-close").addEventListener("click", () => $("#audio-clip-edit-dialog").close());
+    $("#audio-clip-edit-dialog").addEventListener("input", updateAudioClipEditor);
+    $("#audio-clip-edit-dialog").addEventListener("change", updateAudioClipEditor);
     document.addEventListener("pointerdown", (event) => {
       const menu = $("#arrangement-track-context-menu");
       if (!menu.hidden && event.target instanceof Node && !menu.contains(event.target)) {
