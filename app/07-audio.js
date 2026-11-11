@@ -1331,7 +1331,7 @@
     const { startBar, endBar } = getArrangementLoopRange();
     button.title = state.arrangementLoopEnabled
       ? `Loop bars ${startBar + 1}-${Math.ceil(endBar)}; drag the ruler to change the section`
-      : "Drag across the bar ruler to select a loop section";
+      : "Drag across the bar ruler to select a section; turn looping on with this button";
   }
 
   function startArrangementLoopRangeSelection(event) {
@@ -1353,7 +1353,6 @@
         Math.min(state.arrangementBars, Math.ceil(Math.max(anchorBar, currentBar))));
       state.arrangementLoopStartBar = startBar;
       state.arrangementLoopEndBar = endBar;
-      state.arrangementLoopEnabled = true;
       updateArrangementLoopUI();
     };
     const finish = () => {
