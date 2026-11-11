@@ -652,6 +652,7 @@
 
   function ensureTrackMixerState(track) {
     track.volume = Number.isFinite(track.volume) ? Math.max(0, Math.min(1, track.volume)) : 1;
+    track.pan = Number.isFinite(track.pan) ? Math.max(-1, Math.min(1, track.pan)) : 0;
     track.effects = makeDefaultEffects(track.effects);
     track.effectSettings = makeDefaultEffectSettings(track.effectSettings);
     const activeEffects = Array.isArray(track.effectChain)
@@ -668,6 +669,7 @@
       name: isMaster ? "Master" : (typeof saved.name === "string" && saved.name.trim() ? saved.name : "Effects Track"),
       kind,
       volume: Number.isFinite(saved.volume) ? Math.max(0, Math.min(1, saved.volume)) : 1,
+      pan: Number.isFinite(saved.pan) ? Math.max(-1, Math.min(1, saved.pan)) : 0,
       muted: false,
       solo: false,
       gainNode: null,
@@ -1160,6 +1162,7 @@
       variants,
       gridResolution: "1/16",
       volume: 1,
+      pan: 0,
       muted: false,
       solo: false,
       effects: makeDefaultEffects(),
@@ -2971,6 +2974,7 @@
     track.solo = false;
     if (track.sourceId && !state.patterns.some((item) => item.id !== pattern.id && getPatternTrackIds(item).includes(track.id))) {
       track.gainNode?.disconnect();
+      track.panNode?.disconnect();
       state.tracks = state.tracks.filter((item) => item !== track);
       if (track.kind === "sample" || track.sample) {
         deletePersistedDrumSample(track.id).catch(() => showToast("Layer removed, but its saved sample could not be deleted."));
@@ -6887,6 +6891,10 @@
       const instrument = state.tracks.find((item) => item.id === track.instrumentId);
       if (instrument && instrument !== track) ensureTrackAudio(instrument);
     }
+    if (!track.panNode) {
+      track.panNode = state.audioContext.createStereoPanner();
+      track.panNode.pan.value = track.pan;
+    }
     if (!track.gainNode) {
       track.gainNode = state.audioContext.createGain();
       track.gainNode.gain.value = track.muted ? 0 : track.volume;
@@ -6914,6 +6922,10 @@
     track.analyser?.disconnect();
     track.analyser = null;
     ensureTrackMixerState(track);
+    if (!track.panNode) {
+      track.panNode = context.createStereoPanner();
+      track.panNode.pan.value = track.pan;
+    }
     track.fxRuntime = [];
     track.gainNode.disconnect();
     let output = track.gainNode;
@@ -6949,7 +6961,9 @@
       output = module.output;
       track.fxRuntime.push(module);
     });
-    output.connect(getTrackOutputNode(track));
+    track.panNode.disconnect();
+    output.connect(track.panNode);
+    track.panNode.connect(getTrackOutputNode(track));
   }
 
   function rebuildMixerAudioRouting() {
@@ -6975,7 +6989,9 @@
   function disconnectTrackAudio(track) {
     clearTrackEffectNodes(track);
     track.gainNode?.disconnect();
+    track.panNode?.disconnect();
     track.gainNode = null;
+    track.panNode = null;
   }
 
   function createTrackEffect(context, id, amount, settings = {}) {
@@ -7895,9 +7911,9 @@
           openMixerRoutingDialog(track);
         });
         titleGroup.append(title, renameButton, routeButton);
-        row.append(titleGroup, makeMixerVolumeMonitor(track), makeMixerVolumeKnob(track));
+        row.append(titleGroup, makeMixerVolumeMonitor(track), makeMixerVolumeKnob(track), makeMixerPanKnob(track));
       } else {
-        row.append(title, makeMixerVolumeMonitor(track), makeMixerVolumeKnob(track));
+        row.append(title, makeMixerVolumeMonitor(track), makeMixerVolumeKnob(track), makeMixerPanKnob(track));
       }
       const effectTarget = document.createElement("div");
       effectTarget.className = "mixer-track-effects";
@@ -8061,30 +8077,63 @@
   }
 
   function makeMixerVolumeKnob(track) {
+    return makeMixerKnob(track, {
+      label: "VOL",
+      min: 0,
+      max: 100,
+      getTrackValue: () => track.volume,
+      valueToPercent: (value) => value * 100,
+      percentToValue: (percent) => percent / 100,
+      formatValue: (value) => `${Math.round(value * 100)}%`,
+      setTrackValue: (value) => { track.volume = value; },
+    });
+  }
+
+  function makeMixerPanKnob(track) {
+    return makeMixerKnob(track, {
+      label: "PAN",
+      min: -100,
+      max: 100,
+      getTrackValue: () => track.pan,
+      valueToPercent: (value) => (value + 1) * 50,
+      percentToValue: (percent) => percent / 50 - 1,
+      formatValue: (value) => {
+        const pan = Math.round(value * 100);
+        return pan === 0 ? "C" : `${pan < 0 ? "L" : "R"}${Math.abs(pan)}`;
+      },
+      setTrackValue: (value) => { track.pan = value; },
+    });
+  }
+
+  function makeMixerKnob(track, {
+    label, min, max, getTrackValue, valueToPercent, percentToValue, formatValue, setTrackValue,
+  }) {
     const wrapper = document.createElement("label");
-    wrapper.className = "mixer-track-volume";
+    wrapper.className = "mixer-track-knob";
     const caption = document.createElement("span");
-    caption.textContent = "VOL";
+    caption.textContent = label;
     const knob = document.createElement("div");
     knob.className = "mixer-volume-knob";
     knob.setAttribute("role", "slider");
     knob.tabIndex = 0;
-    knob.setAttribute("aria-label", `${track.name} volume`);
-    knob.setAttribute("aria-valuemin", "0");
-    knob.setAttribute("aria-valuemax", "100");
+    knob.setAttribute("aria-label", `${track.name} ${label.toLowerCase()}`);
+    knob.setAttribute("aria-valuemin", String(min));
+    knob.setAttribute("aria-valuemax", String(max));
     const pointer = document.createElement("span");
     pointer.className = "mixer-volume-knob-pointer";
     knob.append(pointer);
     const value = document.createElement("output");
-    value.textContent = `${Math.round(track.volume * 100)}%`;
-    const setValue = (next, persist = false) => {
-      const percent = Math.max(0, Math.min(100, Math.round(next)));
-      track.volume = percent / 100;
-      knob.setAttribute("aria-valuenow", String(percent));
-      knob.setAttribute("aria-valuetext", `${percent}%`);
+    const setValue = (nextPercent, persist = false) => {
+      const percent = Math.max(0, Math.min(100, Math.round(nextPercent)));
+      const trackValue = percentToValue(percent);
+      setTrackValue(trackValue);
+      const displayValue = Math.round(trackValue * 100);
+      const displayText = formatValue(trackValue);
+      knob.setAttribute("aria-valuenow", String(displayValue));
+      knob.setAttribute("aria-valuetext", displayText);
       knob.style.setProperty("--knob-angle", `${-135 + percent * 2.7}deg`);
       knob.style.setProperty("--knob-fill", `${percent * 0.75}%`);
-      value.textContent = `${percent}%`;
+      value.textContent = displayText;
       updateTrackGains();
       if (persist) saveState();
     };
@@ -8113,9 +8162,9 @@
       if (!["ArrowLeft", "ArrowDown", "ArrowRight", "ArrowUp"].includes(event.key)) return;
       event.preventDefault();
       const direction = ["ArrowRight", "ArrowUp"].includes(event.key) ? 1 : -1;
-      setValue(track.volume * 100 + direction * (event.shiftKey ? 5 : 1), true);
+      setValue(valueToPercent(getTrackValue()) + direction * (event.shiftKey ? 5 : 1), true);
     });
-    setValue(track.volume * 100);
+    setValue(valueToPercent(getTrackValue()));
     wrapper.append(caption, knob, value);
     return wrapper;
   }
@@ -10844,6 +10893,7 @@
     const hasArrangementSolo = [...state.patterns, ...state.melTracks, ...state.arrangementTracks]
       .some((track) => track.solo);
     allTracks.forEach((track) => {
+      track.panNode?.pan.setTargetAtTime(track.pan, state.audioContext.currentTime, 0.015);
       if (!track.gainNode) return;
       const isBus = track.kind === "mixer-master" || track.kind === "mixer-effects";
       const isArrangementTrack = track.kind === "pattern" || track.kind === "mel" ||
@@ -11759,6 +11809,7 @@
           gridResolution: getPatternGridResolution(pattern),
           color: pattern.color,
           volume: pattern.volume,
+          pan: pattern.pan,
           muted: pattern.muted,
           solo: pattern.solo,
           effects: makeDefaultEffects(pattern.effects),
@@ -11774,6 +11825,7 @@
         color: track.color,
         cells: track.libraryOnly ? undefined : track.cells,
         volume: track.volume,
+        pan: track.pan,
         muted: track.muted,
         solo: track.solo,
         variant: track.variant,
@@ -11791,6 +11843,7 @@
         insertAfterTrackId: track.insertAfterTrackId || null,
         color: track.color,
         volume: track.volume,
+        pan: track.pan,
         muted: track.muted,
         solo: track.solo,
         effects: makeDefaultEffects(track.effects),
@@ -11812,6 +11865,7 @@
         instrumentId: track.instrumentId,
         color: track.color,
         volume: track.volume,
+        pan: track.pan,
         muted: track.muted,
         solo: track.solo,
         effects: makeDefaultEffects(track.effects),
@@ -11821,6 +11875,7 @@
       })),
       masterTrack: {
         volume: state.masterTrack.volume,
+        pan: state.masterTrack.pan,
         effects: makeDefaultEffects(state.masterTrack.effects),
         effectSettings: makeDefaultEffectSettings(state.masterTrack.effectSettings),
         effectChain: ensureTrackMixerState(state.masterTrack),
@@ -11829,6 +11884,7 @@
         id: track.id,
         name: track.name,
         volume: track.volume,
+        pan: track.pan,
         routedTrackIds: [...track.routedTrackIds],
         effects: makeDefaultEffects(track.effects),
         effectSettings: makeDefaultEffectSettings(track.effectSettings),
@@ -13127,6 +13183,7 @@
             track.cells = Array.from({ length: STEP_COUNT }, (_, index) => savedTrack.cells[index] === true);
           }
           if (Number.isFinite(savedTrack.volume)) track.volume = Math.max(0, Math.min(1, savedTrack.volume));
+          if (Number.isFinite(savedTrack.pan)) track.pan = Math.max(-1, Math.min(1, savedTrack.pan));
           if (Number.isFinite(savedTrack.pitch)) track.pitch = Math.max(-12, Math.min(12, savedTrack.pitch));
           if (Number.isFinite(savedTrack.swing)) track.swing = Math.max(0, Math.min(45, savedTrack.swing));
           if (savedTrack.audioMetadata) track.audioMetadata = normalizeAudioMetadata(savedTrack.audioMetadata);
@@ -13148,6 +13205,7 @@
             color: isPatternColor(track.color) ? track.color : TRACK_COLORS[0],
             clips: [],
             volume: Number.isFinite(track.volume) ? Math.max(0, Math.min(1, track.volume)) : 0.8,
+            pan: Number.isFinite(track.pan) ? Math.max(-1, Math.min(1, track.pan)) : 0,
             muted: track.muted === true,
             solo: track.solo === true,
             gainNode: null,
@@ -13205,6 +13263,7 @@
               } : {}),
               gridResolution,
               volume: Number.isFinite(pattern.volume) ? Math.max(0, Math.min(1, pattern.volume)) : 1,
+              pan: Number.isFinite(pattern.pan) ? Math.max(-1, Math.min(1, pattern.pan)) : 0,
               muted: pattern.muted === true,
               solo: pattern.solo === true,
               effects: makeDefaultEffects(pattern.effects),
@@ -13337,6 +13396,7 @@
             instrumentId: state.tracks.some((item) => item.id === track.instrumentId) ? track.instrumentId : fallbackInstrumentId,
             color: isPatternColor(track.color) ? track.color : "#b5a0ff",
             volume: Number.isFinite(track.volume) ? Math.max(0, Math.min(1, track.volume)) : 1,
+            pan: Number.isFinite(track.pan) ? Math.max(-1, Math.min(1, track.pan)) : 0,
             muted: track.muted === true,
             solo: track.solo === true,
             gainNode: null,
@@ -13474,6 +13534,7 @@
       ...state.effectTracks, state.masterTrack,
     ];
     const previousGains = allTracks.map((track) => track.gainNode);
+    const previousPanners = allTracks.map((track) => track.panNode);
     const previousFxRuntimes = allTracks.map((track) => track.fxRuntime);
     const previousAnalysers = allTracks.map((track) => track.analyser);
     const previousSourceGains = allTracks.map((track) => track.sourceGains);
@@ -13494,7 +13555,10 @@
       const hasArrangementSolo = [...state.patterns, ...state.melTracks, ...state.arrangementTracks]
         .some((track) => track.solo);
       allTracks.forEach((track) => {
+        ensureTrackMixerState(track);
         track.gainNode = context.createGain();
+        track.panNode = context.createStereoPanner();
+        track.panNode.pan.value = track.pan;
         const isBus = track.kind === "mixer-master" || track.kind === "mixer-effects";
         const isArrangementTrack = track.kind === "pattern" || track.kind === "mel" ||
           state.arrangementTracks.includes(track);
@@ -13619,6 +13683,8 @@
           nodes.forEach((node) => node.disconnect());
         });
         track.gainNode = previousGains[index];
+        track.panNode?.disconnect();
+        track.panNode = previousPanners[index];
         track.fxRuntime = previousFxRuntimes[index];
         track.analyser = previousAnalysers[index];
         track.sourceGains = previousSourceGains[index];
