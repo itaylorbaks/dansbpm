@@ -883,7 +883,7 @@
     const showPianoRoll = view === "piano-roll";
     const showMixer = view === "mixer";
     const showDJ = view === "dj";
-    $("#arrangement-heading").hidden = showSequencer || showPianoRoll || showDJ;
+    $("#arrangement-heading").hidden = showSequencer || showPianoRoll || showMixer || showDJ;
     $("#arrangement-view").hidden = false;
     document.body.classList.toggle("is-beat-grid-open", showSequencer);
     $("#sequencer-view").hidden = !showSequencer;
