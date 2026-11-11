@@ -261,6 +261,7 @@
         fadeOutSeconds: clip.fadeOutSeconds || 0,
         reversed: clip.reversed === true,
         audioMetadata: normalizeAudioMetadata(clip.audioMetadata),
+        audioAdjustment: normalizeAudioAdjustment(clip.audioAdjustment),
         volume: track.volume,
         muted: track.muted,
         blob: clip.blob,
@@ -461,6 +462,7 @@
             audioMetadata: record.audioMetadata
               ? normalizeAudioMetadata(record.audioMetadata)
               : detectAudioMetadata(buffer),
+            audioAdjustment: normalizeAudioAdjustment(record.audioAdjustment),
           });
         } catch {
           showToast(`Could not restore ${record.name}.`);

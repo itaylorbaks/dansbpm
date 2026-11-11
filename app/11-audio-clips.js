@@ -41,7 +41,9 @@
       samples.length,
       firstSample + Math.floor(playableDuration / clip.buffer.duration * samples.length),
     );
-    const playableWidth = Math.min(width, Math.ceil(playableDuration / (240 / state.bpm) * BAR_WIDTH * pixelRatio));
+    const playableWidth = Math.min(width, Math.ceil(
+      playableDuration / getAudioClipTempoRatio(clip) / (240 / state.bpm) * BAR_WIDTH * pixelRatio,
+    ));
     context.strokeStyle = color;
     context.lineWidth = Math.max(1, pixelRatio * 0.65);
     context.globalAlpha = 0.88;
@@ -83,9 +85,22 @@
     const source = context.createBufferSource();
     const buffer = clip.reversed ? getReversedAudioClipBuffer(context, clip.buffer) : clip.buffer;
     const envelope = context.createGain();
+    const tempoRatio = getAudioClipTempoRatio(clip);
+    const keyShiftSemitones = Number.isFinite(clip.audioAdjustment?.keyShiftSemitones)
+      ? clip.audioAdjustment.keyShiftSemitones : 0;
+    const pitchCorrection = keyShiftSemitones - 12 * Math.log2(tempoRatio);
+    let pitchNode = null;
     source.buffer = buffer;
-    source.connect(envelope);
+    if (Math.abs(pitchCorrection) >= 0.001 && state.masterPitchSupported !== false) {
+      pitchNode = new window.AudioWorkletNode(context, "dansbpm-master-pitch");
+      pitchNode.parameters.get("semitones").setValueAtTime(pitchCorrection, when);
+      source.connect(pitchNode);
+      pitchNode.connect(envelope);
+    } else {
+      source.connect(envelope);
+    }
     envelope.connect(track.gainNode);
+    source.playbackRate.setValueAtTime(tempoRatio, when);
 
     const clipDuration = getArrangementClipDuration("audio", clip) * secondsPerBar;
     const segmentOffset = Math.max(0, (segment.startBar - clip.startBar) * secondsPerBar);
@@ -94,13 +109,14 @@
     const fadeOut = Math.min(clipDuration, Math.max(0, Number(clip.fadeOutSeconds) || 0));
     if (fadeIn || fadeOut) {
       const curve = new Float32Array(65);
+      const segmentOutputDuration = segment.durationSeconds / tempoRatio;
       for (let index = 0; index < curve.length; index += 1) {
-        const clipTime = segmentOffset + segment.durationSeconds * index / (curve.length - 1);
+        const clipTime = segmentOffset + segmentOutputDuration * index / (curve.length - 1);
         const fadeInGain = fadeIn ? Math.min(1, clipTime / fadeIn) : 1;
         const fadeOutGain = fadeOut ? Math.min(1, Math.max(0, (clipDuration - clipTime) / fadeOut)) : 1;
         curve[index] = Math.min(fadeInGain, fadeOutGain) * clipGain;
       }
-      envelope.gain.setValueCurveAtTime(curve, when, segment.durationSeconds);
+      envelope.gain.setValueCurveAtTime(curve, when, segmentOutputDuration);
     } else {
       envelope.gain.value = clipGain;
     }
@@ -109,7 +125,7 @@
       ? clip.buffer.duration - segment.sourceOffsetSeconds - segment.durationSeconds
       : segment.sourceOffsetSeconds;
     source.start(when, Math.max(0, sourceOffset), segment.durationSeconds);
-    return { source, envelope };
+    return { source, envelope, pitchNode };
   }
 
   function openAudioClipEditor(track, clip) {
@@ -178,7 +194,13 @@
     const clipWidth = Math.max(12, durationBars * BAR_WIDTH - 8);
     element.style.width = `${clipWidth}px`;
     const metadataLabel = describeAudioMetadata(clip.audioMetadata);
-    element.title = `${clip.name} · ${metadataLabel}`;
+    const adjustmentLabel = clip.audioAdjustment
+      ? ` · Matched to ${[
+        clip.audioAdjustment.targetKey,
+        clip.audioAdjustment.targetBpm ? `${clip.audioAdjustment.targetBpm} BPM` : null,
+      ].filter(Boolean).join(" and ")}`
+      : "";
+    element.title = `${clip.name} · ${metadataLabel}${adjustmentLabel}`;
     element.setAttribute("aria-label", `${clip.name}, ${metadataLabel}, bar ${clip.startBar + 1}, ${durationBars.toFixed(2)} bars; drag to move or resize`);
 
     const waveform = document.createElement("canvas");
@@ -196,7 +218,7 @@
     const repeatHandle = makeArrangementResizeHandle("audio", clip, track, element, name, "repeat");
     const resizeHandle = makeArrangementResizeHandle("audio", clip, track, element, name);
     updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength("audio", clip), durationBars,
-      (clip.sourceOffsetSeconds || 0) / (240 / state.bpm));
+      (clip.sourceOffsetSeconds || 0) / ((240 / state.bpm) * getAudioClipTempoRatio(clip)));
     element.addEventListener("dragstart", (event) => {
       selectArrangementTrack(track.id);
       if (!(event.shiftKey && (event.ctrlKey || event.metaKey))) selectArrangementItem("audio", clip.id, event);
@@ -749,7 +771,7 @@
       track.clips.slice().forEach((clip) => {
         if (!canSplit("audio", clip)) return;
         const secondsPerBar = 240 / state.bpm;
-        const leftDuration = (cursor - clip.startBar) * secondsPerBar;
+        const leftDuration = (cursor - clip.startBar) * secondsPerBar * getAudioClipTempoRatio(clip);
         const totalDuration = clip.durationSeconds ?? clip.buffer.duration;
         clip.durationSeconds = leftDuration;
         clip.fadeOutSeconds = 0;
@@ -986,6 +1008,10 @@
     try {
       await ensureAudio();
       const buffer = await state.audioContext.decodeAudioData(await file.arrayBuffer());
+      const audioMetadata = detectAudioMetadata(buffer);
+      let audioAdjustment = getAudioClipProjectAdjustment(audioMetadata);
+      const adjustmentBlocked = Boolean(audioAdjustment && state.masterPitchSupported === false);
+      if (adjustmentBlocked) audioAdjustment = null;
       let track = state.arrangementTracks.find((item) => item.id === trackId);
       if (!track) track = createArrangementTrack(file.name);
       else if (!track.clips.length && /^Track \d+$/.test(track.name)) track.name = file.name;
@@ -996,7 +1022,8 @@
         sourceOffsetSeconds: 0,
         startBar: 0,
         blob: file,
-        audioMetadata: detectAudioMetadata(buffer),
+        audioMetadata,
+        ...(audioAdjustment ? { audioAdjustment } : {}),
       };
       clip.startBar = snapStart
         ? clampArrangementStart(startBar, getArrangementClipDuration("audio", clip))
@@ -1011,6 +1038,15 @@
         await persistClip(track, clip);
       } catch {
         showToast("Recording added for this session, but browser storage is unavailable.");
+      }
+      if (adjustmentBlocked) {
+        showToast(`${file.name} was added without key or tempo matching because pitch-preserving adjustment is unavailable.`);
+      } else if (audioAdjustment) {
+        const targets = [
+          audioAdjustment.targetKey,
+          audioAdjustment.targetBpm ? `${audioAdjustment.targetBpm} BPM` : null,
+        ].filter(Boolean);
+        if (targets.length) showToast(`${file.name} matched to ${targets.join(" and ")}.`);
       }
       return clip;
     } catch (error) {

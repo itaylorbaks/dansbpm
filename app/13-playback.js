@@ -602,11 +602,12 @@
         ))
           .forEach((segment) => {
             const when = startTime + (segment.startBar - startBar) * secondsPerBar;
-            const { source, envelope } = createAudioClipPlaybackSource(
+            const { source, envelope, pitchNode } = createAudioClipPlaybackSource(
               state.audioContext, track, clip, segment, when, secondsPerBar,
             );
             source.onended = () => {
               state.arrangementSources.delete(source);
+              pitchNode?.disconnect();
               envelope.disconnect();
             };
             state.arrangementSources.add(source);

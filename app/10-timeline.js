@@ -353,13 +353,14 @@
 
     const applyTrim = (deltaBars, initial) => {
       const secondsPerBar = 240 / state.bpm;
+      const sourceSecondsPerBar = secondsPerBar * getAudioClipTempoRatio(clip);
       const minDuration = Math.min(state.arrangementSnap ? 0.25 : 0.01, initial.durationBars);
-      const minDelta = -Math.min(initial.sourceOffsetSeconds / secondsPerBar, initial.startBar);
+      const minDelta = -Math.min(initial.sourceOffsetSeconds / sourceSecondsPerBar, initial.startBar);
       const maxDelta = Math.max(0, initial.durationBars - minDuration);
       const delta = Math.max(minDelta, Math.min(maxDelta, snapArrangementBar(deltaBars)));
       const durationBars = initial.durationBars - delta;
       const startBar = initial.startBar + delta;
-      const sourceOffsetSeconds = Math.max(0, initial.sourceOffsetSeconds + delta * secondsPerBar);
+      const sourceOffsetSeconds = Math.max(0, initial.sourceOffsetSeconds + delta * sourceSecondsPerBar);
       const changed = Math.abs(startBar - clip.startBar) > 0.0001 ||
         Math.abs(sourceOffsetSeconds - (clip.sourceOffsetSeconds || 0)) > 0.0001 ||
         Math.abs(durationBars - getArrangementClipDuration("audio", clip)) > 0.0001;
@@ -367,14 +368,14 @@
 
       clip.startBar = startBar;
       clip.sourceOffsetSeconds = sourceOffsetSeconds;
-      clip.durationSeconds = durationBars * secondsPerBar;
+      clip.durationSeconds = durationBars * sourceSecondsPerBar;
       const repeatLength = getArrangementClipRepeatLength("audio", clip);
-      clip.repeatCount = Math.max(1, Math.ceil((sourceOffsetSeconds / secondsPerBar + durationBars - 0.0001) / repeatLength));
+      clip.repeatCount = Math.max(1, Math.ceil((sourceOffsetSeconds / sourceSecondsPerBar + durationBars - 0.0001) / repeatLength));
       const width = Math.max(12, durationBars * BAR_WIDTH - 8);
       element.style.left = `${startBar * BAR_WIDTH + 4}px`;
       element.style.width = `${width}px`;
       drawAudioClipWaveform(element.querySelector(".clip-waveform-canvas"), clip, Math.max(1, width - 8), track.color);
-      updateArrangementClipRepeatMarkers(element, clip, repeatLength, durationBars, sourceOffsetSeconds / secondsPerBar);
+      updateArrangementClipRepeatMarkers(element, clip, repeatLength, durationBars, sourceOffsetSeconds / sourceSecondsPerBar);
       element.setAttribute("aria-label",
         `${clip.name}, bar ${startBar + 1}, ${durationBars.toFixed(2)} bars; drag to move or resize`);
       return true;
@@ -452,12 +453,15 @@
       : "Drag to trim or extend; extension after the source is silent";
 
     const updateDuration = (durationBars) => {
-      if (type === "audio") clip.durationSeconds = durationBars * (240 / state.bpm);
+      if (type === "audio") {
+        clip.durationSeconds = durationBars * (240 / state.bpm) * getAudioClipTempoRatio(clip);
+      }
       else clip.durationBars = durationBars;
       if (mode === "repeat") {
         const repeatLength = getArrangementClipRepeatLength(type, clip);
         const sourceOffset = type === "mel" ? clip.sourceOffsetBars || 0
-          : type === "audio" ? (clip.sourceOffsetSeconds || 0) / (240 / state.bpm) : clip.sourceOffsetBars || 0;
+          : type === "audio" ? (clip.sourceOffsetSeconds || 0) /
+            ((240 / state.bpm) * getAudioClipTempoRatio(clip)) : clip.sourceOffsetBars || 0;
         clip.repeatCount = Math.max(1, Math.ceil((sourceOffset + durationBars - 0.0001) / repeatLength));
       }
       const duration = getArrangementClipDuration(type, clip);
@@ -465,7 +469,7 @@
       if (type === "audio") {
         element.style.setProperty("--pattern-color", track?.color || "var(--accent)");
         updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength(type, clip), duration,
-          (clip.sourceOffsetSeconds || 0) / (240 / state.bpm));
+          (clip.sourceOffsetSeconds || 0) / ((240 / state.bpm) * getAudioClipTempoRatio(clip)));
       }
       if (type === "mel") {
         const mel = getMel(clip.melId);

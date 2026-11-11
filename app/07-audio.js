@@ -388,13 +388,62 @@
     };
   }
 
+  function normalizeAudioAdjustment(adjustment) {
+    if (!adjustment || typeof adjustment !== "object") return null;
+    const tempoRatio = Number.isFinite(adjustment.tempoRatio) && adjustment.tempoRatio >= 1 / 6 &&
+      adjustment.tempoRatio <= 6 ? adjustment.tempoRatio : 1;
+    const keyShiftSemitones = Number.isInteger(adjustment.keyShiftSemitones) &&
+      adjustment.keyShiftSemitones >= -6 && adjustment.keyShiftSemitones <= 6
+      ? adjustment.keyShiftSemitones : 0;
+    if (tempoRatio === 1 && keyShiftSemitones === 0) return null;
+    const isKey = (value) => typeof value === "string" && /^[A-G]#? (major|minor)$/.test(value);
+    const isBpm = (value) => Number.isFinite(value) && value >= 40 && value <= 240;
+    return {
+      sourceBpm: isBpm(adjustment.sourceBpm) ? adjustment.sourceBpm : null,
+      targetBpm: isBpm(adjustment.targetBpm) ? adjustment.targetBpm : null,
+      sourceKey: isKey(adjustment.sourceKey) ? adjustment.sourceKey : null,
+      targetKey: isKey(adjustment.targetKey) ? adjustment.targetKey : null,
+      tempoRatio,
+      keyShiftSemitones,
+    };
+  }
+
   function describeAudioMetadata(metadata) {
     const { bpm, key } = normalizeAudioMetadata(metadata);
     if (bpm === null && !key) return "Tempo and key not confidently detected";
     return `Detected ${bpm === null ? "tempo unknown" : `${bpm} BPM`} · ${key || "key unknown"}`;
   }
 
-  function getProjectKey() {
+  function getAudioClipTempoRatio(clip) {
+    const ratio = clip.audioAdjustment?.tempoRatio;
+    return Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
+  }
+
+  function getAudioClipProjectAdjustment(metadata) {
+    const { bpm, key } = normalizeAudioMetadata(metadata);
+    const tempoRatio = bpm ? state.bpm / bpm : 1;
+    const projectKey = getProjectKey(false);
+    let keyShiftSemitones = 0;
+    if (key && projectKey) {
+      const sourceTonic = MUSICAL_KEY_NAMES.indexOf(key.split(" ")[0]);
+      const targetTonic = MUSICAL_KEY_NAMES.indexOf(projectKey.split(" ")[0]);
+      if (sourceTonic >= 0 && targetTonic >= 0) {
+        keyShiftSemitones = (targetTonic - sourceTonic + 12) % 12;
+        if (keyShiftSemitones > 6) keyShiftSemitones -= 12;
+      }
+    }
+    if (Math.abs(tempoRatio - 1) < 0.001 && keyShiftSemitones === 0) return null;
+    return {
+      sourceBpm: bpm,
+      targetBpm: bpm && Math.abs(tempoRatio - 1) >= 0.001 ? state.bpm : null,
+      sourceKey: key,
+      targetKey: keyShiftSemitones ? projectKey : null,
+      tempoRatio,
+      keyShiftSemitones,
+    };
+  }
+
+  function getProjectKey(includeMasterPitch = true) {
     const chroma = Array(12).fill(0);
     const addKeyProfile = (key) => {
       const match = /^([A-G]#?) (major|minor)$/.exec(key || "");
@@ -418,12 +467,12 @@
     state.patterns.forEach((pattern) => Object.values(pattern.stepPianoNotes || {}).forEach(addNotes));
     state.tracks.forEach((track) => addKeyProfile(normalizeAudioMetadata(track.audioMetadata).key));
     state.arrangementTracks.forEach((track) => track.clips.forEach((clip) =>
-      addKeyProfile(normalizeAudioMetadata(clip.audioMetadata).key)));
+      addKeyProfile(clip.audioAdjustment?.targetKey || normalizeAudioMetadata(clip.audioMetadata).key)));
 
     const key = getKeyFromChroma(chroma);
     if (!key) return null;
     const [tonic, mode] = key.split(" ");
-    const activePitch = state.masterPitchSupported === false ? 0 : state.masterPitch;
+    const activePitch = includeMasterPitch && state.masterPitchSupported !== false ? state.masterPitch : 0;
     const shiftedTonic = (MUSICAL_KEY_NAMES.indexOf(tonic) + activePitch % 12 + 12) % 12;
     return `${MUSICAL_KEY_NAMES[shiftedTonic]} ${mode}`;
   }
@@ -1078,39 +1127,44 @@
       const mel = getMel(clip.melId);
       return mel ? getMelLengthBars(mel) : 1;
     }
+    const tempoRatio = getAudioClipTempoRatio(clip);
     return Number.isFinite(clip.durationSeconds)
-      ? clip.durationSeconds / (240 / state.bpm)
-      : clip.buffer.duration / (240 / state.bpm);
+      ? clip.durationSeconds / tempoRatio / (240 / state.bpm)
+      : clip.buffer.duration / tempoRatio / (240 / state.bpm);
   }
 
   function getArrangementClipRepeatLength(type, clip) {
     if (type === "pattern") return (getPattern(clip.patternId)?.steps || 16) / 16;
     if (type === "mel") return getMelLengthBars(getMel(clip.melId) || { bars: 1, notes: [] });
-    return Math.max(0.01, clip.buffer.duration) / (240 / state.bpm);
+    return Math.max(0.01, clip.buffer.duration / getAudioClipTempoRatio(clip)) / (240 / state.bpm);
   }
 
   function getAudioClipSegments(clip, fromBar = clip.startBar, toBar = Infinity) {
     const secondsPerBar = 240 / state.bpm;
     const sourceOffset = Math.max(0, clip.sourceOffsetSeconds || 0);
     const sourceDuration = Math.max(0, clip.buffer.duration);
+    const tempoRatio = getAudioClipTempoRatio(clip);
     const segments = [];
     if (!sourceDuration) return segments;
-    const clipDuration = getArrangementClipDuration("audio", clip);
-    const playableDuration = Math.min(clipDuration, sourceDuration * (clip.repeatCount || 1) - sourceOffset);
+    const clipSourceDuration = Number.isFinite(clip.durationSeconds) ? clip.durationSeconds : sourceDuration;
+    const playableDuration = Math.max(0, Math.min(
+      clipSourceDuration,
+      sourceDuration * (clip.repeatCount || 1) - sourceOffset,
+    ));
     let elapsed = 0;
     while (elapsed < playableDuration) {
       const position = sourceOffset + elapsed;
       const offsetInBuffer = position % sourceDuration;
       const segmentDuration = Math.min(sourceDuration - offsetInBuffer, playableDuration - elapsed);
-      const segmentStart = clip.startBar + elapsed / secondsPerBar;
-      const segmentEnd = segmentStart + segmentDuration / secondsPerBar;
+      const segmentStart = clip.startBar + elapsed / (secondsPerBar * tempoRatio);
+      const segmentEnd = segmentStart + segmentDuration / (secondsPerBar * tempoRatio);
       if (segmentEnd > fromBar && segmentStart < toBar) {
         const audibleStart = Math.max(segmentStart, fromBar);
         const audibleEnd = Math.min(segmentEnd, toBar);
         segments.push({
           startBar: audibleStart,
-          sourceOffsetSeconds: offsetInBuffer + (audibleStart - segmentStart) * secondsPerBar,
-          durationSeconds: (audibleEnd - audibleStart) * secondsPerBar,
+          sourceOffsetSeconds: offsetInBuffer + (audibleStart - segmentStart) * secondsPerBar * tempoRatio,
+          durationSeconds: (audibleEnd - audibleStart) * secondsPerBar * tempoRatio,
           loopIndex: Math.floor(position / sourceDuration),
         });
       }

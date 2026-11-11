@@ -1103,7 +1103,7 @@
     return `
       class DansBpmMasterPitchProcessor extends AudioWorkletProcessor {
         static get parameterDescriptors() {
-          return [{ name: "semitones", defaultValue: 0, minValue: -12, maxValue: 12, automationRate: "k-rate" }];
+          return [{ name: "semitones", defaultValue: 0, minValue: -36, maxValue: 36, automationRate: "k-rate" }];
         }
         constructor() {
           super();
