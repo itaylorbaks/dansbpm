@@ -328,6 +328,8 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .collaboration-activity-list { display: grid; max-height: 180px; gap: 6px; overflow: auto; margin: 0; padding: 0 0 0 20px; color: var(--text); font-size: 10px; }
 .collaboration-activity-list time { display: block; color: var(--muted); font-family: var(--mono); font-size: 9px; }
 :root[data-theme="light"] .settings-dialog { background: var(--panel); color: var(--text); }
+:root[data-theme="light"] .piano-chopper-dialog { background: var(--panel); color: var(--text); }
+:root[data-theme="light"] .piano-toolbar-group { background: rgba(255, 255, 255, .76); }
 .settings-audio-sink { display: none; }
 .collaboration-note, .collaboration-status, .collaboration-participants { color: var(--muted); font-size: 11px; line-height: 1.5; }
 .collaboration-note { margin: 14px 0; }
@@ -546,10 +548,15 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .audio-legend { width: 8px; height: 8px; margin-left: 8px; border: 1px solid #7cc9ff; border-radius: 2px; background: rgba(124,201,255,.3); }
 .mel-legend { width: 8px; height: 8px; margin-left: 8px; border: 1px solid #b5a0ff; border-radius: 2px; background: rgba(181,160,255,.3); }
 .piano-roll-view { width: 100%; min-width: 0; align-self: stretch; display: flex; flex-direction: column; gap: 8px; padding: 10px; background: #17181b; }
-.piano-roll-toolbar { width: 100%; max-width: 100%; min-width: 0; display: flex; flex: 0 0 auto; flex-wrap: nowrap; align-items: center; gap: 6px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-color: #45464a #1b1c1f; scrollbar-width: thin; }
+.piano-roll-toolbar { width: 100%; max-width: 100%; min-width: 0; display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: stretch; gap: 7px; overflow: visible; }
 .piano-roll-toolbar > * { flex: 0 0 auto; }
-.piano-roll-context { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid #303136; padding-bottom: 7px; color: var(--accent); font-family: var(--mono); font-size: 9px; }
+.piano-roll-toolbar > .piano-toolbar-group { flex: 1 1 310px; }
+.piano-roll-context { display: flex; width: 100%; flex: 1 0 100% !important; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid #303136; padding-bottom: 7px; color: var(--accent); font-family: var(--mono); font-size: 9px; }
 .piano-roll-context[hidden] { display: none; }
+.piano-toolbar-group { min-width: 270px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; border: 1px solid var(--stroke-soft); border-radius: 6px; background: rgba(32, 33, 37, .42); padding: 6px; }
+.piano-toolbar-group-title { width: 100%; color: var(--muted); font: 8px var(--mono); letter-spacing: .7px; }
+.piano-roll-toolbar > .piano-toolbar-group > * { flex: 0 0 auto; }
+.piano-roll-toolbar .pattern-select-control { margin: 0; }
 .piano-roll-toolbar .pattern-select-control select { max-width: 130px; }
 .piano-instrument-picker-button { max-width: 130px; display: flex; align-items: center; justify-content: space-between; gap: 7px; border: 0; background: transparent; padding: 0; color: #d3d4d0; font-size: 9px; text-align: left; cursor: pointer; }
 .piano-instrument-picker-button:disabled { color: #77787e; cursor: not-allowed; }
@@ -557,7 +564,18 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .piano-instrument-picker-arrow { color: #85868b; }
 .piano-roll-toolbar .quiet-button { height: 30px; }
 .piano-roll-toolbar #piano-draw-mode-button[aria-pressed="true"] { border-color: #687641; background: var(--accent-soft); color: var(--accent); }
+.piano-roll-toolbar #piano-audio-chop-button:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .piano-audio-source-label { max-width: 180px; overflow: hidden; color: #91b4ca; font-family: var(--mono); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.piano-chopper-dialog { width: min(440px, calc(100vw - 28px)); max-height: min(620px, calc(100dvh - 28px)); overflow: auto; border: 1px solid #3a3b40; border-radius: 10px; background: #1b1c1f; padding: 22px; color: var(--text); box-shadow: 0 20px 60px #0009; }
+.piano-chopper-dialog::backdrop { background: #0009; backdrop-filter: blur(3px); }
+.piano-chopper-source { overflow: hidden; margin: 16px 0; color: var(--accent); font: 10px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.piano-chopper-control { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; margin-top: 15px; color: var(--text); font-size: 11px; }
+.piano-chopper-control select { min-width: 140px; height: 32px; border: 1px solid var(--stroke); border-radius: 5px; background: var(--panel-raised); padding: 0 8px; color: var(--text); font: 11px var(--sans); }
+.piano-chopper-control input[type="range"] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+.piano-chopper-control output { color: var(--accent); font-family: var(--mono); }
+.piano-chopper-preview, .piano-chopper-help { margin: 8px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.piano-chopper-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+.piano-roll-note.is-audio-slice { display: flex; align-items: center; justify-content: center; min-width: 12px; border-style: dashed; padding: 0 2px; color: #17181a; font-family: var(--mono); font-weight: 700; }
 .piano-scale-lock-control { display: flex; height: 30px; align-items: center; gap: 5px; border: 1px solid var(--stroke); border-radius: 5px; background: #1a1b1e; padding: 0 7px; color: #a7a8ad; font-size: 9px; white-space: nowrap; }
 .piano-scale-lock-control input { accent-color: var(--accent); }
 .piano-roll-scroll { min-height: 0; flex: 1; display: flex; overflow: auto; border: 1px solid #303136; background: #17181b; scrollbar-color: #45464a #1b1c1f; scrollbar-width: thin; }

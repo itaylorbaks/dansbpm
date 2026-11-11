@@ -88,6 +88,22 @@
       if (event.currentTarget.value) await transcribeSelectedPianoAudio();
     });
     $("#piano-audio-transcribe-button").addEventListener("click", transcribeSelectedPianoAudio);
+    $("#piano-audio-chop-button").addEventListener("click", openPianoAudioChopper);
+    $("#piano-chopper-close").addEventListener("click", () => $("#piano-chopper-dialog").close());
+    $("#piano-chopper-cancel").addEventListener("click", () => $("#piano-chopper-dialog").close());
+    $("#piano-chopper-apply").addEventListener("click", chopSelectedPianoAudio);
+    $("#piano-chopper-division").addEventListener("change", updatePianoChopperPreview);
+    $("#piano-chopper-dropoff").addEventListener("input", (event) => {
+      $("#piano-chopper-dropoff-value").textContent = `${event.currentTarget.value}%`;
+    });
+    $("#piano-chopper-pitch").addEventListener("input", (event) => {
+      const pitch = Number(event.currentTarget.value);
+      $("#piano-chopper-pitch-value").textContent =
+        `${pitch > 0 ? "+" : ""}${pitch} semitone${Math.abs(pitch) === 1 ? "" : "s"}`;
+    });
+    $("#piano-chopper-dialog").addEventListener("click", (event) => {
+      if (event.target === $("#piano-chopper-dialog")) $("#piano-chopper-dialog").close();
+    });
     $("#piano-autotune-button").addEventListener("click", tunePianoNotesToScale);
     $("#export-midi-button").addEventListener("click", exportMidi);
     $("#export-song-button").addEventListener("click", openSongExportMenu);

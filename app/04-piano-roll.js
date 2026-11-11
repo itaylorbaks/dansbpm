@@ -617,6 +617,128 @@
     await transcribeAudioClipToPianoRoll(clip);
   }
 
+  function getPianoChopperDivisionTicks() {
+    const ticks = Number($("#piano-chopper-division").value);
+    return [1, 2, 4, 8, 16].includes(ticks) ? ticks : 4;
+  }
+
+  function updatePianoChopperPreview() {
+    const clip = getPianoRollAudioClip();
+    if (!clip?.buffer) {
+      $("#piano-chopper-preview").textContent = "Choose an audio clip with a loaded waveform.";
+      return;
+    }
+    const sourceOffset = Math.max(0, clip.sourceOffsetSeconds || 0);
+    const sourceDuration = Math.max(0, Math.min(clip.buffer.duration - sourceOffset,
+      clip.durationSeconds ?? clip.buffer.duration));
+    const secondsPerTick = 240 / state.bpm / PIANO_TICKS_PER_BAR;
+    const visibleDuration = Math.min(sourceDuration, secondsPerTick * 8 * PIANO_TICKS_PER_BAR);
+    const sliceCount = Math.ceil(visibleDuration / (secondsPerTick * getPianoChopperDivisionTicks()));
+    const exceedsPianoRoll = sourceDuration > secondsPerTick * 8 * PIANO_TICKS_PER_BAR;
+    $("#piano-chopper-preview").textContent =
+      `${sliceCount} slices · ${visibleDuration.toFixed(1)} seconds${exceedsPianoRoll ? " · only the first 8 bars fit in Piano Roll" : ""}`;
+  }
+
+  function openPianoAudioChopper() {
+    if (state.stepPianoEditContext) {
+      showToast("Return to the Piano Roll before chopping audio.");
+      return;
+    }
+    const clip = getPianoRollAudioClip();
+    if (!clip?.buffer) {
+      showToast("Choose a loaded audio clip from Track View first.");
+      return;
+    }
+    $("#piano-chopper-source").textContent = clip.name;
+    $("#piano-chopper-source").title = clip.name;
+    $("#piano-chopper-dropoff-value").textContent = `${$("#piano-chopper-dropoff").value}%`;
+    $("#piano-chopper-pitch-value").textContent = `${$("#piano-chopper-pitch").value} semitones`;
+    updatePianoChopperPreview();
+    $("#piano-chopper-dialog").showModal();
+  }
+
+  function chopSelectedPianoAudio() {
+    const clip = getPianoRollAudioClip();
+    if (state.stepPianoEditContext || !clip?.buffer) {
+      showToast("Choose a loaded audio clip in the Piano Roll first.");
+      return;
+    }
+    const sourceOffset = Math.max(0, clip.sourceOffsetSeconds || 0);
+    const sourceDuration = Math.max(0, Math.min(clip.buffer.duration - sourceOffset,
+      clip.durationSeconds ?? clip.buffer.duration));
+    const secondsPerBar = 240 / state.bpm;
+    const secondsPerTick = secondsPerBar / PIANO_TICKS_PER_BAR;
+    const maximumTicks = 8 * PIANO_TICKS_PER_BAR;
+    const durationTicks = Math.min(maximumTicks, sourceDuration / secondsPerTick);
+    if (durationTicks <= 0) {
+      showToast("This audio clip has no playable duration.");
+      return;
+    }
+    const sliceTicks = getPianoChopperDivisionTicks();
+    const pitch = Math.max(-12, Math.min(12, Number($("#piano-chopper-pitch").value) || 0));
+    const dropOff = Math.max(0, Math.min(90, Number($("#piano-chopper-dropoff").value) || 0));
+    const sliceCount = Math.ceil(durationTicks / sliceTicks);
+    let mel = getMel();
+    if (state.pianoNotes.length &&
+      !state.pianoNotes.some((note) => note.audioSlice?.clipId === clip.id)) {
+      captureCurrentMel();
+      const baseName = `${clip.name.replace(/\.[^.]+$/, "").trim() || "Audio"} Chops`.slice(0, 48);
+      let melName = baseName;
+      let suffix = 2;
+      while (state.mels.some((item) => item.name.toLowerCase() === melName.toLowerCase())) {
+        melName = `${baseName.slice(0, 60 - String(suffix).length)} ${suffix}`;
+        suffix += 1;
+      }
+      mel = makeMel(melName, state.selectedPianoTrackId, state.pianoBars, []);
+      state.mels.push(mel);
+      loadMel(mel.id);
+    }
+    state.pianoNotes = state.pianoNotes.filter((note) =>
+      note.audioSlice?.clipId !== clip.id);
+    const startIndex = state.pianoNotes.length;
+    const trackId = state.selectedPianoTrackId;
+    for (let index = 0; index < sliceCount; index += 1) {
+      const startTick = index * sliceTicks;
+      const endTick = Math.min(durationTicks, startTick + sliceTicks);
+      const offsetSeconds = sourceOffset + startTick * secondsPerTick;
+      const sliceDuration = Math.min((endTick - startTick) * secondsPerTick,
+        sourceOffset + sourceDuration - offsetSeconds);
+      if (sliceDuration <= 0) continue;
+      state.pianoNotes.push({
+        id: makeId(),
+        trackId,
+        midi: 60 + pitch,
+        startTick,
+        durationTicks: Math.max(0.5, endTick - startTick),
+        velocity: 0.8,
+        audioSlice: {
+          clipId: clip.id,
+          offsetSeconds,
+          durationSeconds: sliceDuration,
+          dropOff,
+          sliceNumber: index + 1,
+        },
+      });
+    }
+    state.pianoRollAudioClipId = clip.id;
+    if (mel) {
+      mel.audioSourceClipId = clip.id;
+      mel.bars = Math.max(mel.bars || 1, [1, 2, 4, 8].find((bars) => bars * PIANO_TICKS_PER_BAR >= durationTicks) || 8);
+    }
+    state.pianoBars = Math.max(state.pianoBars,
+      [1, 2, 4, 8].find((bars) => bars * PIANO_TICKS_PER_BAR >= durationTicks) || 8);
+    state.selectedPianoNoteId = state.pianoNotes[startIndex]?.id || null;
+    state.selectedPianoNoteIds = new Set(state.selectedPianoNoteId ? [state.selectedPianoNoteId] : []);
+    $("#piano-chopper-dialog").close();
+    renderMelOptions();
+    renderPianoRoll();
+    updateArrangementLength();
+    renderArrangement();
+    saveState();
+    const notice = sourceDuration > maximumTicks * secondsPerTick ? " Only the first 8 bars were chopped." : "";
+    showToast(`Created ${sliceCount} movable audio slices from ${clip.name}.${notice}`);
+  }
+
   async function transcribeAudioClipToPianoRoll(clip) {
     if (state.isPlaying) stopPlayback();
     state.pianoRollAudioClipId = clip.id;
@@ -927,6 +1049,7 @@
     grid.style.setProperty("--piano-bar-width", `${tickWidth * PIANO_TICKS_PER_BAR}px`);
     grid.classList.toggle("is-draw-mode", state.pianoDrawMode);
     renderPianoAudioSourceOptions();
+    $("#piano-audio-chop-button").disabled = Boolean(state.stepPianoEditContext || !getPianoRollAudioClip()?.buffer);
     renderPianoAudioWaveform(grid, width, height, totalTicks);
     $("#piano-draw-mode-button").setAttribute("aria-pressed", String(state.pianoDrawMode));
     let playhead = $("#piano-roll-playhead");
@@ -992,17 +1115,21 @@
         const track = getPianoTrack(note.trackId);
         if (!track) return;
         const element = document.createElement("div");
-        element.className = `piano-roll-note${state.selectedPianoNoteIds.has(note.id) || note.id === state.selectedPianoNoteId ? " is-selected" : ""}`;
+        element.className = `piano-roll-note${note.audioSlice ? " is-audio-slice" : ""}${state.selectedPianoNoteIds.has(note.id) || note.id === state.selectedPianoNoteId ? " is-selected" : ""}`;
         element.dataset.noteId = note.id;
         element.style.setProperty("--note-color", track.color);
         element.style.left = `${note.startTick * tickWidth + 1}px`;
         element.style.top = `${(PIANO_TOP_MIDI - note.midi) * PIANO_ROW_HEIGHT + 1}px`;
         element.style.width = `${Math.max(getPianoSnapStep() * tickWidth, note.durationTicks * tickWidth - 2)}px`;
-        element.textContent = midiNoteName(note.midi);
-        element.title = `${track.name} · ${midiNoteName(note.midi)} · ${note.durationTicks}/32`;
+        element.textContent = note.audioSlice ? `S${note.audioSlice.sliceNumber}` : midiNoteName(note.midi);
+        element.title = note.audioSlice
+          ? `Audio slice ${note.audioSlice.sliceNumber} · ${midiNoteName(note.midi)} · ${note.durationTicks}/32`
+          : `${track.name} · ${midiNoteName(note.midi)} · ${note.durationTicks}/32`;
         element.setAttribute("role", "button");
         element.setAttribute("tabindex", "0");
-        element.setAttribute("aria-label", `${track.name}, ${midiNoteName(note.midi)}, start ${note.startTick}/32, duration ${note.durationTicks}/32`);
+        element.setAttribute("aria-label", note.audioSlice
+          ? `Audio slice ${note.audioSlice.sliceNumber}, ${midiNoteName(note.midi)}, start ${note.startTick}/32, duration ${note.durationTicks}/32`
+          : `${track.name}, ${midiNoteName(note.midi)}, start ${note.startTick}/32, duration ${note.durationTicks}/32`);
         element.addEventListener("focus", () => {
           selectPianoNote(note.id, state.selectedPianoNoteIds.has(note.id));
         });

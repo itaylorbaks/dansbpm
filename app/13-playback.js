@@ -68,6 +68,10 @@
       panner.connect(outputNode);
       outputNode = panner;
     }
+    if (noteOptions.audioSlice) {
+      playPianoAudioSlice(noteOptions.audioSlice, time, midi, duration, velocity, outputNode, noteOptions);
+      return;
+    }
     if (track.sample) {
       const context = state.audioContext;
       const source = context.createBufferSource();
@@ -103,6 +107,39 @@
       return;
     }
     triggerTrack(track, time, 0, track.variant, duration, outputTrack, outputNode, midi - getDefaultStepMidi(track));
+  }
+
+  function playPianoAudioSlice(audioSlice, time, midi, duration, velocity, outputNode, noteOptions) {
+    const clip = getPianoRollAudioClipById(audioSlice.clipId);
+    if (!clip?.buffer) return;
+    const offset = Math.max(0, Math.min(clip.buffer.duration, audioSlice.offsetSeconds));
+    const sourceDuration = Math.max(0, Math.min(
+      clip.buffer.duration - offset,
+      audioSlice.durationSeconds,
+    ));
+    if (!sourceDuration) return;
+    const rate = Math.pow(2, (midi - 60) / 12);
+    const bufferDuration = Math.min(sourceDuration, Math.max(0.005, duration));
+    const outputDuration = bufferDuration / rate;
+    const dropOff = Math.max(0, Math.min(90, audioSlice.dropOff ?? 10)) / 100;
+    const fadeDuration = Math.min(outputDuration, Math.max(0.003, outputDuration * dropOff));
+    const fadeStart = Math.max(0, outputDuration - fadeDuration);
+    const attack = Math.max(0, Math.min(
+      Number.isFinite(noteOptions.attack) ? noteOptions.attack : 0,
+      fadeStart,
+    ));
+    const source = state.audioContext.createBufferSource();
+    registerArrangementPlaybackSource(source);
+    source.buffer = clip.buffer;
+    source.playbackRate.setValueAtTime(rate, time);
+    const envelope = state.audioContext.createGain();
+    envelope.gain.setValueAtTime(0.0001, time);
+    envelope.gain.linearRampToValueAtTime(velocity, time + attack);
+    if (fadeStart > attack) envelope.gain.setValueAtTime(velocity, time + fadeStart);
+    envelope.gain.linearRampToValueAtTime(0.0001, time + outputDuration);
+    source.connect(envelope);
+    envelope.connect(outputNode);
+    source.start(time, offset, bufferDuration);
   }
 
   function playDansBpmSynthVoice(track, time, midi, duration, velocity, outputNode, noteOptions = {}) {

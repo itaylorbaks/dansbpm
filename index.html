@@ -236,97 +236,119 @@
                       </div>
                     </section>
                     <section class="piano-roll-view" id="piano-roll-view" role="tabpanel" aria-labelledby="piano-roll-tab" hidden>
-                      <div class="piano-roll-toolbar" id="piano-roll-toolbar" role="region" aria-label="Piano roll tools; scroll horizontally for more controls" tabindex="0">
+                      <div class="piano-roll-toolbar" id="piano-roll-toolbar" role="region" aria-label="Piano Roll controls" tabindex="0">
                         <div class="piano-roll-context" id="step-piano-context" hidden>
                           <span id="step-piano-context-label"></span>
                           <button class="quiet-button" id="step-piano-return" type="button">Back to Step</button>
                         </div>
-                        <button class="quiet-button workspace-play-button" id="piano-workspace-play-button" type="button" aria-label="Play piano roll workspace" aria-pressed="false"><span class="play-icon" aria-hidden="true"></span><span class="workspace-play-label">Play</span></button>
-                        <button class="quiet-button loop-toggle-button" id="piano-loop-button" type="button" aria-pressed="false">LOOP OFF</button>
-                        <button class="quiet-button" id="piano-draw-mode-button" type="button" aria-pressed="false" title="Toggle note draw mode">Draw</button>
-                        <button class="quiet-button" id="piano-humanize-button" type="button" title="Slightly vary note timing and velocity">Humanize</button>
-                        <button class="quiet-button" id="piano-quantize-button" type="button" title="Align selected notes (or all notes) to the current grid">Quantize</button>
-                        <button class="quiet-button" id="piano-autotune-button" type="button" title="Tune selected notes, or all notes, to the selected key and scale">Tune to key</button>
-                        <label class="pattern-select-control">
-                          <span>KEY</span>
-                          <select id="piano-scale-root" aria-label="Piano roll scale root">
-                            <option value="0">C</option><option value="1">C#</option><option value="2">D</option>
-                            <option value="3">D#</option><option value="4">E</option><option value="5">F</option>
-                            <option value="6">F#</option><option value="7">G</option><option value="8">G#</option>
-                            <option value="9">A</option><option value="10">A#</option><option value="11">B</option>
-                          </select>
-                        </label>
-                        <label class="pattern-select-control">
-                          <span>SCALE</span>
-                          <select id="piano-scale-type" aria-label="Piano roll scale">
-                            <option value="major">Major</option>
-                            <option value="minor">Minor</option>
-                            <option value="major-pentatonic">Maj. pentatonic</option>
-                            <option value="minor-pentatonic">Min. pentatonic</option>
-                          </select>
-                        </label>
-                        <label class="piano-scale-lock-control" title="Snap new notes to the selected scale">
-                          <input id="piano-scale-lock" type="checkbox">
-                          <span>Scale lock</span>
-                        </label>
-                        <label class="pattern-select-control">
-                          <span>MEL</span>
-                          <select id="mel-select" aria-label="Select a Mel"></select>
-                        </label>
-                        <button class="quiet-button" id="new-mel-button" type="button">＋ New Mel</button>
-                        <button class="quiet-button" id="export-mel-button" type="button">Export Mel</button>
-                        <button class="quiet-button" id="import-midi-button" type="button">Import MIDI</button>
-                        <button class="quiet-button" id="piano-audio-import-button" type="button">Import audio</button>
-                        <label class="pattern-select-control">
-                          <span>AUDIO SOURCE</span>
-                          <select id="piano-audio-source-select" aria-label="Select audio from Track View"></select>
-                        </label>
-                        <button class="quiet-button" id="piano-audio-transcribe-button" type="button">Transcribe source</button>
-                        <span class="piano-audio-source-label" id="piano-audio-source-label">No audio source</span>
-                        <button class="quiet-button" id="export-midi-button" type="button">Export MIDI</button>
-                        <button class="quiet-button" id="rename-mel-button" type="button">Rename</button>
-                        <button class="quiet-button pattern-drag-source" id="mel-drag-source" type="button" draggable="true">Drag Mel to Track View</button>
-                        <button class="quiet-button keyboard-record-button" id="piano-keyboard-record-button" type="button" aria-pressed="false">Record keys</button>
-                        <label class="pattern-select-control">
-                          <span>INSTRUMENT</span>
-                          <button class="piano-instrument-picker-button" id="piano-instrument-select" type="button" aria-label="Piano roll instrument" aria-haspopup="dialog" aria-controls="step-instrument-dialog">
-                            <span id="piano-instrument-name">Choose instrument</span><span class="piano-instrument-picker-arrow" aria-hidden="true">▾</span>
-                          </button>
-                        </label>
-                        <label class="pattern-select-control">
-                          <span>SNAP</span>
-                          <select id="piano-snap-select" aria-label="Piano roll grid snap">
-                            <option value="off">Off</option>
-                            <option value="1">1/32</option>
-                            <option value="2" selected>1/16</option>
-                            <option value="4">1/8</option>
-                            <option value="8">1/4</option>
-                          </select>
-                        </label>
-                        <label class="pattern-select-control">
-                          <span>LENGTH</span>
-                          <select id="piano-note-length-select" aria-label="Default piano roll note length">
-                            <option value="1">1/32</option>
-                            <option value="2">1/16</option>
-                            <option value="4">1/8</option>
-                            <option value="8">1/4</option>
-                          </select>
-                        </label>
-                        <label class="pattern-select-control">
-                          <span>BARS</span>
-                          <select id="piano-bars-select" aria-label="Piano roll length">
-                            <option value="1">1 BAR</option>
-                            <option value="2">2 BARS</option>
-                            <option value="4" selected>4 BARS</option>
-                            <option value="8">8 BARS</option>
-                          </select>
-                        </label>
-                        <label class="scale-control">
-                          <span>SCALE</span>
-                          <input id="piano-scale-slider" type="range" min="50" max="400" step="10" value="100" aria-label="Piano roll scale">
-                          <output id="piano-scale-value" for="piano-scale-slider">100%</output>
-                        </label>
-                        <button class="quiet-button" id="clear-piano-roll-button" type="button">Clear notes</button>
+                        <div class="piano-toolbar-group">
+                          <span class="piano-toolbar-group-title">PLAY</span>
+                          <button class="quiet-button workspace-play-button" id="piano-workspace-play-button" type="button" aria-label="Play piano roll workspace" aria-pressed="false"><span class="play-icon" aria-hidden="true"></span><span class="workspace-play-label">Play</span></button>
+                          <button class="quiet-button loop-toggle-button" id="piano-loop-button" type="button" aria-pressed="false">LOOP OFF</button>
+                          <button class="quiet-button keyboard-record-button" id="piano-keyboard-record-button" type="button" aria-pressed="false">Record keys</button>
+                        </div>
+                        <div class="piano-toolbar-group">
+                          <span class="piano-toolbar-group-title">EDIT NOTES</span>
+                          <button class="quiet-button" id="piano-draw-mode-button" type="button" aria-pressed="false" title="Toggle note draw mode">Draw</button>
+                          <button class="quiet-button" id="piano-humanize-button" type="button" title="Slightly vary note timing and velocity">Humanize</button>
+                          <button class="quiet-button" id="piano-quantize-button" type="button" title="Align selected notes (or all notes) to the current grid">Quantize</button>
+                          <button class="quiet-button" id="clear-piano-roll-button" type="button">Clear notes</button>
+                        </div>
+                        <div class="piano-toolbar-group">
+                          <span class="piano-toolbar-group-title">AUDIO</span>
+                          <button class="quiet-button" id="piano-audio-import-button" type="button">Import audio</button>
+                          <label class="pattern-select-control">
+                            <span>SOURCE</span>
+                            <select id="piano-audio-source-select" aria-label="Select audio from Track View"></select>
+                          </label>
+                          <button class="quiet-button" id="piano-audio-transcribe-button" type="button">Transcribe</button>
+                          <button class="quiet-button" id="piano-audio-chop-button" type="button" disabled>Chop audio</button>
+                          <span class="piano-audio-source-label" id="piano-audio-source-label">No audio source</span>
+                        </div>
+                        <div class="piano-toolbar-group">
+                          <span class="piano-toolbar-group-title">KEY & SCALE</span>
+                          <label class="pattern-select-control">
+                            <span>KEY</span>
+                            <select id="piano-scale-root" aria-label="Piano roll scale root">
+                              <option value="0">C</option><option value="1">C#</option><option value="2">D</option>
+                              <option value="3">D#</option><option value="4">E</option><option value="5">F</option>
+                              <option value="6">F#</option><option value="7">G</option><option value="8">G#</option>
+                              <option value="9">A</option><option value="10">A#</option><option value="11">B</option>
+                            </select>
+                          </label>
+                          <label class="pattern-select-control">
+                            <span>SCALE</span>
+                            <select id="piano-scale-type" aria-label="Piano roll scale">
+                              <option value="major">Major</option>
+                              <option value="minor">Minor</option>
+                              <option value="major-pentatonic">Maj. pentatonic</option>
+                              <option value="minor-pentatonic">Min. pentatonic</option>
+                            </select>
+                          </label>
+                          <label class="piano-scale-lock-control" title="Snap new notes to the selected scale">
+                            <input id="piano-scale-lock" type="checkbox">
+                            <span>Scale lock</span>
+                          </label>
+                          <button class="quiet-button" id="piano-autotune-button" type="button" title="Tune selected notes, or all notes, to the selected key and scale">Tune to key</button>
+                        </div>
+                        <div class="piano-toolbar-group">
+                          <span class="piano-toolbar-group-title">MELODY</span>
+                          <label class="pattern-select-control">
+                            <span>MEL</span>
+                            <select id="mel-select" aria-label="Select a Mel"></select>
+                          </label>
+                          <button class="quiet-button" id="new-mel-button" type="button">＋ New Mel</button>
+                          <button class="quiet-button" id="rename-mel-button" type="button">Rename</button>
+                          <button class="quiet-button" id="export-mel-button" type="button">Export Mel</button>
+                          <button class="quiet-button pattern-drag-source" id="mel-drag-source" type="button" draggable="true">Drag Mel to Track View</button>
+                        </div>
+                        <div class="piano-toolbar-group">
+                          <span class="piano-toolbar-group-title">INSTRUMENT & GRID</span>
+                          <label class="pattern-select-control">
+                            <span>INSTRUMENT</span>
+                            <button class="piano-instrument-picker-button" id="piano-instrument-select" type="button" aria-label="Piano roll instrument" aria-haspopup="dialog" aria-controls="step-instrument-dialog">
+                              <span id="piano-instrument-name">Choose instrument</span><span class="piano-instrument-picker-arrow" aria-hidden="true">▾</span>
+                            </button>
+                          </label>
+                          <label class="pattern-select-control">
+                            <span>SNAP</span>
+                            <select id="piano-snap-select" aria-label="Piano roll grid snap">
+                              <option value="off">Off</option>
+                              <option value="1">1/32</option>
+                              <option value="2" selected>1/16</option>
+                              <option value="4">1/8</option>
+                              <option value="8">1/4</option>
+                            </select>
+                          </label>
+                          <label class="pattern-select-control">
+                            <span>LENGTH</span>
+                            <select id="piano-note-length-select" aria-label="Default piano roll note length">
+                              <option value="1">1/32</option>
+                              <option value="2">1/16</option>
+                              <option value="4">1/8</option>
+                              <option value="8">1/4</option>
+                            </select>
+                          </label>
+                          <label class="pattern-select-control">
+                            <span>BARS</span>
+                            <select id="piano-bars-select" aria-label="Piano roll length">
+                              <option value="1">1 BAR</option>
+                              <option value="2">2 BARS</option>
+                              <option value="4" selected>4 BARS</option>
+                              <option value="8">8 BARS</option>
+                            </select>
+                          </label>
+                          <label class="scale-control">
+                            <span>ZOOM</span>
+                            <input id="piano-scale-slider" type="range" min="50" max="400" step="10" value="100" aria-label="Piano roll scale">
+                            <output id="piano-scale-value" for="piano-scale-slider">100%</output>
+                          </label>
+                        </div>
+                        <div class="piano-toolbar-group">
+                          <span class="piano-toolbar-group-title">MIDI</span>
+                          <button class="quiet-button" id="import-midi-button" type="button">Import MIDI</button>
+                          <button class="quiet-button" id="export-midi-button" type="button">Export MIDI</button>
+                        </div>
                       </div>
                       <div class="piano-roll-ruler-spacer" id="piano-roll-ruler-placeholder"></div>
                       <div class="piano-roll-ruler-viewport" id="piano-roll-ruler-viewport">
@@ -339,7 +361,7 @@
                           <div class="piano-roll-grid" id="piano-roll-grid" aria-label="Piano roll note grid"></div>
                         </div>
                       </div>
-                      <div class="piano-roll-footer">Choose Track View audio to transcribe it into editable notes, or import a file. Playback renders corrected notes through the selected instrument; source audio stays in Track View.</div>
+                      <div class="piano-roll-footer">Choose or import audio to transcribe pitches or chop it into movable slices. Audio slices play from their source; MIDI notes use the selected instrument.</div>
                       <div class="piano-note-context-menu" id="piano-note-context-menu" role="group" aria-label="Selected note controls" hidden>
                         <div class="piano-note-context-heading">
                           <span>NOTE CONTROLS</span>
@@ -725,6 +747,41 @@
       <input id="midi-import-input" type="file" accept=".mid,.midi,audio/midi,audio/x-midi" hidden />
       <input id="piano-audio-import-input" type="file" accept="audio/*,.wav,.wave,.mp3,.m4a,.aac,.flac,.ogg,.opus,.webm,.aiff,.aif" hidden />
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
+      <dialog class="piano-chopper-dialog" id="piano-chopper-dialog" aria-labelledby="piano-chopper-title">
+        <div class="project-dialog-heading">
+          <div>
+            <div class="eyebrow">AUDIO SLICING</div>
+            <h2 id="piano-chopper-title">Chop audio</h2>
+          </div>
+          <button class="dialog-close" id="piano-chopper-close" type="button" aria-label="Close chopper">×</button>
+        </div>
+        <p class="piano-chopper-source" id="piano-chopper-source"></p>
+        <label class="piano-chopper-control">
+          <span>Slice size</span>
+          <select id="piano-chopper-division">
+            <option value="16">1/2 note</option>
+            <option value="8">1/4 note (beat)</option>
+            <option value="4" selected>1/8 note</option>
+            <option value="2">1/16 note</option>
+            <option value="1">1/32 note</option>
+          </select>
+        </label>
+        <p class="piano-chopper-preview" id="piano-chopper-preview"></p>
+        <label class="piano-chopper-control">
+          <span>Drop-off <output id="piano-chopper-dropoff-value">10%</output></span>
+          <input id="piano-chopper-dropoff" type="range" min="0" max="90" step="1" value="10">
+        </label>
+        <p class="piano-chopper-help">Fades the end of each slice. Set to 0% for a sharp cut.</p>
+        <label class="piano-chopper-control">
+          <span>Pitch <output id="piano-chopper-pitch-value">0 semitones</output></span>
+          <input id="piano-chopper-pitch" type="range" min="-12" max="12" step="1" value="0">
+        </label>
+        <p class="piano-chopper-help">Slices become movable notes in the grid. Drag them horizontally to rearrange or vertically to change pitch.</p>
+        <div class="piano-chopper-actions">
+          <button class="quiet-button" id="piano-chopper-cancel" type="button">Cancel</button>
+          <button class="quiet-button workspace-play-button" id="piano-chopper-apply" type="button">Create slices</button>
+        </div>
+      </dialog>
       <dialog class="settings-dialog" id="settings-dialog" aria-label="Settings">
         <div class="project-dialog-heading">
           <div>

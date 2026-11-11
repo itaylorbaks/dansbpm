@@ -1,3 +1,16 @@
+  function normalizePianoAudioSlice(slice) {
+    if (!slice || typeof slice.clipId !== "string" || !slice.clipId ||
+      !Number.isFinite(slice.offsetSeconds) ||
+      !Number.isFinite(slice.durationSeconds) || slice.durationSeconds <= 0) return null;
+    return {
+      clipId: slice.clipId.slice(0, 128),
+      offsetSeconds: Math.max(0, slice.offsetSeconds),
+      durationSeconds: Math.max(0.001, slice.durationSeconds),
+      dropOff: Number.isFinite(slice.dropOff) ? Math.max(0, Math.min(90, slice.dropOff)) : 10,
+      sliceNumber: Number.isInteger(slice.sliceNumber) ? Math.max(1, Math.min(4096, slice.sliceNumber)) : 1,
+    };
+  }
+
   function renameProject() {
     const name = window.prompt("Rename project", state.projectName);
     const trimmed = name?.trim();
@@ -480,6 +493,7 @@
               durationTicks: Math.max(0.5, Math.min(8 * PIANO_TICKS_PER_BAR - startTick, note.durationTicks)),
               velocity: Number.isFinite(note.velocity) ? Math.max(0.1, Math.min(1, note.velocity)) : 0.8,
               pan: Number.isFinite(note.pan) ? Math.max(-1, Math.min(1, note.pan)) : 0,
+              audioSlice: normalizePianoAudioSlice(note.audioSlice),
             };
           });
       }
@@ -504,6 +518,7 @@
                   durationTicks: Math.max(0.5, Math.min(8 * PIANO_TICKS_PER_BAR - startTick, note.durationTicks)),
                   velocity: Number.isFinite(note.velocity) ? Math.max(0.1, Math.min(1, note.velocity)) : 0.8,
                   pan: Number.isFinite(note.pan) ? Math.max(-1, Math.min(1, note.pan)) : 0,
+                  audioSlice: normalizePianoAudioSlice(note.audioSlice),
                 };
               })
               : [];
