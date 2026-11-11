@@ -1177,16 +1177,48 @@
     $("#show-track-view-button").hidden = !state.trackViewHidden;
     $("#hide-track-view-button").hidden = state.trackViewHidden;
     $("#show-workspace-button").hidden = !state.workspaceHidden;
+    updateWorkspaceFullscreenButton();
     updatePianoRulerViewport();
   }
 
-  function setViewVisibility(workspaceHidden, trackViewHidden) {
+  function updateWorkspaceFullscreenButton() {
+    const button = $("#workspace-fullscreen-button");
+    const isFullscreen = document.fullscreenElement === $("#workspace-area");
+    button.textContent = isFullscreen ? "Restore" : "Expand";
+    button.setAttribute("aria-label", isFullscreen ? "Restore workspace from fullscreen" : "Expand workspace to fullscreen");
+    button.setAttribute("aria-pressed", String(isFullscreen));
+  }
+
+  async function toggleWorkspaceFullscreen() {
+    const workspace = $("#workspace-area");
+    try {
+      if (document.fullscreenElement === workspace) {
+        await document.exitFullscreen();
+      } else if (document.fullscreenElement) {
+        showToast("Exit the current fullscreen view first.");
+      } else if (!workspace.requestFullscreen) {
+        showToast("Fullscreen is unavailable in this browser.");
+      } else {
+        await workspace.requestFullscreen();
+      }
+    } catch (error) {
+      showToast(`Could not change workspace fullscreen: ${error.message || "the browser denied the request"}`);
+    }
+  }
+
+  document.addEventListener("fullscreenchange", () => {
+    updateWorkspaceFullscreenButton();
+    updatePianoRulerViewport();
+  });
+
+  function setViewVisibility(workspaceHidden, trackViewHidden, focusTarget = null) {
     state.workspaceHidden = workspaceHidden;
     state.trackViewHidden = trackViewHidden;
     renderViewLayout();
     saveState();
-    if (workspaceHidden) $("#show-workspace-button").focus();
-    if (trackViewHidden) $("#show-track-view-button").focus();
+    if (focusTarget) $(`#${focusTarget}`).focus();
+    else if (workspaceHidden) $("#show-workspace-button").focus();
+    else if (trackViewHidden) $("#show-track-view-button").focus();
   }
 
   function setWorkspaceRatio(ratio) {
@@ -15234,9 +15266,10 @@
     bindDjEvents();
     $("#add-effects-track").addEventListener("click", createEffectTrack);
     $("#hide-workspace-button").addEventListener("click", () => setViewVisibility(true, false));
-    $("#show-workspace-button").addEventListener("click", () => setViewVisibility(false, false));
+    $("#show-workspace-button").addEventListener("click", () => setViewVisibility(false, false, "hide-workspace-button"));
     $("#hide-track-view-button").addEventListener("click", () => setViewVisibility(false, true));
-    $("#show-track-view-button").addEventListener("click", () => setViewVisibility(false, false));
+    $("#show-track-view-button").addEventListener("click", () => setViewVisibility(false, false, "hide-track-view-button"));
+    $("#workspace-fullscreen-button").addEventListener("click", toggleWorkspaceFullscreen);
     const viewResizer = $("#view-resizer");
     viewResizer.addEventListener("pointerdown", (event) => {
       if (event.button !== 0) return;
@@ -15318,6 +15351,9 @@
     });
     $("#piano-note-context-menu").addEventListener("input", updatePianoNoteContext);
     $("#piano-note-context-close").addEventListener("click", closePianoNoteContextMenu);
+    $("#piano-roll-toolbar").addEventListener("keydown", (event) => {
+      if (event.key.startsWith("Arrow")) event.stopPropagation();
+    });
     document.addEventListener("pointerdown", (event) => {
       const menu = $("#piano-note-context-menu");
       if (!menu.hidden && !menu.contains(event.target)) closePianoNoteContextMenu();

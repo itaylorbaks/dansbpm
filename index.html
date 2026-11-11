@@ -158,6 +158,7 @@
                     <span>WORKSPACE</span>
                     <div class="view-panel-actions">
                       <button class="quiet-button" id="show-track-view-button" type="button" hidden>Show Track View</button>
+                      <button class="quiet-button" id="workspace-fullscreen-button" type="button" aria-label="Expand workspace to fullscreen" aria-controls="workspace-area" aria-pressed="false">Expand</button>
                       <button class="quiet-button" id="hide-workspace-button" type="button">Hide</button>
                     </div>
                   </div>
@@ -234,7 +235,7 @@
                       </div>
                     </section>
                     <section class="piano-roll-view" id="piano-roll-view" role="tabpanel" aria-labelledby="piano-roll-tab" hidden>
-                      <div class="piano-roll-toolbar">
+                      <div class="piano-roll-toolbar" id="piano-roll-toolbar" role="region" aria-label="Piano roll tools; scroll horizontally for more controls" tabindex="0">
                         <div class="piano-roll-context" id="step-piano-context" hidden>
                           <span id="step-piano-context-label"></span>
                           <button class="quiet-button" id="step-piano-return" type="button">Back to Step</button>
@@ -551,6 +552,7 @@
                     <span>TRACK VIEW</span>
                     <div class="track-view-controls">
                       <button class="quiet-button" id="show-workspace-button" type="button" hidden>Show Workspace</button>
+                      <button class="quiet-button" id="hide-track-view-button" type="button">Hide</button>
                       <button class="quiet-button" id="arrangement-snap-button" type="button" aria-pressed="true" title="Snap the playhead and clips to quarter-note beats">SNAP ON</button>
                       <button class="quiet-button loop-toggle-button" id="arrangement-loop-button" type="button" aria-pressed="false">LOOP OFF</button>
                       <label class="scale-control">
@@ -560,7 +562,6 @@
                       </label>
                       <span class="arrangement-bar-label" id="arrangement-bar-label">32 BARS</span>
                       <button class="quiet-button" id="add-bars-button" type="button">+ 4 BARS</button>
-                      <button class="quiet-button" id="hide-track-view-button" type="button">Hide</button>
                     </div>
                   </div>
                   <div class="arrangement-editor" id="arrangement-editor">

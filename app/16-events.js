@@ -100,9 +100,10 @@
     bindDjEvents();
     $("#add-effects-track").addEventListener("click", createEffectTrack);
     $("#hide-workspace-button").addEventListener("click", () => setViewVisibility(true, false));
-    $("#show-workspace-button").addEventListener("click", () => setViewVisibility(false, false));
+    $("#show-workspace-button").addEventListener("click", () => setViewVisibility(false, false, "hide-workspace-button"));
     $("#hide-track-view-button").addEventListener("click", () => setViewVisibility(false, true));
-    $("#show-track-view-button").addEventListener("click", () => setViewVisibility(false, false));
+    $("#show-track-view-button").addEventListener("click", () => setViewVisibility(false, false, "hide-track-view-button"));
+    $("#workspace-fullscreen-button").addEventListener("click", toggleWorkspaceFullscreen);
     const viewResizer = $("#view-resizer");
     viewResizer.addEventListener("pointerdown", (event) => {
       if (event.button !== 0) return;
@@ -184,6 +185,9 @@
     });
     $("#piano-note-context-menu").addEventListener("input", updatePianoNoteContext);
     $("#piano-note-context-close").addEventListener("click", closePianoNoteContextMenu);
+    $("#piano-roll-toolbar").addEventListener("keydown", (event) => {
+      if (event.key.startsWith("Arrow")) event.stopPropagation();
+    });
     document.addEventListener("pointerdown", (event) => {
       const menu = $("#piano-note-context-menu");
       if (!menu.hidden && !menu.contains(event.target)) closePianoNoteContextMenu();
