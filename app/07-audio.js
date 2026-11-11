@@ -1417,6 +1417,8 @@
     const menu = $("#arrangement-track-context-menu");
     menu.hidden = true;
     delete menu.dataset.trackId;
+    $("#arrangement-audio-piano-options").replaceChildren();
+    $("#arrangement-audio-piano-options").hidden = true;
   }
 
   function openArrangementTrackContextMenu(event) {
@@ -1427,6 +1429,25 @@
     }
     event.preventDefault();
     const menu = $("#arrangement-track-context-menu");
+    const audioOptions = $("#arrangement-audio-piano-options");
+    audioOptions.replaceChildren();
+    const audioTrack = state.arrangementTracks.find((track) => track.id === trackId);
+    const targetedClipId = event.target instanceof Element
+      ? event.target.closest(".audio-clip")?.dataset.clipId
+      : null;
+    const clips = audioTrack
+      ? audioTrack.clips.filter((clip) => !targetedClipId || clip.id === targetedClipId)
+      : [];
+    clips.forEach((clip) => {
+      const option = document.createElement("button");
+      option.type = "button";
+      option.setAttribute("role", "menuitem");
+      option.dataset.clipId = clip.id;
+      option.textContent = `Open ${clip.name} in Audio Pitch`;
+      option.title = `Transcribe and edit ${clip.name} in the Piano Roll`;
+      audioOptions.append(option);
+    });
+    audioOptions.hidden = clips.length === 0;
     menu.dataset.trackId = trackId;
     menu.hidden = false;
     menu.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - menu.offsetWidth - 8))}px`;

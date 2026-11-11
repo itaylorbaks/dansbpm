@@ -124,7 +124,11 @@
     if (!sourceDuration) return;
     const rootMidi = Number.isInteger(audioSlice.rootMidi) ? audioSlice.rootMidi : 60;
     const detune = Number.isFinite(noteOptions.detune) ? noteOptions.detune : 0;
-    const rate = Math.pow(2, (midi - rootMidi + detune / 100) / 12);
+    const tempoRatio = getAudioClipTempoRatio(clip);
+    const keyShiftSemitones = Number.isFinite(clip.audioAdjustment?.keyShiftSemitones)
+      ? clip.audioAdjustment.keyShiftSemitones : 0;
+    const rate = tempoRatio * Math.pow(2,
+      (midi - rootMidi + keyShiftSemitones + detune / 100) / 12);
     const pitchEdited = audioSlice.pitchEdited === true;
     const requestedOutputDuration = Math.max(0.005, duration);
     const bufferDuration = pitchEdited
@@ -147,8 +151,18 @@
     envelope.gain.linearRampToValueAtTime(velocity, time + attack);
     if (fadeStart > attack) envelope.gain.setValueAtTime(velocity, time + fadeStart);
     envelope.gain.linearRampToValueAtTime(0.0001, time + outputDuration);
-    source.connect(envelope);
+    let pitchNode = null;
+    const pitchCorrection = -12 * Math.log2(tempoRatio);
+    if (Math.abs(pitchCorrection) >= 0.001 && state.masterPitchSupported !== false) {
+      pitchNode = new window.AudioWorkletNode(state.audioContext, "dansbpm-master-pitch");
+      pitchNode.parameters.get("semitones").setValueAtTime(pitchCorrection, time);
+      source.connect(pitchNode);
+      pitchNode.connect(envelope);
+    } else {
+      source.connect(envelope);
+    }
     envelope.connect(outputNode);
+    source.onended = () => pitchNode?.disconnect();
     source.start(time, offset, bufferDuration);
   }
 

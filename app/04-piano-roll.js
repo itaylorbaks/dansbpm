@@ -789,6 +789,7 @@
     state.pianoRollAudioClipId = clip.id;
     const mode = $("#piano-audio-mode-select").value === "audio" ? "audio" : "instrument";
     try {
+      const tempoRatio = getAudioClipTempoRatio(clip);
       const detectedNotes = estimateAudioPitchNotes(clip.buffer, clip.sourceOffsetSeconds || 0,
         clip.durationSeconds ?? clip.buffer.duration);
       const secondsPerBar = 240 / state.bpm;
@@ -797,7 +798,7 @@
         clip.buffer.duration - (clip.sourceOffsetSeconds || 0),
         clip.durationSeconds ?? clip.buffer.duration,
       ));
-      const analyzedDuration = Math.min(clipSourceDuration, secondsPerBar * 8);
+      const analyzedDuration = Math.min(clipSourceDuration, secondsPerBar * 8 * tempoRatio);
       const sourceNotes = mode === "audio"
         ? getAudioPitchEditSegments(detectedNotes, analyzedDuration)
         : detectedNotes.map((note) => ({
@@ -808,7 +809,7 @@
         }));
       const notes = sourceNotes
         .map((note) => {
-          const startTick = note.startSeconds / secondsPerBar * PIANO_TICKS_PER_BAR;
+          const startTick = note.startSeconds / tempoRatio / secondsPerBar * PIANO_TICKS_PER_BAR;
           if (startTick >= maxTicks) return null;
           const midi = Math.max(PIANO_BOTTOM_MIDI, Math.min(PIANO_TOP_MIDI, note.midi));
           const startSeconds = Math.max(0, note.startSeconds);
@@ -819,7 +820,7 @@
             midi,
             startTick: Math.max(0, startTick),
             durationTicks: Math.max(0.5, Math.min(maxTicks - startTick,
-              (endSeconds - startSeconds) / secondsPerBar * PIANO_TICKS_PER_BAR)),
+              (endSeconds - startSeconds) / tempoRatio / secondsPerBar * PIANO_TICKS_PER_BAR)),
             velocity: note.velocity,
             ...(mode === "audio" ? {
               audioSlice: {
@@ -836,7 +837,7 @@
         })
         .filter(Boolean)
         .slice(0, 4096);
-      const clipDurationBars = clipSourceDuration / secondsPerBar;
+      const clipDurationBars = clipSourceDuration / tempoRatio / secondsPerBar;
       const bars = [1, 2, 4, 8].find((bar) => bar * PIANO_TICKS_PER_BAR >=
         Math.min(maxTicks, clipDurationBars * PIANO_TICKS_PER_BAR)) || 8;
       const name = clip.name.replace(/\.[^.]+$/, "").trim() || "Audio transcription";
@@ -864,14 +865,54 @@
           ? `Kept the original audio, but found no stable pitches to edit in ${clip.name}.`
           : "No stable pitches were detected; use the waveform as a reference for manual note entry.");
       } else {
-        const analysisLimit = clipSourceDuration > secondsPerBar * 8 ? " Only the first 8 bars were analyzed." : "";
+        const analysisLimit = clipSourceDuration > secondsPerBar * 8 * tempoRatio
+          ? " Only the first 8 bars were analyzed." : "";
         const noteType = mode === "audio"
           ? "audio-backed segments; drag pitched notes to tune them" : "editable instrument notes";
         showToast(`Created ${notes.length} ${noteType} from ${clip.name}.${analysisLimit}`);
       }
+      return mel;
     } catch (error) {
       showToast(`Could not transcribe ${clip.name}: ${error.message || "unknown error"}`);
+      return null;
     }
+  }
+
+  async function openAudioClipInPianoRoll(trackId, clipId) {
+    if (state.stepPianoEditContext) {
+      showToast("Return to the Piano Roll before editing an audio segment.");
+      return;
+    }
+    const track = state.arrangementTracks.find((item) => item.id === trackId);
+    const clip = track?.clips.find((item) => item.id === clipId);
+    if (!clip?.buffer) {
+      showToast("That audio segment is no longer available.");
+      return;
+    }
+
+    captureCurrentMel();
+    stopAllWorkspacePlayers();
+    const linkedMel = state.mels.slice().reverse().find((mel) => mel.audioSourceClipId === clip.id);
+    if (linkedMel) {
+      loadMel(linkedMel.id);
+    } else {
+      state.pianoRollAudioClipId = clip.id;
+    }
+    setWorkspaceView("piano-roll", true);
+    $("#piano-audio-mode-select").value = "audio";
+    const audioOptions = $("#piano-toolbar-audio-options");
+    const audioToggle = document.querySelector('[aria-controls="piano-toolbar-audio-options"]');
+    audioOptions.hidden = false;
+    audioToggle?.setAttribute("aria-expanded", "true");
+    if (audioToggle) audioToggle.title = "Collapse Audio options";
+    if (linkedMel) {
+      renderMelOptions();
+      renderPianoInstrumentOptions();
+      renderPianoRoll();
+      saveState();
+      return;
+    }
+    await transcribeAudioClipToPianoRoll(clip);
   }
 
   function updatePianoRulerViewport() {

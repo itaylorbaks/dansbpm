@@ -2202,6 +2202,7 @@
     state.pianoRollAudioClipId = clip.id;
     const mode = $("#piano-audio-mode-select").value === "audio" ? "audio" : "instrument";
     try {
+      const tempoRatio = getAudioClipTempoRatio(clip);
       const detectedNotes = estimateAudioPitchNotes(clip.buffer, clip.sourceOffsetSeconds || 0,
         clip.durationSeconds ?? clip.buffer.duration);
       const secondsPerBar = 240 / state.bpm;
@@ -2210,7 +2211,7 @@
         clip.buffer.duration - (clip.sourceOffsetSeconds || 0),
         clip.durationSeconds ?? clip.buffer.duration,
       ));
-      const analyzedDuration = Math.min(clipSourceDuration, secondsPerBar * 8);
+      const analyzedDuration = Math.min(clipSourceDuration, secondsPerBar * 8 * tempoRatio);
       const sourceNotes = mode === "audio"
         ? getAudioPitchEditSegments(detectedNotes, analyzedDuration)
         : detectedNotes.map((note) => ({
@@ -2221,7 +2222,7 @@
         }));
       const notes = sourceNotes
         .map((note) => {
-          const startTick = note.startSeconds / secondsPerBar * PIANO_TICKS_PER_BAR;
+          const startTick = note.startSeconds / tempoRatio / secondsPerBar * PIANO_TICKS_PER_BAR;
           if (startTick >= maxTicks) return null;
           const midi = Math.max(PIANO_BOTTOM_MIDI, Math.min(PIANO_TOP_MIDI, note.midi));
           const startSeconds = Math.max(0, note.startSeconds);
@@ -2232,7 +2233,7 @@
             midi,
             startTick: Math.max(0, startTick),
             durationTicks: Math.max(0.5, Math.min(maxTicks - startTick,
-              (endSeconds - startSeconds) / secondsPerBar * PIANO_TICKS_PER_BAR)),
+              (endSeconds - startSeconds) / tempoRatio / secondsPerBar * PIANO_TICKS_PER_BAR)),
             velocity: note.velocity,
             ...(mode === "audio" ? {
               audioSlice: {
@@ -2249,7 +2250,7 @@
         })
         .filter(Boolean)
         .slice(0, 4096);
-      const clipDurationBars = clipSourceDuration / secondsPerBar;
+      const clipDurationBars = clipSourceDuration / tempoRatio / secondsPerBar;
       const bars = [1, 2, 4, 8].find((bar) => bar * PIANO_TICKS_PER_BAR >=
         Math.min(maxTicks, clipDurationBars * PIANO_TICKS_PER_BAR)) || 8;
       const name = clip.name.replace(/\.[^.]+$/, "").trim() || "Audio transcription";
@@ -2277,14 +2278,54 @@
           ? `Kept the original audio, but found no stable pitches to edit in ${clip.name}.`
           : "No stable pitches were detected; use the waveform as a reference for manual note entry.");
       } else {
-        const analysisLimit = clipSourceDuration > secondsPerBar * 8 ? " Only the first 8 bars were analyzed." : "";
+        const analysisLimit = clipSourceDuration > secondsPerBar * 8 * tempoRatio
+          ? " Only the first 8 bars were analyzed." : "";
         const noteType = mode === "audio"
           ? "audio-backed segments; drag pitched notes to tune them" : "editable instrument notes";
         showToast(`Created ${notes.length} ${noteType} from ${clip.name}.${analysisLimit}`);
       }
+      return mel;
     } catch (error) {
       showToast(`Could not transcribe ${clip.name}: ${error.message || "unknown error"}`);
+      return null;
     }
+  }
+
+  async function openAudioClipInPianoRoll(trackId, clipId) {
+    if (state.stepPianoEditContext) {
+      showToast("Return to the Piano Roll before editing an audio segment.");
+      return;
+    }
+    const track = state.arrangementTracks.find((item) => item.id === trackId);
+    const clip = track?.clips.find((item) => item.id === clipId);
+    if (!clip?.buffer) {
+      showToast("That audio segment is no longer available.");
+      return;
+    }
+
+    captureCurrentMel();
+    stopAllWorkspacePlayers();
+    const linkedMel = state.mels.slice().reverse().find((mel) => mel.audioSourceClipId === clip.id);
+    if (linkedMel) {
+      loadMel(linkedMel.id);
+    } else {
+      state.pianoRollAudioClipId = clip.id;
+    }
+    setWorkspaceView("piano-roll", true);
+    $("#piano-audio-mode-select").value = "audio";
+    const audioOptions = $("#piano-toolbar-audio-options");
+    const audioToggle = document.querySelector('[aria-controls="piano-toolbar-audio-options"]');
+    audioOptions.hidden = false;
+    audioToggle?.setAttribute("aria-expanded", "true");
+    if (audioToggle) audioToggle.title = "Collapse Audio options";
+    if (linkedMel) {
+      renderMelOptions();
+      renderPianoInstrumentOptions();
+      renderPianoRoll();
+      saveState();
+      return;
+    }
+    await transcribeAudioClipToPianoRoll(clip);
   }
 
   function updatePianoRulerViewport() {
@@ -9283,6 +9324,8 @@
     const menu = $("#arrangement-track-context-menu");
     menu.hidden = true;
     delete menu.dataset.trackId;
+    $("#arrangement-audio-piano-options").replaceChildren();
+    $("#arrangement-audio-piano-options").hidden = true;
   }
 
   function openArrangementTrackContextMenu(event) {
@@ -9293,6 +9336,25 @@
     }
     event.preventDefault();
     const menu = $("#arrangement-track-context-menu");
+    const audioOptions = $("#arrangement-audio-piano-options");
+    audioOptions.replaceChildren();
+    const audioTrack = state.arrangementTracks.find((track) => track.id === trackId);
+    const targetedClipId = event.target instanceof Element
+      ? event.target.closest(".audio-clip")?.dataset.clipId
+      : null;
+    const clips = audioTrack
+      ? audioTrack.clips.filter((clip) => !targetedClipId || clip.id === targetedClipId)
+      : [];
+    clips.forEach((clip) => {
+      const option = document.createElement("button");
+      option.type = "button";
+      option.setAttribute("role", "menuitem");
+      option.dataset.clipId = clip.id;
+      option.textContent = `Open ${clip.name} in Audio Pitch`;
+      option.title = `Transcribe and edit ${clip.name} in the Piano Roll`;
+      audioOptions.append(option);
+    });
+    audioOptions.hidden = clips.length === 0;
     menu.dataset.trackId = trackId;
     menu.hidden = false;
     menu.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - menu.offsetWidth - 8))}px`;
@@ -11851,8 +11913,10 @@
   function createAudioClip(track, clip) {
     const element = document.createElement("div");
     const durationBars = getArrangementClipDuration("audio", clip);
+    const editedMel = state.mels.slice().reverse().find((mel) => mel.audioSourceClipId === clip.id);
     element.className = "audio-clip";
     element.classList.toggle("is-reversed", clip.reversed === true);
+    element.classList.toggle("has-audio-pitch-mel", Boolean(editedMel));
     element.draggable = true;
     element.dataset.clipId = clip.id;
     element.dataset.selectableType = "audio";
@@ -11867,7 +11931,7 @@
         clip.audioAdjustment.targetBpm ? `${clip.audioAdjustment.targetBpm} BPM` : null,
       ].filter(Boolean).join(" and ")}`
       : "";
-    element.title = `${clip.name} · ${metadataLabel}${adjustmentLabel}`;
+    element.title = `${clip.name} · ${metadataLabel}${adjustmentLabel}${editedMel ? ` · Piano Roll Mel: ${editedMel.name}` : ""}`;
     element.setAttribute("aria-label", `${clip.name}, ${metadataLabel}, bar ${clip.startBar + 1}, ${durationBars.toFixed(2)} bars; drag to move or resize`);
 
     const waveform = document.createElement("canvas");
@@ -11880,6 +11944,9 @@
     const reverseBadge = document.createElement("span");
     reverseBadge.className = "audio-clip-reverse-badge";
     reverseBadge.textContent = "REV";
+    const melBadge = document.createElement("span");
+    melBadge.className = "audio-clip-mel-badge";
+    melBadge.textContent = "MEL";
     element.style.setProperty("--pattern-color", track.color);
     const startHandle = makeAudioClipStartTrimHandle(track, clip, element);
     const repeatHandle = makeArrangementResizeHandle("audio", clip, track, element, name, "repeat");
@@ -11909,6 +11976,7 @@
     });
     element.append(waveform, name, startHandle);
     if (clip.reversed) element.append(reverseBadge);
+    if (editedMel) element.append(melBadge);
     element.append(repeatHandle, resizeHandle);
     return element;
   }
@@ -13545,7 +13613,11 @@
     if (!sourceDuration) return;
     const rootMidi = Number.isInteger(audioSlice.rootMidi) ? audioSlice.rootMidi : 60;
     const detune = Number.isFinite(noteOptions.detune) ? noteOptions.detune : 0;
-    const rate = Math.pow(2, (midi - rootMidi + detune / 100) / 12);
+    const tempoRatio = getAudioClipTempoRatio(clip);
+    const keyShiftSemitones = Number.isFinite(clip.audioAdjustment?.keyShiftSemitones)
+      ? clip.audioAdjustment.keyShiftSemitones : 0;
+    const rate = tempoRatio * Math.pow(2,
+      (midi - rootMidi + keyShiftSemitones + detune / 100) / 12);
     const pitchEdited = audioSlice.pitchEdited === true;
     const requestedOutputDuration = Math.max(0.005, duration);
     const bufferDuration = pitchEdited
@@ -13568,8 +13640,18 @@
     envelope.gain.linearRampToValueAtTime(velocity, time + attack);
     if (fadeStart > attack) envelope.gain.setValueAtTime(velocity, time + fadeStart);
     envelope.gain.linearRampToValueAtTime(0.0001, time + outputDuration);
-    source.connect(envelope);
+    let pitchNode = null;
+    const pitchCorrection = -12 * Math.log2(tempoRatio);
+    if (Math.abs(pitchCorrection) >= 0.001 && state.masterPitchSupported !== false) {
+      pitchNode = new window.AudioWorkletNode(state.audioContext, "dansbpm-master-pitch");
+      pitchNode.parameters.get("semitones").setValueAtTime(pitchCorrection, time);
+      source.connect(pitchNode);
+      pitchNode.connect(envelope);
+    } else {
+      source.connect(envelope);
+    }
     envelope.connect(outputNode);
+    source.onended = () => pitchNode?.disconnect();
     source.start(time, offset, bufferDuration);
   }
 
@@ -17744,6 +17826,14 @@
       saveState();
       Array.from($("#arrangement-track-labels").querySelectorAll(".arrangement-label")).find((label) =>
         label.dataset.trackId === track.id)?.scrollIntoView({ block: "nearest" });
+    });
+    $("#arrangement-audio-piano-options").addEventListener("click", (event) => {
+      const option = event.target instanceof Element ? event.target.closest("button[data-clip-id]") : null;
+      const trackId = $("#arrangement-track-context-menu").dataset.trackId;
+      if (!option || !trackId) return;
+      const clipId = option.dataset.clipId;
+      closeArrangementTrackContextMenu();
+      void openAudioClipInPianoRoll(trackId, clipId);
     });
     $("#timeline-content").addEventListener("pointerdown", startArrangementSelection);
     $("#timeline-content").addEventListener("click", (event) => {

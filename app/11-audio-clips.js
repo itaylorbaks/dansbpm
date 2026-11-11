@@ -184,8 +184,10 @@
   function createAudioClip(track, clip) {
     const element = document.createElement("div");
     const durationBars = getArrangementClipDuration("audio", clip);
+    const editedMel = state.mels.slice().reverse().find((mel) => mel.audioSourceClipId === clip.id);
     element.className = "audio-clip";
     element.classList.toggle("is-reversed", clip.reversed === true);
+    element.classList.toggle("has-audio-pitch-mel", Boolean(editedMel));
     element.draggable = true;
     element.dataset.clipId = clip.id;
     element.dataset.selectableType = "audio";
@@ -200,7 +202,7 @@
         clip.audioAdjustment.targetBpm ? `${clip.audioAdjustment.targetBpm} BPM` : null,
       ].filter(Boolean).join(" and ")}`
       : "";
-    element.title = `${clip.name} · ${metadataLabel}${adjustmentLabel}`;
+    element.title = `${clip.name} · ${metadataLabel}${adjustmentLabel}${editedMel ? ` · Piano Roll Mel: ${editedMel.name}` : ""}`;
     element.setAttribute("aria-label", `${clip.name}, ${metadataLabel}, bar ${clip.startBar + 1}, ${durationBars.toFixed(2)} bars; drag to move or resize`);
 
     const waveform = document.createElement("canvas");
@@ -213,6 +215,9 @@
     const reverseBadge = document.createElement("span");
     reverseBadge.className = "audio-clip-reverse-badge";
     reverseBadge.textContent = "REV";
+    const melBadge = document.createElement("span");
+    melBadge.className = "audio-clip-mel-badge";
+    melBadge.textContent = "MEL";
     element.style.setProperty("--pattern-color", track.color);
     const startHandle = makeAudioClipStartTrimHandle(track, clip, element);
     const repeatHandle = makeArrangementResizeHandle("audio", clip, track, element, name, "repeat");
@@ -242,6 +247,7 @@
     });
     element.append(waveform, name, startHandle);
     if (clip.reversed) element.append(reverseBadge);
+    if (editedMel) element.append(melBadge);
     element.append(repeatHandle, resizeHandle);
     return element;
   }

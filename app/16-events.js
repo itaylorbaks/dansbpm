@@ -328,6 +328,14 @@
       Array.from($("#arrangement-track-labels").querySelectorAll(".arrangement-label")).find((label) =>
         label.dataset.trackId === track.id)?.scrollIntoView({ block: "nearest" });
     });
+    $("#arrangement-audio-piano-options").addEventListener("click", (event) => {
+      const option = event.target instanceof Element ? event.target.closest("button[data-clip-id]") : null;
+      const trackId = $("#arrangement-track-context-menu").dataset.trackId;
+      if (!option || !trackId) return;
+      const clipId = option.dataset.clipId;
+      closeArrangementTrackContextMenu();
+      void openAudioClipInPianoRoll(trackId, clipId);
+    });
     $("#timeline-content").addEventListener("pointerdown", startArrangementSelection);
     $("#timeline-content").addEventListener("click", (event) => {
       const ruler = event.target.closest(".timeline-ruler");

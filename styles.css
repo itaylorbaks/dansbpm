@@ -473,6 +473,7 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .arrangement-track-context-menu[hidden] { display: none; }
 .arrangement-track-context-menu button { width: 100%; border: 0; border-radius: 4px; background: transparent; padding: 8px 10px; color: #d7d8d4; font-size: 10px; text-align: left; cursor: pointer; }
 .arrangement-track-context-menu button:hover, .arrangement-track-context-menu button:focus-visible { outline: none; background: #303136; }
+.arrangement-audio-piano-options { max-height: min(45vh, 360px); overflow-y: auto; }
 .track-browser-button { height: 30px; flex: 0 0 30px; margin: 9px 10px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 .timeline-scroll { overflow: auto; overscroll-behavior: contain; scrollbar-color: #45464a #1b1c1f; scrollbar-width: thin; }
@@ -525,6 +526,7 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .audio-clip:active { cursor: grabbing; }
 .clip-name { position: relative; z-index: 1; overflow: hidden; max-width: calc(100% - 24px); text-shadow: 0 1px 5px #000; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; font-weight: 600; }
 .audio-clip-reverse-badge { position: relative; z-index: 1; flex: 0 0 auto; margin-left: 5px; border: 1px solid #d3f36b88; border-radius: 3px; background: #1b1c1f99; padding: 1px 3px; color: var(--accent); font-family: var(--mono); font-size: 7px; }
+.audio-clip-mel-badge { position: absolute; z-index: 2; top: 3px; right: 6px; border: 1px solid #b5a0ff88; border-radius: 3px; background: #1b1c1fdd; padding: 1px 3px; color: #c9bcff; font-family: var(--mono); font-size: 7px; }
 .audio-clip .clip-resize-handle { color: var(--clip-color); }
 .audio-clip .clip-start-handle { top: 25%; right: auto; left: 0; border-right: 0; border-left: 2px solid currentColor; }
 .audio-clip-edit-dialog { width: min(360px, calc(100vw - 28px)); border: 1px solid #3a3b40; border-radius: 10px; background: #1b1c1f; padding: 18px; color: var(--text); box-shadow: 0 20px 60px #0009; }
