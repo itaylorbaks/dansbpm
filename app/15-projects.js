@@ -16,22 +16,28 @@
   }
 
   function renameProject() {
-    const name = window.prompt("Rename project", state.projectName);
+    const project = state.projects.find((item) =>
+      item.id === selectedProjectId && item.ownerId === state.currentUser);
+    if (!project) return;
+    const name = window.prompt("Rename project", project.name);
     const trimmed = name?.trim();
     if (!trimmed) return;
-    const project = state.projects.find((item) => item.id === state.projectId);
-    if (!project) return;
     const previousName = project.name;
     project.name = trimmed;
-    state.projectName = trimmed;
-    updateProjectNameLabel();
+    const isCurrentProject = project.id === state.projectId;
+    if (isCurrentProject) {
+      state.projectName = trimmed;
+      updateProjectNameLabel();
+    }
     try {
       writeProjectCatalog();
       renderProjectList();
     } catch (error) {
       project.name = previousName;
-      state.projectName = previousName;
-      updateProjectNameLabel();
+      if (isCurrentProject) {
+        state.projectName = previousName;
+        updateProjectNameLabel();
+      }
       showToast(`Could not rename project: ${error.message || "storage is unavailable"}`);
     }
   }
@@ -103,7 +109,9 @@
       };
       request.onsuccess = () => {
         try {
-          request.result.filter((record) => record.projectId === projectId).forEach((record) => store.delete(record.id));
+          request.result
+            .filter((record) => record.projectId === projectId || (!record.projectId && projectId === "default"))
+            .forEach((record) => store.delete(record.id));
           assets.forEach(({ metadata, blob }) => {
             store.put({
               ...metadata,

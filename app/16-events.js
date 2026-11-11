@@ -519,6 +519,8 @@
     });
     $("#project-dialog-close").addEventListener("click", () => $("#project-dialog").close());
     $("#save-project-button").addEventListener("click", saveProjectNow);
+    $("#enter-project-button").addEventListener("click", enterSelectedProject);
+    $("#delete-project-button").addEventListener("click", () => { void deleteSelectedProject(); });
     $("#top-save-project-button").addEventListener("click", saveProjectNow);
     $("#rename-project-button").addEventListener("click", renameProject);
     $("#new-project-button").addEventListener("click", createProject);

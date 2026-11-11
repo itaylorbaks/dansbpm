@@ -13506,6 +13506,7 @@
   }
 
   let collaborationLeaveTimeout = null;
+  let selectedProjectId = null;
 
   function renderCollaborationStatus(message = "Not connected") {
     const status = $("#collaboration-status");
@@ -14740,12 +14741,16 @@
 
   function renderProjectList() {
     const list = $("#project-list");
+    const projects = getCurrentUserProjects();
+    if (!projects.some((project) => project.id === selectedProjectId)) {
+      selectedProjectId = state.projectId;
+    }
     list.replaceChildren();
-    getCurrentUserProjects().forEach((project) => {
+    projects.forEach((project) => {
       const button = document.createElement("button");
-      button.className = `project-list-item${project.id === state.projectId ? " is-current" : ""}`;
+      button.className = `project-list-item${project.id === state.projectId ? " is-current" : ""}${project.id === selectedProjectId ? " is-selected" : ""}`;
       button.type = "button";
-      button.disabled = project.id === state.projectId;
+      button.setAttribute("aria-pressed", String(project.id === selectedProjectId));
       const name = document.createElement("span");
       name.className = "project-list-name";
       name.textContent = project.name;
@@ -14755,9 +14760,113 @@
         ? "CURRENT PROJECT"
         : project.updatedAt ? `SAVED ${new Date(project.updatedAt).toLocaleDateString()}` : "NOT SAVED YET";
       button.append(name, detail);
-      button.addEventListener("click", () => switchProject(project.id));
+      button.addEventListener("click", () => {
+        selectedProjectId = project.id;
+        renderProjectList();
+      });
       list.append(button);
     });
+    const selectedProject = projects.find((project) => project.id === selectedProjectId);
+    $("#enter-project-button").disabled = !selectedProject || selectedProject.id === state.projectId;
+    $("#delete-project-button").disabled = !selectedProject;
+    $("#delete-project-button").title = "Permanently delete the selected project and its saved audio.";
+  }
+
+  function enterSelectedProject() {
+    if (selectedProjectId) switchProject(selectedProjectId);
+  }
+
+  async function deleteSelectedProject() {
+    const project = state.projects.find((item) =>
+      item.id === selectedProjectId && item.ownerId === state.currentUser);
+    if (!project) return;
+    const isCurrentProject = project.id === state.projectId;
+    if (isCurrentProject && state.mediaRecorder?.state === "recording") {
+      showToast("Stop audio recording before deleting the current project.");
+      return;
+    }
+    if (isCurrentProject && collaboration.session) {
+      showToast("Leave the collaboration room before deleting the current project.");
+      return;
+    }
+    if (!window.confirm(`Permanently delete "${project.name}" and its saved audio?`)) return;
+    if (isCurrentProject && !flushSaveState()) {
+      showToast("Could not save this project; deletion was cancelled.");
+      return;
+    }
+
+    const snapshotKey = getProjectStorageKey(project.id);
+    const djKey = `${snapshotKey}:dj`;
+    const legacySnapshotKey = project.id === "default" ? STORAGE_KEY : null;
+    const legacyNameKey = project.id === "default" ? `${STORAGE_KEY}-name` : null;
+    const previousProjects = state.projects;
+    const previousActiveProjectIds = { ...state.activeProjectIds };
+    const previousProjectId = state.projectId;
+    const previousProjectName = state.projectName;
+    const previousSelectedProjectId = selectedProjectId;
+    let projectSnapshot = null;
+    let djSnapshot = null;
+    let legacySnapshot = null;
+    let legacyName = null;
+    try {
+      projectSnapshot = window.localStorage.getItem(snapshotKey);
+      djSnapshot = window.localStorage.getItem(djKey);
+      if (legacySnapshotKey) legacySnapshot = window.localStorage.getItem(legacySnapshotKey);
+      if (legacyNameKey) legacyName = window.localStorage.getItem(legacyNameKey);
+      if (isCurrentProject) {
+        let replacement = getCurrentUserProjects().find((item) => item.id !== project.id);
+        if (!replacement) {
+          replacement = {
+            id: makeId(),
+            name: "Untitled session",
+            ownerId: state.currentUser,
+            updatedAt: Date.now(),
+          };
+          state.projects.unshift(replacement);
+        }
+        state.projectId = replacement.id;
+        state.projectName = replacement.name;
+        state.activeProjectIds = { ...state.activeProjectIds, [state.currentUser]: replacement.id };
+        selectedProjectId = replacement.id;
+        updateProjectNameLabel();
+      }
+      state.projects = state.projects.filter((item) => item.id !== project.id);
+      window.localStorage.removeItem(snapshotKey);
+      window.localStorage.removeItem(djKey);
+      if (legacySnapshotKey) window.localStorage.removeItem(legacySnapshotKey);
+      if (legacyNameKey) window.localStorage.removeItem(legacyNameKey);
+      writeProjectCatalog();
+      await replaceProjectRecordingAssets(project.id, []);
+      if (isCurrentProject) {
+        if (state.isPlaying) stopPlayback();
+        stopAllWorkspacePlayers();
+        window.location.reload();
+        return;
+      }
+      selectedProjectId = state.projectId;
+      renderProjectList();
+      showToast(`${project.name} deleted`);
+    } catch (error) {
+      state.projects = previousProjects;
+      state.projectId = previousProjectId;
+      state.projectName = previousProjectName;
+      state.activeProjectIds = previousActiveProjectIds;
+      selectedProjectId = previousSelectedProjectId;
+      updateProjectNameLabel();
+      try {
+        if (projectSnapshot !== null) window.localStorage.setItem(snapshotKey, projectSnapshot);
+        if (djSnapshot !== null) window.localStorage.setItem(djKey, djSnapshot);
+        if (legacySnapshotKey && legacySnapshot !== null) window.localStorage.setItem(legacySnapshotKey, legacySnapshot);
+        if (legacyNameKey && legacyName !== null) window.localStorage.setItem(legacyNameKey, legacyName);
+        writeProjectCatalog();
+      } catch (rollbackError) {
+        renderProjectList();
+        showToast(`Could not delete ${project.name}; rollback was incomplete: ${rollbackError.message || "browser storage is unavailable"}`);
+        return;
+      }
+      renderProjectList();
+      showToast(`Could not delete ${project.name}: ${error.message || "browser storage is unavailable"}`);
+    }
   }
 
   function switchProject(projectId) {
@@ -14832,22 +14941,28 @@
   }
 
   function renameProject() {
-    const name = window.prompt("Rename project", state.projectName);
+    const project = state.projects.find((item) =>
+      item.id === selectedProjectId && item.ownerId === state.currentUser);
+    if (!project) return;
+    const name = window.prompt("Rename project", project.name);
     const trimmed = name?.trim();
     if (!trimmed) return;
-    const project = state.projects.find((item) => item.id === state.projectId);
-    if (!project) return;
     const previousName = project.name;
     project.name = trimmed;
-    state.projectName = trimmed;
-    updateProjectNameLabel();
+    const isCurrentProject = project.id === state.projectId;
+    if (isCurrentProject) {
+      state.projectName = trimmed;
+      updateProjectNameLabel();
+    }
     try {
       writeProjectCatalog();
       renderProjectList();
     } catch (error) {
       project.name = previousName;
-      state.projectName = previousName;
-      updateProjectNameLabel();
+      if (isCurrentProject) {
+        state.projectName = previousName;
+        updateProjectNameLabel();
+      }
       showToast(`Could not rename project: ${error.message || "storage is unavailable"}`);
     }
   }
@@ -14919,7 +15034,9 @@
       };
       request.onsuccess = () => {
         try {
-          request.result.filter((record) => record.projectId === projectId).forEach((record) => store.delete(record.id));
+          request.result
+            .filter((record) => record.projectId === projectId || (!record.projectId && projectId === "default"))
+            .forEach((record) => store.delete(record.id));
           assets.forEach(({ metadata, blob }) => {
             store.put({
               ...metadata,
@@ -16738,6 +16855,8 @@
     });
     $("#project-dialog-close").addEventListener("click", () => $("#project-dialog").close());
     $("#save-project-button").addEventListener("click", saveProjectNow);
+    $("#enter-project-button").addEventListener("click", enterSelectedProject);
+    $("#delete-project-button").addEventListener("click", () => { void deleteSelectedProject(); });
     $("#top-save-project-button").addEventListener("click", saveProjectNow);
     $("#rename-project-button").addEventListener("click", renameProject);
     $("#new-project-button").addEventListener("click", createProject);

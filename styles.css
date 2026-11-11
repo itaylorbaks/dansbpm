@@ -350,7 +350,8 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .project-list { display: grid; max-height: min(400px, 52vh); gap: 6px; overflow-y: auto; }
 .project-list-item { display: flex; min-height: 46px; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid #34353a; border-radius: 6px; background: #202125; padding: 7px 10px; color: #d7d8d4; text-align: left; cursor: pointer; }
 .project-list-item:hover:not(:disabled) { border-color: #6b6d59; background: #292a2e; }
-.project-list-item.is-current { border-color: #596044; background: #252820; cursor: default; }
+.project-list-item.is-current { border-color: #596044; background: #252820; cursor: pointer; }
+.project-list-item.is-selected { outline: 1px solid var(--accent); outline-offset: 1px; }
 .project-list-name { overflow: hidden; font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .project-list-detail { flex: 0 0 auto; color: #898a90; font-family: var(--mono); font-size: 8px; }
 .login-screen { position: fixed; z-index: 10000; inset: 0; display: grid; place-items: center; overflow-y: auto; background: radial-gradient(ellipse at 50% 20%, rgba(107, 114, 75, .16), transparent 55%), #111214; padding: 24px; }
