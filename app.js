@@ -9645,18 +9645,18 @@
     }
     const clipboard = state.clipboard;
     if (expectedType === "piano-roll") {
-      const totalTicks = state.pianoBars * PIANO_TICKS_PER_BAR;
-      const offset = (clipboard.pasteCount + 1) * clipboard.span;
+      const totalTicks = getPianoLoopRange().totalBars * PIANO_TICKS_PER_BAR;
+      const pasteStartTick = Math.max(0, Math.min(totalTicks - 0.001, state.pianoCursorTick));
       const pasted = clipboard.items
         .map((note) => ({
           id: makeId(),
           trackId: state.selectedPianoTrackId,
           midi: note.midi,
-          startTick: note.startTick + offset,
-          durationTicks: Math.min(note.durationTicks, totalTicks - note.startTick - offset),
+          startTick: pasteStartTick + note.startOffset,
+          durationTicks: Math.min(note.durationTicks, totalTicks - pasteStartTick - note.startOffset),
           velocity: note.velocity,
         }))
-        .filter((note) => note.startTick < totalTicks);
+        .filter((note) => note.startTick < totalTicks && note.durationTicks > 0);
       if (!pasted.length) {
         showToast("There is no room to paste those notes in the current Piano Roll length.");
         return;
