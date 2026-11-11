@@ -5117,6 +5117,7 @@
       djState.decks[deckId].resumeArrangementBar = null;
       djState.decks[deckId].pausedViewStartBar = null;
       djState.decks[deckId].visualSegments = [];
+      updateDjDeckUI(deckId);
     });
     renderDjLiveView();
   }
@@ -5542,6 +5543,8 @@
     $(`#dj-deck-${suffix}`).classList.toggle("is-active", djState.activeDeck === deckId);
     $(`#dj-deck-${suffix}`).classList.toggle("is-playing", deck.playing);
     $(`#dj-deck-${suffix}`).classList.toggle("is-muted", deck.muted);
+    document.querySelector(`.dj-live-waveform-row[data-deck="${deckId}"]`)
+      ?.classList.toggle("is-paused", !deck.playing && Number.isFinite(deck.resumeArrangementBar));
     $(`#dj-focus-${suffix}`).setAttribute("aria-pressed", String(djState.activeDeck === deckId));
     document.querySelector(`.dj-live-waveform-row[data-deck="${deckId}"]`)
       ?.classList.toggle("is-playing", deck.playing);
@@ -6054,6 +6057,7 @@
         else djState.decks[deckId].resumeContentPosition = null;
         djState.decks[deckId].resumeArrangementBar = positionBar;
         djState.decks[deckId].pausedViewStartBar = djState.arrangementViewStartBar;
+        updateDjDeckUI(deckId);
       });
       djState.arrangementPositionBar = positionBar;
       djState.arrangementStopTime = stoppedAt;
@@ -6869,6 +6873,7 @@
         deck.pausedViewStartBar = null;
         deck.syncedStartTime = 0;
         deck.dragPreviewStartTime = null;
+        updateDjDeckUI(deckId);
         saveDjState();
         renderDjLiveView();
         if (wasPlaying) startDjDeck(deckId);

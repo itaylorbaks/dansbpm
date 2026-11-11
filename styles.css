@@ -887,6 +887,7 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .dj-arrangement-scroll output { color: #888b7b; font-size: 7px; text-align: right; white-space: nowrap; }
 .dj-live-waveform-row { position: relative; display: grid; grid-template-columns: 62px minmax(0, 1fr); align-items: center; gap: 8px; border: 1px solid #34353a; border-radius: 6px; background: #17181b; padding: 6px 8px; cursor: grab; touch-action: none; user-select: none; transition: opacity .2s ease, filter .2s ease; }
 .dj-live-waveform-row:not(.is-playing) { opacity: .78; filter: grayscale(.3); }
+.dj-live-waveform-row.is-paused { opacity: 1; filter: grayscale(1); }
 .dj-live-waveform-row.is-muted .dj-live-waveform { opacity: .28; }
 .dj-live-waveform-row.is-muted::after { position: absolute; top: 8px; right: 12px; z-index: 1; border-radius: 3px; background: #f3f5e8; padding: 2px 4px; color: #17181b; content: "MUTED"; font: 8px var(--mono); }
 .dj-live-waveform-row.is-dragging { border-color: var(--accent); cursor: grabbing; }
