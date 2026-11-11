@@ -30,37 +30,65 @@
     const context = canvas.getContext("2d");
     if (!context) return;
 
-    const samples = clip.buffer.getChannelData(0);
+    const sampleChannels = Array.from({ length: clip.buffer.numberOfChannels }, (_, index) =>
+      clip.buffer.getChannelData(index));
+    const bufferDuration = clip.buffer.duration;
+    if (!bufferDuration || !sampleChannels.length) return;
     const sourceOffset = clip.sourceOffsetSeconds || 0;
-    const playableDuration = Math.max(0, Math.min(
-      clip.buffer.duration - sourceOffset,
-      clip.durationSeconds ?? clip.buffer.duration,
+    const tempoRatio = getAudioClipTempoRatio(clip);
+    const sourcePlayableDuration = Math.max(0, Math.min(
+      clip.durationSeconds ?? bufferDuration,
+      bufferDuration * (clip.repeatCount || 1) - sourceOffset,
     ));
-    const firstSample = Math.floor(sourceOffset / clip.buffer.duration * samples.length);
-    const lastSample = Math.min(
-      samples.length,
-      firstSample + Math.floor(playableDuration / clip.buffer.duration * samples.length),
-    );
+    const playableOutputDuration = sourcePlayableDuration / tempoRatio;
+    const secondsPerBar = 240 / state.bpm;
+    const canvasScale = width / (displayWidth * pixelRatio);
     const playableWidth = Math.min(width, Math.ceil(
-      playableDuration / getAudioClipTempoRatio(clip) / (240 / state.bpm) * BAR_WIDTH * pixelRatio,
+      playableOutputDuration / secondsPerBar * BAR_WIDTH * pixelRatio * canvasScale,
     ));
+    const secondsPerPixel = secondsPerBar / (BAR_WIDTH * pixelRatio * canvasScale);
     context.strokeStyle = color;
     context.lineWidth = Math.max(1, pixelRatio * 0.65);
     context.globalAlpha = 0.88;
     const center = height / 2;
     for (let x = 0; x < playableWidth; x += 1) {
-      const sampleStart = firstSample + Math.floor(x / playableWidth * (lastSample - firstSample));
-      const sampleEnd = Math.min(lastSample, Math.max(sampleStart + 1,
-        firstSample + Math.floor((x + 1) / playableWidth * (lastSample - firstSample))));
+      let sourcePosition = sourceOffset + x * secondsPerPixel * tempoRatio;
+      const sourceEnd = Math.min(sourceOffset + sourcePlayableDuration,
+        sourceOffset + (x + 1) * secondsPerPixel * tempoRatio);
       let peak = 0;
-      for (let sample = sampleStart; sample < sampleEnd; sample += 1) {
-        peak = Math.max(peak, Math.abs(samples[sample]));
+      while (sourcePosition < sourceEnd) {
+        const offsetInBuffer = sourcePosition % bufferDuration;
+        const loopStart = sourcePosition - offsetInBuffer;
+        const segmentEnd = Math.min(sourceEnd, loopStart + bufferDuration);
+        const localStart = sourcePosition - loopStart;
+        const localEnd = segmentEnd - loopStart;
+        const sampleCount = sampleChannels[0].length;
+        const sampleStartSeconds = clip.reversed ? bufferDuration - localEnd : localStart;
+        const sampleEndSeconds = clip.reversed ? bufferDuration - localStart : localEnd;
+        const sampleStart = Math.max(0, Math.floor(sampleStartSeconds / bufferDuration * sampleCount));
+        const sampleEnd = Math.min(sampleCount, Math.max(sampleStart + 1,
+          Math.ceil(sampleEndSeconds / bufferDuration * sampleCount)));
+        for (const samples of sampleChannels) {
+          for (let sample = sampleStart; sample < sampleEnd; sample += 1) {
+            peak = Math.max(peak, Math.abs(samples[sample]));
+          }
+        }
+        sourcePosition = segmentEnd;
       }
       const amplitude = Math.max(1, peak * (height * 0.45));
       context.beginPath();
       context.moveTo(x + 0.5, center - amplitude);
       context.lineTo(x + 0.5, center + amplitude);
       context.stroke();
+    }
+    const durationBars = displayWidth / BAR_WIDTH;
+    if (durationBars > 1) {
+      const scale = width / (displayWidth * pixelRatio);
+      context.fillStyle = "rgba(255,255,255,.2)";
+      for (let bar = 1; bar < durationBars; bar += 1) {
+        const x = Math.round(bar * BAR_WIDTH * pixelRatio * scale);
+        if (x < width) context.fillRect(x, 0, Math.max(1, pixelRatio * scale), height);
+      }
     }
     context.globalAlpha = 1;
   }
@@ -206,9 +234,9 @@
     element.setAttribute("aria-label", `${clip.name}, ${metadataLabel}, bar ${clip.startBar + 1}, ${durationBars.toFixed(2)} bars; drag to move or resize`);
 
     const waveform = document.createElement("canvas");
-    waveform.className = "clip-waveform-canvas";
+    waveform.className = "clip-waveform-canvas bar-aligned-waveform";
     waveform.setAttribute("aria-hidden", "true");
-    drawAudioClipWaveform(waveform, clip, Math.max(1, clipWidth - 8), track.color);
+    drawAudioClipWaveform(waveform, clip, Math.max(1, durationBars * BAR_WIDTH), track.color);
     const name = document.createElement("span");
     name.className = "clip-name";
     name.textContent = clip.name;
@@ -273,10 +301,12 @@
     const resizeHandle = makeArrangementResizeHandle("mel", clip, track, element, name);
     updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength("mel", clip), bars, clip.sourceOffsetBars || 0);
     const waveform = makeActivityWaveform(
-      getMelActivityWaveform(mel, clip, bars, getActivityWaveformSampleCount(Math.max(1, bars * BAR_WIDTH - 16))),
+      getMelActivityWaveform(mel, clip, bars, getActivityWaveformSampleCount(Math.max(1, bars * BAR_WIDTH))),
       track.color,
-      Math.max(1, bars * BAR_WIDTH - 16),
+      Math.max(1, bars * BAR_WIDTH),
+      bars,
     );
+    waveform.classList.add("bar-aligned-waveform");
     element.addEventListener("dragstart", (event) => {
       selectArrangementTrack(track.id);
       if (!(event.shiftKey && (event.ctrlKey || event.metaKey))) selectArrangementItem("mel", clip.id, event);
@@ -322,11 +352,13 @@
     const waveform = pattern
       ? makeActivityWaveform(
         getPatternActivityWaveform(pattern, clip, totalBars,
-          getActivityWaveformSampleCount(Math.max(1, totalBars * BAR_WIDTH - 16))),
+          getActivityWaveformSampleCount(Math.max(1, totalBars * BAR_WIDTH))),
         pattern.color || "var(--accent)",
-        Math.max(1, totalBars * BAR_WIDTH - 16),
+        Math.max(1, totalBars * BAR_WIDTH),
+        totalBars,
       )
       : makeActivityWaveform([0], "#d3f36b", 1);
+    waveform.classList.add("bar-aligned-waveform");
     element.addEventListener("dragstart", (event) => {
       if (!(event.shiftKey && (event.ctrlKey || event.metaKey))) selectArrangementItem("pattern", clip.id, event);
       event.dataTransfer?.setData("application/x-pulsegrid-pattern-clip", JSON.stringify({ clipId: clip.id }));

@@ -525,6 +525,7 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .audio-clip.is-recording { cursor: default; }
 .recording-waveform { position: absolute; z-index: 0; inset: 3px 4px; width: calc(100% - 8px); height: calc(100% - 6px); opacity: .7; pointer-events: none; }
 .clip-waveform-canvas { position: absolute; z-index: 0; inset: 3px 4px; width: calc(100% - 8px); height: calc(100% - 6px); pointer-events: none; }
+.bar-aligned-waveform { left: -4px; right: auto; width: calc(100% + 8px); }
 .audio-clip:hover { filter: brightness(1.16); }
 .audio-clip:active { cursor: grabbing; }
 .clip-name { position: relative; z-index: 1; overflow: hidden; max-width: calc(100% - 24px); text-shadow: 0 1px 5px #000; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; font-weight: 600; }

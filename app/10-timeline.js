@@ -219,7 +219,7 @@
     document.addEventListener("pointercancel", finish);
   }
 
-  function makeActivityWaveform(values, color, displayWidth) {
+  function makeActivityWaveform(values, color, displayWidth, durationBars = 0) {
     const canvas = document.createElement("canvas");
     const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
     const width = Math.min(16384, Math.max(1, Math.ceil(displayWidth * pixelRatio)));
@@ -241,6 +241,14 @@
       context.moveTo(x + 0.5, center - amplitude);
       context.lineTo(x + 0.5, center + amplitude);
       context.stroke();
+    }
+    if (durationBars > 1) {
+      const scale = width / (displayWidth * pixelRatio);
+      context.fillStyle = "rgba(255,255,255,.28)";
+      for (let bar = 1; bar < durationBars; bar += 1) {
+        const x = Math.round(bar * BAR_WIDTH * pixelRatio * scale);
+        if (x < width) context.fillRect(x, 0, Math.max(1, pixelRatio * scale), height);
+      }
     }
     context.globalAlpha = 1;
     return canvas;
@@ -267,8 +275,7 @@
       const phase = stepPosition - step;
       const active = tracks.reduce((count, trackId) => count + (pattern.cells?.[trackId]?.[step] ? 1 : 0), 0);
       const drumLevel = active
-        ? Math.sqrt(active / tracks.length) * (0.28 + 0.72 * Math.exp(-phase * 4)) *
-          (0.4 + 0.6 * Math.abs(Math.sin((phase * 3 + step) * Math.PI)))
+        ? Math.sqrt(active / tracks.length) * (0.28 + 0.72 * Math.exp(-phase * 4))
         : 0;
       const sourceTick = sourcePosition * PIANO_TICKS_PER_BAR;
       const pianoLevel = pianoNotes.reduce((level, note) => {
@@ -276,8 +283,7 @@
         if (sourceTick < note.startTick || sourceTick >= note.startTick + duration) return level;
         const notePhase = (sourceTick - note.startTick) / duration;
         const envelope = Math.min(1, notePhase * 12, (1 - notePhase) * 8);
-        const texture = 0.45 + 0.55 * Math.abs(Math.sin(notePhase * Math.PI * 8));
-        return Math.max(level, (note.velocity ?? 0.8) * envelope * texture);
+        return Math.max(level, (note.velocity ?? 0.8) * envelope);
       }, 0);
       return Math.max(drumLevel, pianoLevel);
     });
@@ -374,7 +380,8 @@
       const width = Math.max(12, durationBars * BAR_WIDTH - 8);
       element.style.left = `${startBar * BAR_WIDTH + 4}px`;
       element.style.width = `${width}px`;
-      drawAudioClipWaveform(element.querySelector(".clip-waveform-canvas"), clip, Math.max(1, width - 8), track.color);
+      drawAudioClipWaveform(element.querySelector(".clip-waveform-canvas"), clip,
+        Math.max(1, durationBars * BAR_WIDTH), track.color);
       updateArrangementClipRepeatMarkers(element, clip, repeatLength, durationBars, sourceOffsetSeconds / sourceSecondsPerBar);
       element.setAttribute("aria-label",
         `${clip.name}, bar ${startBar + 1}, ${durationBars.toFixed(2)} bars; drag to move or resize`);
