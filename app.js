@@ -7499,7 +7499,7 @@
     }
 
     let bpm = null;
-    if (buffer.duration >= 4 && onsets.length > 12) {
+    if (buffer.duration >= 2 && onsets.length > 12) {
       const onsetMean = onsets.reduce((sum, value) => sum + value, 0) / onsets.length;
       const centeredOnsets = onsets.map((value) => value - onsetMean);
       const minLag = Math.max(2, Math.floor(frameRate * 60 / 200));
@@ -7696,6 +7696,12 @@
       key: typeof metadata?.key === "string" && /^[A-G]#? (major|minor)$/.test(metadata.key)
         ? metadata.key : null,
     };
+  }
+
+  function describeAudioMetadata(metadata) {
+    const { bpm, key } = normalizeAudioMetadata(metadata);
+    if (bpm === null && !key) return "Tempo and key not confidently detected";
+    return `Detected ${bpm === null ? "tempo unknown" : `${bpm} BPM`} · ${key || "key unknown"}`;
   }
 
   function getProjectKey() {
@@ -11027,6 +11033,7 @@
     dialog.dataset.trackId = track.id;
     dialog.dataset.clipId = clip.id;
     $("#audio-clip-edit-name").textContent = clip.name;
+    $("#audio-clip-edit-metadata").textContent = describeAudioMetadata(clip.audioMetadata);
     $("#audio-clip-gain").value = String(Math.round(Math.max(0, Math.min(2, clip.clipGain ?? 1)) * 100));
     $("#audio-clip-fade-in").value = String(Math.max(0, Math.min(10, clip.fadeInSeconds || 0)));
     $("#audio-clip-fade-out").value = String(Math.max(0, Math.min(10, clip.fadeOutSeconds || 0)));
@@ -11086,7 +11093,9 @@
     element.style.left = `${clip.startBar * BAR_WIDTH + 4}px`;
     const clipWidth = Math.max(28, durationBars * BAR_WIDTH - 8);
     element.style.width = `${clipWidth}px`;
-    element.setAttribute("aria-label", `${clip.name}, bar ${clip.startBar + 1}, ${durationBars.toFixed(2)} bars; drag to move or resize`);
+    const metadataLabel = describeAudioMetadata(clip.audioMetadata);
+    element.title = `${clip.name} · ${metadataLabel}`;
+    element.setAttribute("aria-label", `${clip.name}, ${metadataLabel}, bar ${clip.startBar + 1}, ${durationBars.toFixed(2)} bars; drag to move or resize`);
 
     const waveform = document.createElement("canvas");
     waveform.className = "clip-waveform-canvas";

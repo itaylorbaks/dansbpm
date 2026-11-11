@@ -96,6 +96,7 @@
     dialog.dataset.trackId = track.id;
     dialog.dataset.clipId = clip.id;
     $("#audio-clip-edit-name").textContent = clip.name;
+    $("#audio-clip-edit-metadata").textContent = describeAudioMetadata(clip.audioMetadata);
     $("#audio-clip-gain").value = String(Math.round(Math.max(0, Math.min(2, clip.clipGain ?? 1)) * 100));
     $("#audio-clip-fade-in").value = String(Math.max(0, Math.min(10, clip.fadeInSeconds || 0)));
     $("#audio-clip-fade-out").value = String(Math.max(0, Math.min(10, clip.fadeOutSeconds || 0)));
@@ -155,7 +156,9 @@
     element.style.left = `${clip.startBar * BAR_WIDTH + 4}px`;
     const clipWidth = Math.max(28, durationBars * BAR_WIDTH - 8);
     element.style.width = `${clipWidth}px`;
-    element.setAttribute("aria-label", `${clip.name}, bar ${clip.startBar + 1}, ${durationBars.toFixed(2)} bars; drag to move or resize`);
+    const metadataLabel = describeAudioMetadata(clip.audioMetadata);
+    element.title = `${clip.name} · ${metadataLabel}`;
+    element.setAttribute("aria-label", `${clip.name}, ${metadataLabel}, bar ${clip.startBar + 1}, ${durationBars.toFixed(2)} bars; drag to move or resize`);
 
     const waveform = document.createElement("canvas");
     waveform.className = "clip-waveform-canvas";

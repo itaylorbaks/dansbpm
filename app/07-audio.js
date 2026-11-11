@@ -189,7 +189,7 @@
     }
 
     let bpm = null;
-    if (buffer.duration >= 4 && onsets.length > 12) {
+    if (buffer.duration >= 2 && onsets.length > 12) {
       const onsetMean = onsets.reduce((sum, value) => sum + value, 0) / onsets.length;
       const centeredOnsets = onsets.map((value) => value - onsetMean);
       const minLag = Math.max(2, Math.floor(frameRate * 60 / 200));
@@ -386,6 +386,12 @@
       key: typeof metadata?.key === "string" && /^[A-G]#? (major|minor)$/.test(metadata.key)
         ? metadata.key : null,
     };
+  }
+
+  function describeAudioMetadata(metadata) {
+    const { bpm, key } = normalizeAudioMetadata(metadata);
+    if (bpm === null && !key) return "Tempo and key not confidently detected";
+    return `Detected ${bpm === null ? "tempo unknown" : `${bpm} BPM`} · ${key || "key unknown"}`;
   }
 
   function getProjectKey() {
