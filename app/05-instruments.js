@@ -1091,19 +1091,112 @@
     return true;
   }
 
-  function initializeAudio() {
+  function getMasterPitchProcessorSource() {
+    return `
+      class DansBpmMasterPitchProcessor extends AudioWorkletProcessor {
+        static get parameterDescriptors() {
+          return [{ name: "semitones", defaultValue: 0, minValue: -12, maxValue: 12, automationRate: "k-rate" }];
+        }
+        constructor() {
+          super();
+          this.maxDelayFrames = Math.ceil(sampleRate * 0.1);
+          this.bufferSize = this.maxDelayFrames + 2;
+          this.buffers = [new Float32Array(this.bufferSize), new Float32Array(this.bufferSize)];
+          this.writeIndex = 0;
+          this.phase = 0.25;
+        }
+        read(channel, delay) {
+          const buffer = this.buffers[channel];
+          let position = this.writeIndex - delay;
+          while (position < 0) position += this.bufferSize;
+          const firstIndex = Math.floor(position);
+          const fraction = position - firstIndex;
+          const first = buffer[firstIndex];
+          const second = buffer[(firstIndex + 1) % this.bufferSize];
+          return first + (second - first) * fraction;
+        }
+        process(inputs, outputs, parameters) {
+          const input = inputs[0];
+          const output = outputs[0];
+          if (!output.length) return true;
+          const semitones = parameters.semitones[0];
+          const ratio = Math.pow(2, semitones / 12);
+          const shift = Math.abs(1 - ratio);
+          for (let frame = 0; frame < output[0].length; frame += 1) {
+            for (let channel = 0; channel < output.length; channel += 1) {
+              const sample = input[channel]?.[frame] ?? input[0]?.[frame] ?? 0;
+              this.buffers[channel][this.writeIndex] = sample;
+              if (Math.abs(semitones) < 0.001) {
+                output[channel][frame] = sample;
+                continue;
+              }
+              const phaseA = this.phase;
+              const phaseB = (phaseA + 0.5) % 1;
+              const delayA = (semitones > 0 ? 1 - phaseA : phaseA) * this.maxDelayFrames;
+              const delayB = (semitones > 0 ? 1 - phaseB : phaseB) * this.maxDelayFrames;
+              const mixA = 0.5 - 0.5 * Math.cos(2 * Math.PI * phaseA);
+              output[channel][frame] = this.read(channel, delayA) * mixA +
+                this.read(channel, delayB) * (1 - mixA);
+            }
+            if (shift) {
+              this.phase += shift / this.maxDelayFrames;
+              if (this.phase >= 1) this.phase -= Math.floor(this.phase);
+            }
+            this.writeIndex = (this.writeIndex + 1) % this.bufferSize;
+          }
+          return true;
+        }
+      }
+      registerProcessor("dansbpm-master-pitch", DansBpmMasterPitchProcessor);
+    `;
+  }
+
+  async function connectMasterPitchProcessor(context) {
+    if (state.masterPitchNode?.context === context) return state.masterPitchNode;
+    if (!context.audioWorklet || typeof window.AudioWorkletNode !== "function") {
+      state.masterPitchSupported = false;
+      if (state.masterPitch !== 0) showToast("Master pitch shifting is not supported in this browser.");
+      updateProjectKeyIndicator();
+      state.masterGain.connect(context.destination);
+      state.masterPitchNode = null;
+      return null;
+    }
+    state.masterPitchSupported = true;
+    const source = new Blob([getMasterPitchProcessorSource()], { type: "text/javascript" });
+    const moduleUrl = URL.createObjectURL(source);
+    try {
+      await context.audioWorklet.addModule(moduleUrl);
+    } finally {
+      URL.revokeObjectURL(moduleUrl);
+    }
+    const node = new window.AudioWorkletNode(context, "dansbpm-master-pitch", {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      outputChannelCount: [2],
+      channelCount: 2,
+      channelCountMode: "explicit",
+    });
+    node.parameters.get("semitones").setValueAtTime(state.masterPitch, context.currentTime);
+    state.masterGain.connect(node);
+    node.connect(context.destination);
+    state.masterPitchNode = node;
+    return node;
+  }
+
+  async function initializeAudio() {
     if (!state.audioContext) {
       const AudioContext = window.AudioContext || window.webkitAudioContext;
       if (!AudioContext) throw new Error("Web Audio is not supported in this browser.");
       state.audioContext = new AudioContext();
       state.masterGain = state.audioContext.createGain();
       state.masterGain.gain.value = 0.82;
-      state.masterGain.connect(state.audioContext.destination);
+      await connectMasterPitchProcessor(state.audioContext);
       ensureTrackAudio(state.masterTrack);
       state.effectTracks.forEach(ensureTrackAudio);
       state.tracks.forEach(ensureSequencerTrackAudio);
       state.noiseBuffer = createNoiseBuffer(state.audioContext);
     }
+    await connectMasterPitchProcessor(state.audioContext);
     ensureTrackAudio(state.masterTrack);
     state.effectTracks.forEach(ensureTrackAudio);
     state.arrangementTracks.forEach(ensureArrangementTrackAudio);
@@ -1112,8 +1205,8 @@
     return state.audioContext;
   }
 
-  function ensureAudio() {
-    const context = initializeAudio();
+  async function ensureAudio() {
+    const context = await initializeAudio();
     return context.resume();
   }
 

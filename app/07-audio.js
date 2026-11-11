@@ -239,6 +239,76 @@
     };
   }
 
+  function getProjectKey() {
+    const chroma = Array(12).fill(0);
+    const addKeyProfile = (key) => {
+      const match = /^([A-G]#?) (major|minor)$/.exec(key || "");
+      if (!match) return;
+      const tonic = MUSICAL_KEY_NAMES.indexOf(match[1]);
+      const profile = MUSICAL_KEY_PROFILES[match[2] === "major" ? 0 : 1];
+      const weight = 2 / profile.reduce((sum, value) => sum + value, 0);
+      profile.forEach((value, index) => { chroma[(tonic + index) % 12] += value * weight; });
+    };
+    const addNotes = (notes) => {
+      if (!Array.isArray(notes)) return;
+      notes.forEach((note) => {
+        if (!Number.isFinite(note?.midi)) return;
+        const weight = Math.max(0.1, (note.durationTicks || 8) / 8) *
+          Math.max(0.1, Math.min(1, note.velocity ?? 0.8));
+        chroma[(Math.round(note.midi) % 12 + 12) % 12] += weight;
+      });
+    };
+
+    state.mels.forEach((mel) => addNotes(mel.notes));
+    state.patterns.forEach((pattern) => Object.values(pattern.stepPianoNotes || {}).forEach(addNotes));
+    state.tracks.forEach((track) => addKeyProfile(normalizeAudioMetadata(track.audioMetadata).key));
+    state.arrangementTracks.forEach((track) => track.clips.forEach((clip) =>
+      addKeyProfile(normalizeAudioMetadata(clip.audioMetadata).key)));
+
+    const key = getKeyFromChroma(chroma);
+    if (!key) return null;
+    const [tonic, mode] = key.split(" ");
+    const activePitch = state.masterPitchSupported === false ? 0 : state.masterPitch;
+    const shiftedTonic = (MUSICAL_KEY_NAMES.indexOf(tonic) + activePitch % 12 + 12) % 12;
+    return `${MUSICAL_KEY_NAMES[shiftedTonic]} ${mode}`;
+  }
+
+  function updateProjectKeyIndicator() {
+    const key = getProjectKey();
+    const keyValue = $("#project-key-value");
+    if (keyValue) keyValue.textContent = key ? key.replace("major", "maj").replace("minor", "min") : "—";
+    const keyControl = $("#project-key-control");
+    if (keyControl) keyControl.title = key ? `Detected project key: ${key}` : "Project key is unclear";
+    const pitchInput = $("#master-pitch-control");
+    const pitchValue = $("#master-pitch-value");
+    if (pitchInput) {
+      pitchInput.value = String(state.masterPitch);
+      pitchInput.disabled = state.masterPitchSupported === false;
+    }
+    if (pitchValue) pitchValue.textContent = `${state.masterPitch > 0 ? "+" : ""}${state.masterPitch} st`;
+    const dial = pitchInput?.closest(".master-pitch-dial");
+    if (dial) {
+      const ratio = (state.masterPitch + 12) / 24;
+      dial.style.setProperty("--dj-dial-angle", `${-135 + ratio * 270}deg`);
+      dial.style.setProperty("--dj-dial-fill", `${ratio * 270}deg`);
+    }
+    const pitch = state.masterPitchNode?.context === state.audioContext
+      ? state.masterPitchNode.parameters.get("semitones")
+      : null;
+    if (pitch && state.audioContext) pitch.setTargetAtTime(state.masterPitch, state.audioContext.currentTime, 0.02);
+  }
+
+  function setMasterPitch(value) {
+    if (state.masterPitchSupported === false) {
+      showToast("Master pitch shifting is not supported in this browser.");
+      updateProjectKeyIndicator();
+      return;
+    }
+    state.masterPitch = Math.max(-12, Math.min(12, Math.round(Number(value) || 0)));
+    updateProjectKeyIndicator();
+    saveState();
+  }
+
   function makeDrumSampleTrack(options) {
     const name = options.name?.trim() || "Imported drum";
     const track = {
@@ -566,86 +636,158 @@
       effectOutput = node;
     };
 
-    if (id === "reverb") {
+    if (["reverb", "room", "hall", "plate"].includes(id)) {
       const convolver = context.createConvolver();
-      const decay = setting("decay", 1.8);
+      const decay = setting("decay", id === "hall" ? 3.2 : id === "room" ? 0.7 : id === "plate" ? 2.2 : 1.8);
       const impulse = context.createBuffer(2, Math.floor(context.sampleRate * decay), context.sampleRate);
       const random = createSeededRandom(0x51f15e);
+      const decayCurve = id === "room" ? 3.8 : id === "plate" ? 1.7 : 2.8;
       for (let channel = 0; channel < impulse.numberOfChannels; channel += 1) {
         const samples = impulse.getChannelData(channel);
         for (let index = 0; index < samples.length; index += 1) {
-          samples[index] = (random() * 2 - 1) * Math.pow(1 - index / samples.length, 2.8);
+          const earlyReflection = id === "plate" && index < context.sampleRate * 0.012 ? 1.7 : 1;
+          samples[index] = (random() * 2 - 1) * earlyReflection *
+            Math.pow(1 - index / samples.length, decayCurve);
         }
       }
       convolver.buffer = impulse;
-      const preDelay = context.createDelay(0.11);
-      preDelay.delayTime.value = setting("preDelay", 20) / 1000;
+      const preDelay = context.createDelay(0.13);
+      preDelay.delayTime.value = setting("preDelay", id === "hall" ? 35 : id === "room" ? 8 : id === "plate" ? 15 : 20) / 1000;
       input.connect(preDelay);
       preDelay.connect(convolver);
       nodes.push(preDelay, convolver);
       effectOutput = convolver;
-    } else if (id === "delay") {
+    } else if (id === "pingPong") {
+      const splitter = context.createChannelSplitter(2);
+      const merger = context.createChannelMerger(2);
+      const leftDelay = context.createDelay(1);
+      const rightDelay = context.createDelay(1);
+      const leftFeedback = context.createGain();
+      const rightFeedback = context.createGain();
+      const delayTime = setting("time", 0.32);
+      leftDelay.delayTime.value = delayTime;
+      rightDelay.delayTime.value = delayTime;
+      leftFeedback.gain.value = rightFeedback.gain.value = setting("feedback", 45) / 100;
+      input.connect(splitter);
+      splitter.connect(leftDelay, 0);
+      splitter.connect(rightDelay, 1);
+      leftDelay.connect(rightFeedback);
+      rightFeedback.connect(rightDelay);
+      rightDelay.connect(leftFeedback);
+      leftFeedback.connect(leftDelay);
+      leftDelay.connect(merger, 0, 0);
+      rightDelay.connect(merger, 0, 1);
+      nodes.push(splitter, merger, leftDelay, rightDelay, leftFeedback, rightFeedback);
+      effectOutput = merger;
+    } else if (["delay", "slapback", "tapeDelay"].includes(id)) {
       const delay = context.createDelay(1);
-      delay.delayTime.value = setting("time", 0.28);
+      const defaultTime = id === "slapback" ? 0.11 : id === "tapeDelay" ? 0.36 : 0.28;
+      delay.delayTime.value = setting("time", defaultTime);
       const feedback = context.createGain();
-      feedback.gain.value = setting("feedback", 42) / 100;
-      delay.connect(feedback);
-      feedback.connect(delay);
-      nodes.push(feedback);
-      connectWet(delay);
-    } else if (id === "chorus" || id === "pitchShifter" || id === "harmonizer") {
+      feedback.gain.value = setting("feedback", id === "slapback" ? 18 : id === "tapeDelay" ? 48 : 42) / 100;
+      if (id === "tapeDelay") {
+        const filter = context.createBiquadFilter();
+        filter.type = "lowpass";
+        filter.frequency.value = 4200;
+        delay.connect(filter);
+        filter.connect(feedback);
+        feedback.connect(delay);
+        input.connect(delay);
+        nodes.push(filter, feedback, delay);
+        effectOutput = filter;
+      } else {
+        delay.connect(feedback);
+        feedback.connect(delay);
+        nodes.push(feedback);
+        connectWet(delay);
+      }
+    } else if (id === "chorus" || id === "flanger" || id === "vibrato" ||
+      id === "pitchShifter" || id === "harmonizer") {
       const delay = context.createDelay(0.5);
       const modulation = context.createOscillator();
       const depth = context.createGain();
       const interval = id === "pitchShifter" ? Math.abs(setting("semitones", 0)) : setting("interval", 7);
-      delay.delayTime.value = id === "chorus" ? setting("depth", 12) / 1000 : 0.035 + interval * 0.006;
-      modulation.frequency.value = id === "chorus" ? setting("rate", 0.28) : id === "harmonizer" ? 0.7 : 0.45;
-      depth.gain.value = id === "chorus" ? setting("depth", 12) / 1000 : 0.035 * mix;
+      delay.delayTime.value = id === "flanger" ? 0.005 : id === "vibrato" ? 0.02
+        : id === "chorus" ? setting("depth", 12) / 1000 : 0.035 + interval * 0.006;
+      modulation.frequency.value = id === "chorus" ? setting("rate", 0.28)
+        : id === "flanger" || id === "vibrato" ? setting("rate", id === "vibrato" ? 5 : 0.22)
+          : id === "harmonizer" ? 0.7 : 0.45;
+      depth.gain.value = id === "chorus" ? setting("depth", 12) / 1000
+        : id === "flanger" ? setting("depth", 3) / 1000 * mix
+          : id === "vibrato" ? setting("depth", 5) / 1000 * mix : 0.035 * mix;
       modulation.connect(depth);
       depth.connect(delay.delayTime);
       modulation.start();
       sources.push(modulation);
       nodes.push(depth);
+      if (id === "flanger") {
+        const feedback = context.createGain();
+        feedback.gain.value = setting("feedback", 20) / 100;
+        delay.connect(feedback);
+        feedback.connect(delay);
+        nodes.push(feedback);
+      }
       connectWet(delay);
-    } else if (id === "distortion" || id === "bitcrusher") {
+    } else if (id === "gain") {
+      const gain = context.createGain();
+      gain.gain.value = Math.pow(10, setting("gainDb", 6) / 20);
+      connectWet(gain);
+    } else if (id === "distortion" || id === "saturator" || id === "softClipper" || id === "bitcrusher") {
       const shaper = context.createWaveShaper();
       const curve = new Float32Array(4096);
-      const drive = setting("drive", 8);
+      const drive = setting("drive", id === "saturator" ? 3 : id === "softClipper" ? 2 : 8);
       const levels = Math.pow(2, setting("bits", 8));
       for (let index = 0; index < curve.length; index += 1) {
         const sample = index * 2 / (curve.length - 1) - 1;
         curve[index] = id === "bitcrusher"
           ? Math.round(sample * levels) / levels
-          : Math.tanh(sample * drive);
+          : id === "softClipper"
+            ? sample * drive / (1 + Math.abs(sample * drive))
+            : Math.tanh(sample * drive);
       }
       shaper.curve = curve;
       shaper.oversample = "4x";
       connectWet(shaper);
-    } else if (id === "compressor" || id === "noiseGate" || id === "transientShaper") {
+    } else if (id === "compressor" || id === "limiter" || id === "noiseGate" || id === "transientShaper") {
       const compressor = context.createDynamicsCompressor();
       compressor.threshold.value = id === "noiseGate" ? setting("threshold", -42)
-        : id === "transientShaper" ? -18 - setting("attack", 3)
-          : setting("threshold", -18);
-      compressor.knee.value = id === "noiseGate" ? 0 : 12;
-      compressor.ratio.value = id === "noiseGate" ? 20
+        : id === "limiter" ? setting("threshold", -1)
+          : id === "transientShaper" ? -18 - setting("attack", 3)
+            : setting("threshold", -18);
+      compressor.knee.value = id === "noiseGate" || id === "limiter" ? 0 : 12;
+      compressor.ratio.value = id === "noiseGate" || id === "limiter" ? 20
         : id === "transientShaper" ? Math.max(1, 5 + setting("sustain", -2) / 3)
           : setting("ratio", 4);
-      compressor.attack.value = id === "transientShaper" ? 0.003 : setting("attack", 3) / 1000;
-      compressor.release.value = id === "transientShaper" ? 0.08 : setting("release", 180) / 1000;
+      compressor.attack.value = id === "transientShaper" ? 0.003 : id === "limiter" ? 0.001 : setting("attack", 3) / 1000;
+      compressor.release.value = id === "transientShaper" ? 0.08 : setting("release", id === "limiter" ? 80 : 180) / 1000;
       connectWet(compressor);
-    } else if (id === "tremolo") {
+    } else if (id === "tremolo" || id === "lfoGain") {
       const tremolo = context.createGain();
-      tremolo.gain.value = 0.55;
+      tremolo.gain.value = id === "lfoGain" ? 0.5 : 0.55;
       const oscillator = context.createOscillator();
       const depth = context.createGain();
-      oscillator.frequency.value = setting("rate", 5);
-      depth.gain.value = setting("depth", 45) / 100 * mix;
+      oscillator.frequency.value = setting("rate", id === "lfoGain" ? 2 : 5);
+      depth.gain.value = setting("depth", id === "lfoGain" ? 50 : 45) / (id === "lfoGain" ? 200 : 100) * mix;
       oscillator.connect(depth);
       depth.connect(tremolo.gain);
       oscillator.start();
       sources.push(oscillator);
       nodes.push(depth);
       connectWet(tremolo);
+    } else if (id === "autoFilter") {
+      const filter = context.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = 5000;
+      const oscillator = context.createOscillator();
+      const depth = context.createGain();
+      oscillator.frequency.value = setting("rate", 0.4);
+      depth.gain.value = setting("depth", 2200) * mix;
+      oscillator.connect(depth);
+      depth.connect(filter.frequency);
+      oscillator.start();
+      sources.push(oscillator);
+      nodes.push(depth);
+      connectWet(filter);
     } else if (id === "autopan") {
       const panner = context.createStereoPanner();
       const oscillator = context.createOscillator();

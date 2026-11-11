@@ -69,6 +69,24 @@
               <span class="control-caption">TEMPO</span>
               <span class="tempo-value"><span id="tempo-value">124</span><span class="tempo-unit">BPM</span></span>
             </button>
+            <details class="project-key-control" id="project-key-control">
+              <summary aria-label="Project key and master pitch">
+                <span class="control-caption">PROJECT KEY</span>
+                <span class="project-key-value" id="project-key-value">—</span>
+              </summary>
+              <div class="master-pitch-popover">
+                <label for="master-pitch-control">MASTER PITCH</label>
+                <output id="master-pitch-value" for="master-pitch-control">0 st</output>
+                <div class="dj-dial master-pitch-dial">
+                  <input id="master-pitch-control" type="range" min="-12" max="12" step="1" value="0" aria-label="Master pitch in semitones" />
+                </div>
+                <small>Pitch shift · timing preserved</small>
+              </div>
+            </details>
+            <div class="playhead-time-control" aria-label="Track View playhead time">
+              <span class="control-caption">POSITION</span>
+              <output id="playhead-time-value">00:00.000</output>
+            </div>
             <label class="swing-control">
               <span class="control-caption">SWING</span>
               <span class="swing-value" id="swing-value">0%</span>

@@ -182,6 +182,12 @@
     });
     const rulerPlayhead = document.querySelector(".arrangement-ruler-playhead");
     if (rulerPlayhead) rulerPlayhead.style.left = `${state.arrangementCursor * BAR_WIDTH}px`;
+    const timeValue = $("#playhead-time-value");
+    if (timeValue) {
+      const seconds = Math.max(0, state.arrangementCursor * 240 / state.bpm);
+      const minutes = Math.floor(seconds / 60);
+      timeValue.textContent = `${String(minutes).padStart(2, "0")}:${(seconds % 60).toFixed(3).padStart(6, "0")}`;
+    }
   }
 
   function setArrangementCursor(bar, persist = true) {

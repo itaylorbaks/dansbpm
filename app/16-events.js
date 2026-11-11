@@ -53,6 +53,9 @@
       if (resumeBar > 0) setArrangementCursor(resumeBar);
       saveState();
     });
+    $("#master-pitch-control").addEventListener("input", (event) => {
+      setMasterPitch(event.currentTarget.value);
+    });
     swingSlider.addEventListener("input", () => {
       state.swing = Number(swingSlider.value);
       $("#swing-value").textContent = `${state.swing}%`;

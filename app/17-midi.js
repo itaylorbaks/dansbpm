@@ -219,7 +219,7 @@
     mel.notes.forEach((note) => {
       const start = Math.max(0, Math.round(note.startTick * midiTicksPerPianoTick));
       const end = Math.max(start + 1, Math.round((note.startTick + note.durationTicks) * midiTicksPerPianoTick));
-      const pitch = Math.max(0, Math.min(127, Math.round(note.midi)));
+      const pitch = Math.max(0, Math.min(127, Math.round(note.midi + state.masterPitch)));
       const velocity = Math.max(1, Math.min(127, Math.round((note.velocity ?? 0.8) * 127)));
       events.push({ tick: start, priority: 1, bytes: [0x90, pitch, velocity] });
       events.push({ tick: end, priority: 0, bytes: [0x80, pitch, 0] });

@@ -541,6 +541,7 @@
     steps: 16,
     view: "arrangement",
     bpm: 124,
+    masterPitch: 0,
     swing: 0,
     arrangementBars: 32,
     arrangementCursor: 0,
@@ -563,6 +564,8 @@
     currentStep: -1,
     audioContext: null,
     masterGain: null,
+    masterPitchNode: null,
+    masterPitchSupported: null,
     masterTrack: null,
     effectTracks: [],
     effectPresets: [],
@@ -647,20 +650,37 @@
     return tracks;
   }
 
-  const EFFECT_NAMES = [
-    ["reverb", "Reverb"], ["delay", "Delay"], ["chorus", "Chorus"], ["distortion", "Distortion"],
-    ["compressor", "Compressor"], ["tremolo", "Tremolo"], ["bitcrusher", "Bitcrusher"],
-    ["pitchShifter", "Pitch shifter"], ["harmonizer", "Harmonizer"], ["noiseGate", "Noise gate"],
-    ["vocoder", "Vocoder"], ["transientShaper", "Transient shaper"], ["autopan", "Auto-pan"],
-    ["phaser", "Phaser"],
+  const EFFECT_CATEGORIES = [
+    { name: "Flanger", effects: [["flanger", "Flanger"], ["chorus", "Chorus"], ["phaser", "Phaser"], ["vibrato", "Vibrato"]] },
+    { name: "Gain", effects: [["gain", "Gain"], ["distortion", "Distortion"], ["saturator", "Saturator"], ["softClipper", "Soft clipper"]] },
+    { name: "Delay", effects: [["delay", "Delay"], ["pingPong", "Ping-pong delay"], ["slapback", "Slapback"], ["tapeDelay", "Tape delay"]] },
+    { name: "Reverb", effects: [["reverb", "Reverb"], ["room", "Room"], ["hall", "Hall"], ["plate", "Plate"]] },
+    { name: "Controllers", effects: [["autopan", "Auto-pan"], ["tremolo", "Tremolo"], ["autoFilter", "Auto-filter"], ["lfoGain", "LFO gain"]] },
+    { name: "Dynamics", effects: [["compressor", "Compressor"], ["limiter", "Limiter"], ["noiseGate", "Noise gate"], ["transientShaper", "Transient shaper"]] },
+    { name: "Miscellaneous", effects: [["bitcrusher", "Bitcrusher"], ["pitchShifter", "Pitch shifter"], ["harmonizer", "Harmonizer"], ["vocoder", "Vocoder"]] },
   ];
+  const EFFECT_NAMES = EFFECT_CATEGORIES.flatMap(({ effects }) => effects);
   const EFFECT_PARAMETERS = {
     reverb: [["decay", "Decay", 0.2, 6, 0.1, " s", 1.8], ["preDelay", "Pre-delay", 0, 100, 1, " ms", 20]],
+    room: [["decay", "Decay", 0.1, 2.5, 0.1, " s", 0.7], ["preDelay", "Pre-delay", 0, 60, 1, " ms", 8]],
+    hall: [["decay", "Decay", 1, 8, 0.1, " s", 3.2], ["preDelay", "Pre-delay", 0, 120, 1, " ms", 35]],
+    plate: [["decay", "Decay", 0.3, 5, 0.1, " s", 2.2], ["preDelay", "Pre-delay", 0, 100, 1, " ms", 15]],
     delay: [["time", "Time", 0.05, 1, 0.01, " s", 0.28], ["feedback", "Feedback", 0, 90, 1, "%", 42]],
+    pingPong: [["time", "Time", 0.05, 1, 0.01, " s", 0.32], ["feedback", "Feedback", 0, 90, 1, "%", 45]],
+    slapback: [["time", "Time", 0.03, 0.25, 0.005, " s", 0.11], ["feedback", "Feedback", 0, 60, 1, "%", 18]],
+    tapeDelay: [["time", "Time", 0.05, 1, 0.01, " s", 0.36], ["feedback", "Feedback", 0, 90, 1, "%", 48]],
     chorus: [["rate", "Rate", 0.05, 5, 0.05, " Hz", 0.28], ["depth", "Depth", 1, 30, 1, " ms", 12]],
+    flanger: [["rate", "Rate", 0.05, 5, 0.05, " Hz", 0.22], ["depth", "Depth", 0.1, 10, 0.1, " ms", 3], ["feedback", "Feedback", -90, 90, 1, "%", 20]],
+    vibrato: [["rate", "Rate", 0.1, 10, 0.1, " Hz", 5], ["depth", "Depth", 1, 20, 1, " ms", 5]],
+    gain: [["gainDb", "Gain", -24, 24, 0.5, " dB", 6]],
     distortion: [["drive", "Drive", 1, 20, 0.5, "×", 8]],
+    saturator: [["drive", "Drive", 1, 12, 0.5, "×", 3]],
+    softClipper: [["drive", "Drive", 1, 12, 0.5, "×", 2]],
     compressor: [["threshold", "Threshold", -60, 0, 1, " dB", -18], ["ratio", "Ratio", 1, 20, 0.5, ":1", 4], ["attack", "Attack", 1, 100, 1, " ms", 3], ["release", "Release", 10, 1000, 10, " ms", 180]],
+    limiter: [["threshold", "Ceiling", -12, 0, 0.1, " dB", -1], ["release", "Release", 10, 500, 10, " ms", 80]],
     tremolo: [["rate", "Rate", 0.1, 12, 0.1, " Hz", 5], ["depth", "Depth", 0, 100, 1, "%", 45]],
+    autoFilter: [["rate", "Rate", 0.05, 8, 0.05, " Hz", 0.4], ["depth", "Depth", 100, 8000, 100, " Hz", 2200]],
+    lfoGain: [["rate", "Rate", 0.05, 12, 0.05, " Hz", 2], ["depth", "Depth", 0, 100, 1, "%", 50]],
     bitcrusher: [["bits", "Bit depth", 2, 16, 1, " bit", 8]],
     pitchShifter: [["semitones", "Pitch", -12, 12, 1, " st", 0]],
     harmonizer: [["interval", "Interval", 1, 12, 1, " st", 7]],
@@ -3761,19 +3781,112 @@
     return true;
   }
 
-  function initializeAudio() {
+  function getMasterPitchProcessorSource() {
+    return `
+      class DansBpmMasterPitchProcessor extends AudioWorkletProcessor {
+        static get parameterDescriptors() {
+          return [{ name: "semitones", defaultValue: 0, minValue: -12, maxValue: 12, automationRate: "k-rate" }];
+        }
+        constructor() {
+          super();
+          this.maxDelayFrames = Math.ceil(sampleRate * 0.1);
+          this.bufferSize = this.maxDelayFrames + 2;
+          this.buffers = [new Float32Array(this.bufferSize), new Float32Array(this.bufferSize)];
+          this.writeIndex = 0;
+          this.phase = 0.25;
+        }
+        read(channel, delay) {
+          const buffer = this.buffers[channel];
+          let position = this.writeIndex - delay;
+          while (position < 0) position += this.bufferSize;
+          const firstIndex = Math.floor(position);
+          const fraction = position - firstIndex;
+          const first = buffer[firstIndex];
+          const second = buffer[(firstIndex + 1) % this.bufferSize];
+          return first + (second - first) * fraction;
+        }
+        process(inputs, outputs, parameters) {
+          const input = inputs[0];
+          const output = outputs[0];
+          if (!output.length) return true;
+          const semitones = parameters.semitones[0];
+          const ratio = Math.pow(2, semitones / 12);
+          const shift = Math.abs(1 - ratio);
+          for (let frame = 0; frame < output[0].length; frame += 1) {
+            for (let channel = 0; channel < output.length; channel += 1) {
+              const sample = input[channel]?.[frame] ?? input[0]?.[frame] ?? 0;
+              this.buffers[channel][this.writeIndex] = sample;
+              if (Math.abs(semitones) < 0.001) {
+                output[channel][frame] = sample;
+                continue;
+              }
+              const phaseA = this.phase;
+              const phaseB = (phaseA + 0.5) % 1;
+              const delayA = (semitones > 0 ? 1 - phaseA : phaseA) * this.maxDelayFrames;
+              const delayB = (semitones > 0 ? 1 - phaseB : phaseB) * this.maxDelayFrames;
+              const mixA = 0.5 - 0.5 * Math.cos(2 * Math.PI * phaseA);
+              output[channel][frame] = this.read(channel, delayA) * mixA +
+                this.read(channel, delayB) * (1 - mixA);
+            }
+            if (shift) {
+              this.phase += shift / this.maxDelayFrames;
+              if (this.phase >= 1) this.phase -= Math.floor(this.phase);
+            }
+            this.writeIndex = (this.writeIndex + 1) % this.bufferSize;
+          }
+          return true;
+        }
+      }
+      registerProcessor("dansbpm-master-pitch", DansBpmMasterPitchProcessor);
+    `;
+  }
+
+  async function connectMasterPitchProcessor(context) {
+    if (state.masterPitchNode?.context === context) return state.masterPitchNode;
+    if (!context.audioWorklet || typeof window.AudioWorkletNode !== "function") {
+      state.masterPitchSupported = false;
+      if (state.masterPitch !== 0) showToast("Master pitch shifting is not supported in this browser.");
+      updateProjectKeyIndicator();
+      state.masterGain.connect(context.destination);
+      state.masterPitchNode = null;
+      return null;
+    }
+    state.masterPitchSupported = true;
+    const source = new Blob([getMasterPitchProcessorSource()], { type: "text/javascript" });
+    const moduleUrl = URL.createObjectURL(source);
+    try {
+      await context.audioWorklet.addModule(moduleUrl);
+    } finally {
+      URL.revokeObjectURL(moduleUrl);
+    }
+    const node = new window.AudioWorkletNode(context, "dansbpm-master-pitch", {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      outputChannelCount: [2],
+      channelCount: 2,
+      channelCountMode: "explicit",
+    });
+    node.parameters.get("semitones").setValueAtTime(state.masterPitch, context.currentTime);
+    state.masterGain.connect(node);
+    node.connect(context.destination);
+    state.masterPitchNode = node;
+    return node;
+  }
+
+  async function initializeAudio() {
     if (!state.audioContext) {
       const AudioContext = window.AudioContext || window.webkitAudioContext;
       if (!AudioContext) throw new Error("Web Audio is not supported in this browser.");
       state.audioContext = new AudioContext();
       state.masterGain = state.audioContext.createGain();
       state.masterGain.gain.value = 0.82;
-      state.masterGain.connect(state.audioContext.destination);
+      await connectMasterPitchProcessor(state.audioContext);
       ensureTrackAudio(state.masterTrack);
       state.effectTracks.forEach(ensureTrackAudio);
       state.tracks.forEach(ensureSequencerTrackAudio);
       state.noiseBuffer = createNoiseBuffer(state.audioContext);
     }
+    await connectMasterPitchProcessor(state.audioContext);
     ensureTrackAudio(state.masterTrack);
     state.effectTracks.forEach(ensureTrackAudio);
     state.arrangementTracks.forEach(ensureArrangementTrackAudio);
@@ -3782,8 +3895,8 @@
     return state.audioContext;
   }
 
-  function ensureAudio() {
-    const context = initializeAudio();
+  async function ensureAudio() {
+    const context = await initializeAudio();
     return context.resume();
   }
 
@@ -6807,6 +6920,76 @@
     };
   }
 
+  function getProjectKey() {
+    const chroma = Array(12).fill(0);
+    const addKeyProfile = (key) => {
+      const match = /^([A-G]#?) (major|minor)$/.exec(key || "");
+      if (!match) return;
+      const tonic = MUSICAL_KEY_NAMES.indexOf(match[1]);
+      const profile = MUSICAL_KEY_PROFILES[match[2] === "major" ? 0 : 1];
+      const weight = 2 / profile.reduce((sum, value) => sum + value, 0);
+      profile.forEach((value, index) => { chroma[(tonic + index) % 12] += value * weight; });
+    };
+    const addNotes = (notes) => {
+      if (!Array.isArray(notes)) return;
+      notes.forEach((note) => {
+        if (!Number.isFinite(note?.midi)) return;
+        const weight = Math.max(0.1, (note.durationTicks || 8) / 8) *
+          Math.max(0.1, Math.min(1, note.velocity ?? 0.8));
+        chroma[(Math.round(note.midi) % 12 + 12) % 12] += weight;
+      });
+    };
+
+    state.mels.forEach((mel) => addNotes(mel.notes));
+    state.patterns.forEach((pattern) => Object.values(pattern.stepPianoNotes || {}).forEach(addNotes));
+    state.tracks.forEach((track) => addKeyProfile(normalizeAudioMetadata(track.audioMetadata).key));
+    state.arrangementTracks.forEach((track) => track.clips.forEach((clip) =>
+      addKeyProfile(normalizeAudioMetadata(clip.audioMetadata).key)));
+
+    const key = getKeyFromChroma(chroma);
+    if (!key) return null;
+    const [tonic, mode] = key.split(" ");
+    const activePitch = state.masterPitchSupported === false ? 0 : state.masterPitch;
+    const shiftedTonic = (MUSICAL_KEY_NAMES.indexOf(tonic) + activePitch % 12 + 12) % 12;
+    return `${MUSICAL_KEY_NAMES[shiftedTonic]} ${mode}`;
+  }
+
+  function updateProjectKeyIndicator() {
+    const key = getProjectKey();
+    const keyValue = $("#project-key-value");
+    if (keyValue) keyValue.textContent = key ? key.replace("major", "maj").replace("minor", "min") : "—";
+    const keyControl = $("#project-key-control");
+    if (keyControl) keyControl.title = key ? `Detected project key: ${key}` : "Project key is unclear";
+    const pitchInput = $("#master-pitch-control");
+    const pitchValue = $("#master-pitch-value");
+    if (pitchInput) {
+      pitchInput.value = String(state.masterPitch);
+      pitchInput.disabled = state.masterPitchSupported === false;
+    }
+    if (pitchValue) pitchValue.textContent = `${state.masterPitch > 0 ? "+" : ""}${state.masterPitch} st`;
+    const dial = pitchInput?.closest(".master-pitch-dial");
+    if (dial) {
+      const ratio = (state.masterPitch + 12) / 24;
+      dial.style.setProperty("--dj-dial-angle", `${-135 + ratio * 270}deg`);
+      dial.style.setProperty("--dj-dial-fill", `${ratio * 270}deg`);
+    }
+    const pitch = state.masterPitchNode?.context === state.audioContext
+      ? state.masterPitchNode.parameters.get("semitones")
+      : null;
+    if (pitch && state.audioContext) pitch.setTargetAtTime(state.masterPitch, state.audioContext.currentTime, 0.02);
+  }
+
+  function setMasterPitch(value) {
+    if (state.masterPitchSupported === false) {
+      showToast("Master pitch shifting is not supported in this browser.");
+      updateProjectKeyIndicator();
+      return;
+    }
+    state.masterPitch = Math.max(-12, Math.min(12, Math.round(Number(value) || 0)));
+    updateProjectKeyIndicator();
+    saveState();
+  }
+
   function makeDrumSampleTrack(options) {
     const name = options.name?.trim() || "Imported drum";
     const track = {
@@ -7134,86 +7317,158 @@
       effectOutput = node;
     };
 
-    if (id === "reverb") {
+    if (["reverb", "room", "hall", "plate"].includes(id)) {
       const convolver = context.createConvolver();
-      const decay = setting("decay", 1.8);
+      const decay = setting("decay", id === "hall" ? 3.2 : id === "room" ? 0.7 : id === "plate" ? 2.2 : 1.8);
       const impulse = context.createBuffer(2, Math.floor(context.sampleRate * decay), context.sampleRate);
       const random = createSeededRandom(0x51f15e);
+      const decayCurve = id === "room" ? 3.8 : id === "plate" ? 1.7 : 2.8;
       for (let channel = 0; channel < impulse.numberOfChannels; channel += 1) {
         const samples = impulse.getChannelData(channel);
         for (let index = 0; index < samples.length; index += 1) {
-          samples[index] = (random() * 2 - 1) * Math.pow(1 - index / samples.length, 2.8);
+          const earlyReflection = id === "plate" && index < context.sampleRate * 0.012 ? 1.7 : 1;
+          samples[index] = (random() * 2 - 1) * earlyReflection *
+            Math.pow(1 - index / samples.length, decayCurve);
         }
       }
       convolver.buffer = impulse;
-      const preDelay = context.createDelay(0.11);
-      preDelay.delayTime.value = setting("preDelay", 20) / 1000;
+      const preDelay = context.createDelay(0.13);
+      preDelay.delayTime.value = setting("preDelay", id === "hall" ? 35 : id === "room" ? 8 : id === "plate" ? 15 : 20) / 1000;
       input.connect(preDelay);
       preDelay.connect(convolver);
       nodes.push(preDelay, convolver);
       effectOutput = convolver;
-    } else if (id === "delay") {
+    } else if (id === "pingPong") {
+      const splitter = context.createChannelSplitter(2);
+      const merger = context.createChannelMerger(2);
+      const leftDelay = context.createDelay(1);
+      const rightDelay = context.createDelay(1);
+      const leftFeedback = context.createGain();
+      const rightFeedback = context.createGain();
+      const delayTime = setting("time", 0.32);
+      leftDelay.delayTime.value = delayTime;
+      rightDelay.delayTime.value = delayTime;
+      leftFeedback.gain.value = rightFeedback.gain.value = setting("feedback", 45) / 100;
+      input.connect(splitter);
+      splitter.connect(leftDelay, 0);
+      splitter.connect(rightDelay, 1);
+      leftDelay.connect(rightFeedback);
+      rightFeedback.connect(rightDelay);
+      rightDelay.connect(leftFeedback);
+      leftFeedback.connect(leftDelay);
+      leftDelay.connect(merger, 0, 0);
+      rightDelay.connect(merger, 0, 1);
+      nodes.push(splitter, merger, leftDelay, rightDelay, leftFeedback, rightFeedback);
+      effectOutput = merger;
+    } else if (["delay", "slapback", "tapeDelay"].includes(id)) {
       const delay = context.createDelay(1);
-      delay.delayTime.value = setting("time", 0.28);
+      const defaultTime = id === "slapback" ? 0.11 : id === "tapeDelay" ? 0.36 : 0.28;
+      delay.delayTime.value = setting("time", defaultTime);
       const feedback = context.createGain();
-      feedback.gain.value = setting("feedback", 42) / 100;
-      delay.connect(feedback);
-      feedback.connect(delay);
-      nodes.push(feedback);
-      connectWet(delay);
-    } else if (id === "chorus" || id === "pitchShifter" || id === "harmonizer") {
+      feedback.gain.value = setting("feedback", id === "slapback" ? 18 : id === "tapeDelay" ? 48 : 42) / 100;
+      if (id === "tapeDelay") {
+        const filter = context.createBiquadFilter();
+        filter.type = "lowpass";
+        filter.frequency.value = 4200;
+        delay.connect(filter);
+        filter.connect(feedback);
+        feedback.connect(delay);
+        input.connect(delay);
+        nodes.push(filter, feedback, delay);
+        effectOutput = filter;
+      } else {
+        delay.connect(feedback);
+        feedback.connect(delay);
+        nodes.push(feedback);
+        connectWet(delay);
+      }
+    } else if (id === "chorus" || id === "flanger" || id === "vibrato" ||
+      id === "pitchShifter" || id === "harmonizer") {
       const delay = context.createDelay(0.5);
       const modulation = context.createOscillator();
       const depth = context.createGain();
       const interval = id === "pitchShifter" ? Math.abs(setting("semitones", 0)) : setting("interval", 7);
-      delay.delayTime.value = id === "chorus" ? setting("depth", 12) / 1000 : 0.035 + interval * 0.006;
-      modulation.frequency.value = id === "chorus" ? setting("rate", 0.28) : id === "harmonizer" ? 0.7 : 0.45;
-      depth.gain.value = id === "chorus" ? setting("depth", 12) / 1000 : 0.035 * mix;
+      delay.delayTime.value = id === "flanger" ? 0.005 : id === "vibrato" ? 0.02
+        : id === "chorus" ? setting("depth", 12) / 1000 : 0.035 + interval * 0.006;
+      modulation.frequency.value = id === "chorus" ? setting("rate", 0.28)
+        : id === "flanger" || id === "vibrato" ? setting("rate", id === "vibrato" ? 5 : 0.22)
+          : id === "harmonizer" ? 0.7 : 0.45;
+      depth.gain.value = id === "chorus" ? setting("depth", 12) / 1000
+        : id === "flanger" ? setting("depth", 3) / 1000 * mix
+          : id === "vibrato" ? setting("depth", 5) / 1000 * mix : 0.035 * mix;
       modulation.connect(depth);
       depth.connect(delay.delayTime);
       modulation.start();
       sources.push(modulation);
       nodes.push(depth);
+      if (id === "flanger") {
+        const feedback = context.createGain();
+        feedback.gain.value = setting("feedback", 20) / 100;
+        delay.connect(feedback);
+        feedback.connect(delay);
+        nodes.push(feedback);
+      }
       connectWet(delay);
-    } else if (id === "distortion" || id === "bitcrusher") {
+    } else if (id === "gain") {
+      const gain = context.createGain();
+      gain.gain.value = Math.pow(10, setting("gainDb", 6) / 20);
+      connectWet(gain);
+    } else if (id === "distortion" || id === "saturator" || id === "softClipper" || id === "bitcrusher") {
       const shaper = context.createWaveShaper();
       const curve = new Float32Array(4096);
-      const drive = setting("drive", 8);
+      const drive = setting("drive", id === "saturator" ? 3 : id === "softClipper" ? 2 : 8);
       const levels = Math.pow(2, setting("bits", 8));
       for (let index = 0; index < curve.length; index += 1) {
         const sample = index * 2 / (curve.length - 1) - 1;
         curve[index] = id === "bitcrusher"
           ? Math.round(sample * levels) / levels
-          : Math.tanh(sample * drive);
+          : id === "softClipper"
+            ? sample * drive / (1 + Math.abs(sample * drive))
+            : Math.tanh(sample * drive);
       }
       shaper.curve = curve;
       shaper.oversample = "4x";
       connectWet(shaper);
-    } else if (id === "compressor" || id === "noiseGate" || id === "transientShaper") {
+    } else if (id === "compressor" || id === "limiter" || id === "noiseGate" || id === "transientShaper") {
       const compressor = context.createDynamicsCompressor();
       compressor.threshold.value = id === "noiseGate" ? setting("threshold", -42)
-        : id === "transientShaper" ? -18 - setting("attack", 3)
-          : setting("threshold", -18);
-      compressor.knee.value = id === "noiseGate" ? 0 : 12;
-      compressor.ratio.value = id === "noiseGate" ? 20
+        : id === "limiter" ? setting("threshold", -1)
+          : id === "transientShaper" ? -18 - setting("attack", 3)
+            : setting("threshold", -18);
+      compressor.knee.value = id === "noiseGate" || id === "limiter" ? 0 : 12;
+      compressor.ratio.value = id === "noiseGate" || id === "limiter" ? 20
         : id === "transientShaper" ? Math.max(1, 5 + setting("sustain", -2) / 3)
           : setting("ratio", 4);
-      compressor.attack.value = id === "transientShaper" ? 0.003 : setting("attack", 3) / 1000;
-      compressor.release.value = id === "transientShaper" ? 0.08 : setting("release", 180) / 1000;
+      compressor.attack.value = id === "transientShaper" ? 0.003 : id === "limiter" ? 0.001 : setting("attack", 3) / 1000;
+      compressor.release.value = id === "transientShaper" ? 0.08 : setting("release", id === "limiter" ? 80 : 180) / 1000;
       connectWet(compressor);
-    } else if (id === "tremolo") {
+    } else if (id === "tremolo" || id === "lfoGain") {
       const tremolo = context.createGain();
-      tremolo.gain.value = 0.55;
+      tremolo.gain.value = id === "lfoGain" ? 0.5 : 0.55;
       const oscillator = context.createOscillator();
       const depth = context.createGain();
-      oscillator.frequency.value = setting("rate", 5);
-      depth.gain.value = setting("depth", 45) / 100 * mix;
+      oscillator.frequency.value = setting("rate", id === "lfoGain" ? 2 : 5);
+      depth.gain.value = setting("depth", id === "lfoGain" ? 50 : 45) / (id === "lfoGain" ? 200 : 100) * mix;
       oscillator.connect(depth);
       depth.connect(tremolo.gain);
       oscillator.start();
       sources.push(oscillator);
       nodes.push(depth);
       connectWet(tremolo);
+    } else if (id === "autoFilter") {
+      const filter = context.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = 5000;
+      const oscillator = context.createOscillator();
+      const depth = context.createGain();
+      oscillator.frequency.value = setting("rate", 0.4);
+      depth.gain.value = setting("depth", 2200) * mix;
+      oscillator.connect(depth);
+      depth.connect(filter.frequency);
+      oscillator.start();
+      sources.push(oscillator);
+      nodes.push(depth);
+      connectWet(filter);
     } else if (id === "autopan") {
       const panner = context.createStereoPanner();
       const oscillator = context.createOscillator();
@@ -7831,6 +8086,7 @@
     updateArrangementLoopUI();
     updateArrangementCursorMarker();
     updateArrangementSelection();
+    updateProjectKeyIndicator();
     if (state.view === "mixer") renderMixer();
   }
 
@@ -8285,27 +8541,38 @@
     const library = document.createElement("aside");
     library.className = "mixer-effects-library";
     const libraryTitle = document.createElement("h2");
-    libraryTitle.textContent = "Available effects";
+    const masterSelected = state.selectedMixerTrackId === state.masterTrack.id;
+    libraryTitle.textContent = masterSelected ? "Master effects" : "Available effects";
     const libraryHint = document.createElement("p");
-    libraryHint.textContent = "Drag an effect onto a track";
+    libraryHint.textContent = masterSelected ? "Add effects to the master output" : "Drag an effect onto a track";
     const effectList = document.createElement("div");
     effectList.className = "mixer-effects-library-list";
-    EFFECT_NAMES.forEach(([id, name]) => {
-      const effect = document.createElement("button");
-      effect.className = "mixer-library-effect";
-      effect.type = "button";
-      effect.draggable = true;
-      effect.textContent = name;
-      effect.dataset.effectId = id;
-      effect.addEventListener("dragstart", (event) => {
-        event.dataTransfer?.setData("application/x-dansbpm-effect", id);
-        if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
+    EFFECT_CATEGORIES.forEach((category) => {
+      const group = document.createElement("section");
+      group.className = "mixer-effect-category";
+      const heading = document.createElement("h3");
+      heading.textContent = category.name;
+      const categoryEffects = document.createElement("div");
+      categoryEffects.className = "mixer-effect-category-list";
+      category.effects.forEach(([id, name]) => {
+        const effect = document.createElement("button");
+        effect.className = "mixer-library-effect";
+        effect.type = "button";
+        effect.draggable = true;
+        effect.textContent = name;
+        effect.dataset.effectId = id;
+        effect.addEventListener("dragstart", (event) => {
+          event.dataTransfer?.setData("application/x-dansbpm-effect", id);
+          if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
+        });
+        effect.addEventListener("click", () => {
+          const track = channels.find(({ track: item }) => item.id === state.selectedMixerTrackId)?.track || channels[0].track;
+          addMixerEffect(track, id, true);
+        });
+        categoryEffects.append(effect);
       });
-      effect.addEventListener("click", () => {
-        const track = channels.find(({ track: item }) => item.id === state.selectedMixerTrackId)?.track || channels[0].track;
-        addMixerEffect(track, id, true);
-      });
-      effectList.append(effect);
+      group.append(heading, categoryEffects);
+      effectList.append(group);
     });
     library.append(libraryTitle, libraryHint, effectList);
     root.append(trackList, library);
@@ -9941,6 +10208,12 @@
     });
     const rulerPlayhead = document.querySelector(".arrangement-ruler-playhead");
     if (rulerPlayhead) rulerPlayhead.style.left = `${state.arrangementCursor * BAR_WIDTH}px`;
+    const timeValue = $("#playhead-time-value");
+    if (timeValue) {
+      const seconds = Math.max(0, state.arrangementCursor * 240 / state.bpm);
+      const minutes = Math.floor(seconds / 60);
+      timeValue.textContent = `${String(minutes).padStart(2, "0")}:${(seconds % 60).toFixed(3).padStart(6, "0")}`;
+    }
   }
 
   function setArrangementCursor(bar, persist = true) {
@@ -12221,6 +12494,7 @@
     const savedMel = stepEditContext ? getMel() : null;
     return {
       bpm: state.bpm,
+      masterPitch: state.masterPitch,
       swing: state.swing,
       steps: state.steps,
       selectedPreset: state.selectedPreset,
@@ -13264,6 +13538,7 @@
     $("#save-state").textContent = "Saving…";
     saveDot.style.background = "#c8a95a";
     const snapshot = createStateSnapshot();
+    updateProjectKeyIndicator();
     if (!isApplyingUndo) recordUndoSnapshot(getUndoScope(), snapshot);
     const projectId = state.projectId;
     window.clearTimeout(saveState.timeout);
@@ -13852,6 +14127,7 @@
   }
 
   function restoreState() {
+    state.masterPitch = 0;
     try {
       const saved = JSON.parse(window.localStorage.getItem(getProjectStorageKey(state.projectId)) || "null");
       if (!saved || typeof saved !== "object") return;
@@ -13869,6 +14145,9 @@
           .map((track) => makeMixerBusTrack("mixer-effects", track));
       }
       if (Number.isFinite(saved.bpm)) state.bpm = Math.max(60, Math.min(180, Math.round(saved.bpm)));
+      state.masterPitch = Number.isFinite(saved.masterPitch)
+        ? Math.max(-12, Math.min(12, Math.round(saved.masterPitch)))
+        : 0;
       if (Number.isFinite(saved.swing)) state.swing = Math.max(0, Math.min(45, Math.round(saved.swing)));
       if (Number.isFinite(saved.steps)) state.steps = normalizePatternSteps(saved.steps);
       if (Number.isFinite(saved.arrangementScale)) state.arrangementScale = Math.max(0.5, Math.min(4, saved.arrangementScale));
@@ -14296,6 +14575,8 @@
 
     const previousContext = state.audioContext;
     const previousMaster = state.masterGain;
+    const previousMasterPitchNode = state.masterPitchNode;
+    const previousMasterPitchSupported = state.masterPitchSupported;
     const previousNoise = state.noiseBuffer;
     const allTracks = [
       ...state.tracks, ...state.arrangementTracks, ...state.melTracks, ...state.patterns,
@@ -14317,7 +14598,7 @@
       state.audioContext = context;
       state.masterGain = context.createGain();
       state.masterGain.gain.value = 0.88;
-      state.masterGain.connect(context.destination);
+      await connectMasterPitchProcessor(context);
       state.noiseBuffer = createNoiseBuffer(context);
       const hasSolo = [...state.tracks, ...state.arrangementTracks].some((track) => track.solo);
       const hasArrangementSolo = [...state.patterns, ...state.melTracks, ...state.arrangementTracks]
@@ -14442,6 +14723,8 @@
     } finally {
       state.audioContext = previousContext;
       state.masterGain = previousMaster;
+      state.masterPitchNode = previousMasterPitchNode;
+      state.masterPitchSupported = previousMasterPitchSupported;
       state.noiseBuffer = previousNoise;
       allTracks.forEach((track, index) => {
         track.fxRuntime?.forEach(({ nodes, sources }) => {
@@ -14460,6 +14743,7 @@
       state.isExporting = false;
       button.disabled = false;
       document.body.classList.remove("is-exporting");
+      updateProjectKeyIndicator();
     }
   }
 
@@ -14704,6 +14988,9 @@
       if (isSongWorkspace()) renderArrangement();
       if (resumeBar > 0) setArrangementCursor(resumeBar);
       saveState();
+    });
+    $("#master-pitch-control").addEventListener("input", (event) => {
+      setMasterPitch(event.currentTarget.value);
     });
     swingSlider.addEventListener("input", () => {
       state.swing = Number(swingSlider.value);
@@ -15631,7 +15918,7 @@
     mel.notes.forEach((note) => {
       const start = Math.max(0, Math.round(note.startTick * midiTicksPerPianoTick));
       const end = Math.max(start + 1, Math.round((note.startTick + note.durationTicks) * midiTicksPerPianoTick));
-      const pitch = Math.max(0, Math.min(127, Math.round(note.midi)));
+      const pitch = Math.max(0, Math.min(127, Math.round(note.midi + state.masterPitch)));
       const velocity = Math.max(1, Math.min(127, Math.round((note.velocity ?? 0.8) * 127)));
       events.push({ tick: start, priority: 1, bytes: [0x90, pitch, velocity] });
       events.push({ tick: end, priority: 0, bytes: [0x80, pitch, 0] });

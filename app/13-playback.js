@@ -942,6 +942,7 @@
     const savedMel = stepEditContext ? getMel() : null;
     return {
       bpm: state.bpm,
+      masterPitch: state.masterPitch,
       swing: state.swing,
       steps: state.steps,
       selectedPreset: state.selectedPreset,

@@ -899,6 +899,7 @@
     $("#save-state").textContent = "Saving…";
     saveDot.style.background = "#c8a95a";
     const snapshot = createStateSnapshot();
+    updateProjectKeyIndicator();
     if (!isApplyingUndo) recordUndoSnapshot(getUndoScope(), snapshot);
     const projectId = state.projectId;
     window.clearTimeout(saveState.timeout);

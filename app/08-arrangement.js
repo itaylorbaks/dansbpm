@@ -259,6 +259,7 @@
     updateArrangementLoopUI();
     updateArrangementCursorMarker();
     updateArrangementSelection();
+    updateProjectKeyIndicator();
     if (state.view === "mixer") renderMixer();
   }
 
@@ -713,27 +714,38 @@
     const library = document.createElement("aside");
     library.className = "mixer-effects-library";
     const libraryTitle = document.createElement("h2");
-    libraryTitle.textContent = "Available effects";
+    const masterSelected = state.selectedMixerTrackId === state.masterTrack.id;
+    libraryTitle.textContent = masterSelected ? "Master effects" : "Available effects";
     const libraryHint = document.createElement("p");
-    libraryHint.textContent = "Drag an effect onto a track";
+    libraryHint.textContent = masterSelected ? "Add effects to the master output" : "Drag an effect onto a track";
     const effectList = document.createElement("div");
     effectList.className = "mixer-effects-library-list";
-    EFFECT_NAMES.forEach(([id, name]) => {
-      const effect = document.createElement("button");
-      effect.className = "mixer-library-effect";
-      effect.type = "button";
-      effect.draggable = true;
-      effect.textContent = name;
-      effect.dataset.effectId = id;
-      effect.addEventListener("dragstart", (event) => {
-        event.dataTransfer?.setData("application/x-dansbpm-effect", id);
-        if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
+    EFFECT_CATEGORIES.forEach((category) => {
+      const group = document.createElement("section");
+      group.className = "mixer-effect-category";
+      const heading = document.createElement("h3");
+      heading.textContent = category.name;
+      const categoryEffects = document.createElement("div");
+      categoryEffects.className = "mixer-effect-category-list";
+      category.effects.forEach(([id, name]) => {
+        const effect = document.createElement("button");
+        effect.className = "mixer-library-effect";
+        effect.type = "button";
+        effect.draggable = true;
+        effect.textContent = name;
+        effect.dataset.effectId = id;
+        effect.addEventListener("dragstart", (event) => {
+          event.dataTransfer?.setData("application/x-dansbpm-effect", id);
+          if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
+        });
+        effect.addEventListener("click", () => {
+          const track = channels.find(({ track: item }) => item.id === state.selectedMixerTrackId)?.track || channels[0].track;
+          addMixerEffect(track, id, true);
+        });
+        categoryEffects.append(effect);
       });
-      effect.addEventListener("click", () => {
-        const track = channels.find(({ track: item }) => item.id === state.selectedMixerTrackId)?.track || channels[0].track;
-        addMixerEffect(track, id, true);
-      });
-      effectList.append(effect);
+      group.append(heading, categoryEffects);
+      effectList.append(group);
     });
     library.append(libraryTitle, libraryHint, effectList);
     root.append(trackList, library);

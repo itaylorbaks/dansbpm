@@ -211,6 +211,7 @@
   }
 
   function restoreState() {
+    state.masterPitch = 0;
     try {
       const saved = JSON.parse(window.localStorage.getItem(getProjectStorageKey(state.projectId)) || "null");
       if (!saved || typeof saved !== "object") return;
@@ -228,6 +229,9 @@
           .map((track) => makeMixerBusTrack("mixer-effects", track));
       }
       if (Number.isFinite(saved.bpm)) state.bpm = Math.max(60, Math.min(180, Math.round(saved.bpm)));
+      state.masterPitch = Number.isFinite(saved.masterPitch)
+        ? Math.max(-12, Math.min(12, Math.round(saved.masterPitch)))
+        : 0;
       if (Number.isFinite(saved.swing)) state.swing = Math.max(0, Math.min(45, Math.round(saved.swing)));
       if (Number.isFinite(saved.steps)) state.steps = normalizePatternSteps(saved.steps);
       if (Number.isFinite(saved.arrangementScale)) state.arrangementScale = Math.max(0.5, Math.min(4, saved.arrangementScale));
@@ -655,6 +659,8 @@
 
     const previousContext = state.audioContext;
     const previousMaster = state.masterGain;
+    const previousMasterPitchNode = state.masterPitchNode;
+    const previousMasterPitchSupported = state.masterPitchSupported;
     const previousNoise = state.noiseBuffer;
     const allTracks = [
       ...state.tracks, ...state.arrangementTracks, ...state.melTracks, ...state.patterns,
@@ -676,7 +682,7 @@
       state.audioContext = context;
       state.masterGain = context.createGain();
       state.masterGain.gain.value = 0.88;
-      state.masterGain.connect(context.destination);
+      await connectMasterPitchProcessor(context);
       state.noiseBuffer = createNoiseBuffer(context);
       const hasSolo = [...state.tracks, ...state.arrangementTracks].some((track) => track.solo);
       const hasArrangementSolo = [...state.patterns, ...state.melTracks, ...state.arrangementTracks]
@@ -801,6 +807,8 @@
     } finally {
       state.audioContext = previousContext;
       state.masterGain = previousMaster;
+      state.masterPitchNode = previousMasterPitchNode;
+      state.masterPitchSupported = previousMasterPitchSupported;
       state.noiseBuffer = previousNoise;
       allTracks.forEach((track, index) => {
         track.fxRuntime?.forEach(({ nodes, sources }) => {
@@ -819,6 +827,7 @@
       state.isExporting = false;
       button.disabled = false;
       document.body.classList.remove("is-exporting");
+      updateProjectKeyIndicator();
     }
   }
 
