@@ -194,20 +194,26 @@
     });
 
     const rows = [
-      ...patternTracks.map((track) => ({ id: track.id, type: "pattern" })),
-      ...state.melTracks.map((track) => ({ id: track.id, type: "mel" })),
-      ...state.arrangementTracks.map((track) => ({ id: track.id, type: "audio" })),
+      ...patternTracks.map((track) => ({
+        id: track.id, type: "pattern", insertAfterTrackId: track.insertAfterTrackId,
+      })),
+      ...state.melTracks.map((track) => ({
+        id: track.id, type: "mel", insertAfterTrackId: track.insertAfterTrackId,
+      })),
+      ...state.arrangementTracks.map((track) => ({
+        id: track.id, type: "audio", insertAfterTrackId: track.insertAfterTrackId,
+      })),
     ];
     const rowsById = new Map(rows.map((row) => [row.id, row]));
     const childrenByParent = new Map();
     const childIds = new Set();
-    [...state.melTracks, ...state.arrangementTracks].forEach((track) => {
-      const parentId = track.insertAfterTrackId;
-      if (!parentId || !rowsById.has(parentId) || parentId === track.id) return;
+    rows.forEach((row) => {
+      const parentId = row.insertAfterTrackId;
+      if (!parentId || !rowsById.has(parentId) || parentId === row.id) return;
       const children = childrenByParent.get(parentId) || [];
-      children.push(rowsById.get(track.id));
+      children.push(row);
       childrenByParent.set(parentId, children);
-      childIds.add(track.id);
+      childIds.add(row.id);
     });
     const orderedRows = [];
     const addedRowIds = new Set();

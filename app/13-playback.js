@@ -993,6 +993,7 @@
         return {
           id: pattern.id,
           name: pattern.name,
+          insertAfterTrackId: pattern.insertAfterTrackId || null,
           steps: pattern.steps,
           trackIds,
           cells: Object.fromEntries(trackIds.flatMap((trackId) => {

@@ -337,6 +337,10 @@
   function addPatternClip(startBar = state.arrangementCursor, patternId = state.selectedPatternId, trackId = patternId) {
     const pattern = getPattern(patternId);
     if (!pattern) return;
+    const trackPattern = getPattern(trackId);
+    if (trackPattern && !state.patternClips.some((clip) => (clip.trackId || clip.patternId) === trackId)) {
+      trackPattern.insertAfterTrackId = getLastArrangementTrackId();
+    }
     const durationBars = pattern.steps / 16;
     state.patternClips.push({
       id: makeId(),
@@ -360,6 +364,7 @@
       id: makeId(),
       name: mel.name,
       kind: "mel",
+      insertAfterTrackId: getLastArrangementTrackId(),
       instrumentId: mel.instrumentId,
       color: TRACK_COLORS[state.melTracks.length % TRACK_COLORS.length],
       muted: false,
@@ -388,13 +393,11 @@
     }
     let number = 1;
     while (state.melTracks.some((track) => track.name === `Instrument Track ${number}`)) number += 1;
-    const existingLabels = Array.from($("#arrangement-track-labels").children)
-      .filter((label) => label.dataset.trackId);
     const track = {
       id: makeId(),
       name: `Instrument Track ${number}`,
       kind: "mel",
-      insertAfterTrackId: existingLabels.at(-1)?.dataset.trackId || null,
+      insertAfterTrackId: getLastArrangementTrackId(),
       instrumentId: selectedInstrumentId,
       color: TRACK_COLORS[state.melTracks.length % TRACK_COLORS.length],
       muted: false,
@@ -491,6 +494,7 @@
       id: makeId(),
       name: mel.name,
       kind: "mel",
+      insertAfterTrackId: getLastArrangementTrackId(),
       instrumentId: source.instrumentId,
       gainNode: null,
       fxRuntime: null,
@@ -558,6 +562,7 @@
     const source = clip ? getPattern(clip.patternId) : null;
     if (!clip || !source) return;
     const destination = createPatternLaneCopy(source);
+    destination.insertAfterTrackId = getLastArrangementTrackId();
     clip.trackId = destination.id;
     clip.startBar = clampArrangementStart(startBar, getArrangementClipDuration("pattern", clip));
     state.patternClips.sort((left, right) => left.startBar - right.startBar);

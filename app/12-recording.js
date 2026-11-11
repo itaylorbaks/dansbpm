@@ -162,6 +162,7 @@
     const destination = {
       ...source,
       id: makeId(),
+      insertAfterTrackId: getLastArrangementTrackId(),
       clips: [],
       gainNode: null,
       fxRuntime: null,
@@ -426,6 +427,7 @@
           track = {
             id: record.trackId,
             name: record.trackName,
+            insertAfterTrackId: getLastArrangementTrackId(),
             color: record.color,
             clips: [],
             volume: record.volume,

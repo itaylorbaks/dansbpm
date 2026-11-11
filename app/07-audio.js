@@ -611,7 +611,27 @@
     return `Track ${number}`;
   }
 
-  function createArrangementTrack(name = getNextArrangementTrackName(), insertAfterTrackId = null) {
+  function getLastArrangementTrackId() {
+    const arrangedPatternIds = new Set(state.patternClips.map((clip) => clip.trackId || clip.patternId));
+    const patternTrackIds = state.patterns.filter((pattern) => arrangedPatternIds.has(pattern.id))
+      .map((pattern) => pattern.id);
+    const currentTrackIds = new Set([
+      ...patternTrackIds,
+      ...state.melTracks.map((track) => track.id),
+      ...state.arrangementTracks.map((track) => track.id),
+    ]);
+    const trackId = Array.from($("#arrangement-track-labels").children)
+      .map((label) => label.dataset.trackId)
+      .filter((id) => currentTrackIds.has(id))
+      .at(-1);
+    return trackId || [
+      ...patternTrackIds,
+      ...state.melTracks.map((track) => track.id),
+      ...state.arrangementTracks.map((track) => track.id),
+    ].at(-1) || null;
+  }
+
+  function createArrangementTrack(name = getNextArrangementTrackName(), insertAfterTrackId = getLastArrangementTrackId()) {
     const track = {
       id: makeId(),
       name,

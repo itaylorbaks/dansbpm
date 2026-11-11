@@ -381,6 +381,7 @@
               id: pattern.id,
               name: pattern.name,
               kind: "pattern",
+              insertAfterTrackId: typeof pattern.insertAfterTrackId === "string" ? pattern.insertAfterTrackId : null,
               color: isPatternColor(pattern.color) ? pattern.color : getPatternColor(index),
               steps: patternSteps,
               trackIds: Array.isArray(pattern.trackIds)

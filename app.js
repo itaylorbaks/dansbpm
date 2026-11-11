@@ -1432,7 +1432,8 @@
       state.selectedMelId = mel.id;
       if (mel.notes.length) {
         const track = {
-          id: makeId(), name: mel.name, kind: "mel", instrumentId: mel.instrumentId, color: "#b5a0ff",
+          id: makeId(), name: mel.name, kind: "mel", insertAfterTrackId: getLastArrangementTrackId(),
+          instrumentId: mel.instrumentId, color: "#b5a0ff",
           muted: false, solo: false, volume: 1, automation: normalizeTrackAutomation(), automationOpen: false,
           gainNode: null, effects: makeDefaultEffects(), clips: [{ id: makeId(), melId: mel.id, startBar: state.pianoStartBar }],
         };
@@ -7874,7 +7875,27 @@
     return `Track ${number}`;
   }
 
-  function createArrangementTrack(name = getNextArrangementTrackName(), insertAfterTrackId = null) {
+  function getLastArrangementTrackId() {
+    const arrangedPatternIds = new Set(state.patternClips.map((clip) => clip.trackId || clip.patternId));
+    const patternTrackIds = state.patterns.filter((pattern) => arrangedPatternIds.has(pattern.id))
+      .map((pattern) => pattern.id);
+    const currentTrackIds = new Set([
+      ...patternTrackIds,
+      ...state.melTracks.map((track) => track.id),
+      ...state.arrangementTracks.map((track) => track.id),
+    ]);
+    const trackId = Array.from($("#arrangement-track-labels").children)
+      .map((label) => label.dataset.trackId)
+      .filter((id) => currentTrackIds.has(id))
+      .at(-1);
+    return trackId || [
+      ...patternTrackIds,
+      ...state.melTracks.map((track) => track.id),
+      ...state.arrangementTracks.map((track) => track.id),
+    ].at(-1) || null;
+  }
+
+  function createArrangementTrack(name = getNextArrangementTrackName(), insertAfterTrackId = getLastArrangementTrackId()) {
     const track = {
       id: makeId(),
       name,
@@ -8796,20 +8817,26 @@
     });
 
     const rows = [
-      ...patternTracks.map((track) => ({ id: track.id, type: "pattern" })),
-      ...state.melTracks.map((track) => ({ id: track.id, type: "mel" })),
-      ...state.arrangementTracks.map((track) => ({ id: track.id, type: "audio" })),
+      ...patternTracks.map((track) => ({
+        id: track.id, type: "pattern", insertAfterTrackId: track.insertAfterTrackId,
+      })),
+      ...state.melTracks.map((track) => ({
+        id: track.id, type: "mel", insertAfterTrackId: track.insertAfterTrackId,
+      })),
+      ...state.arrangementTracks.map((track) => ({
+        id: track.id, type: "audio", insertAfterTrackId: track.insertAfterTrackId,
+      })),
     ];
     const rowsById = new Map(rows.map((row) => [row.id, row]));
     const childrenByParent = new Map();
     const childIds = new Set();
-    [...state.melTracks, ...state.arrangementTracks].forEach((track) => {
-      const parentId = track.insertAfterTrackId;
-      if (!parentId || !rowsById.has(parentId) || parentId === track.id) return;
+    rows.forEach((row) => {
+      const parentId = row.insertAfterTrackId;
+      if (!parentId || !rowsById.has(parentId) || parentId === row.id) return;
       const children = childrenByParent.get(parentId) || [];
-      children.push(rowsById.get(track.id));
+      children.push(row);
       childrenByParent.set(parentId, children);
-      childIds.add(track.id);
+      childIds.add(row.id);
     });
     const orderedRows = [];
     const addedRowIds = new Set();
@@ -10129,6 +10156,10 @@
   function addPatternClip(startBar = state.arrangementCursor, patternId = state.selectedPatternId, trackId = patternId) {
     const pattern = getPattern(patternId);
     if (!pattern) return;
+    const trackPattern = getPattern(trackId);
+    if (trackPattern && !state.patternClips.some((clip) => (clip.trackId || clip.patternId) === trackId)) {
+      trackPattern.insertAfterTrackId = getLastArrangementTrackId();
+    }
     const durationBars = pattern.steps / 16;
     state.patternClips.push({
       id: makeId(),
@@ -10152,6 +10183,7 @@
       id: makeId(),
       name: mel.name,
       kind: "mel",
+      insertAfterTrackId: getLastArrangementTrackId(),
       instrumentId: mel.instrumentId,
       color: TRACK_COLORS[state.melTracks.length % TRACK_COLORS.length],
       muted: false,
@@ -10180,13 +10212,11 @@
     }
     let number = 1;
     while (state.melTracks.some((track) => track.name === `Instrument Track ${number}`)) number += 1;
-    const existingLabels = Array.from($("#arrangement-track-labels").children)
-      .filter((label) => label.dataset.trackId);
     const track = {
       id: makeId(),
       name: `Instrument Track ${number}`,
       kind: "mel",
-      insertAfterTrackId: existingLabels.at(-1)?.dataset.trackId || null,
+      insertAfterTrackId: getLastArrangementTrackId(),
       instrumentId: selectedInstrumentId,
       color: TRACK_COLORS[state.melTracks.length % TRACK_COLORS.length],
       muted: false,
@@ -10283,6 +10313,7 @@
       id: makeId(),
       name: mel.name,
       kind: "mel",
+      insertAfterTrackId: getLastArrangementTrackId(),
       instrumentId: source.instrumentId,
       gainNode: null,
       fxRuntime: null,
@@ -10350,6 +10381,7 @@
     const source = clip ? getPattern(clip.patternId) : null;
     if (!clip || !source) return;
     const destination = createPatternLaneCopy(source);
+    destination.insertAfterTrackId = getLastArrangementTrackId();
     clip.trackId = destination.id;
     clip.startBar = clampArrangementStart(startBar, getArrangementClipDuration("pattern", clip));
     state.patternClips.sort((left, right) => left.startBar - right.startBar);
@@ -11388,6 +11420,11 @@
       if (item.type === "pattern") {
         const pattern = getPattern(item.patternId);
         if (!pattern) return;
+        const trackId = item.clip.trackId || item.patternId;
+        const trackPattern = getPattern(trackId);
+        if (trackPattern && !state.patternClips.some((clip) => (clip.trackId || clip.patternId) === trackId)) {
+          trackPattern.insertAfterTrackId = getLastArrangementTrackId();
+        }
         const durationBars = getArrangementClipDuration("pattern", item.clip);
         const patternStart = clampArrangementStart(startBar, durationBars);
         const clip = { ...item.clip, id: makeId(), patternId: item.patternId, repeatCount: item.repeatCount, startBar: patternStart };
@@ -11399,7 +11436,15 @@
         let track = state.melTracks.find((candidate) => candidate.id === state.selectedMixerTrackId)
           || state.melTracks.find((candidate) => candidate.id === item.sourceTrackId);
         if (!track) {
-          track = { ...item.track, muted: false, solo: false, clips: [], gainNode: null, effects: makeDefaultEffects(item.track.effects) };
+          track = {
+            ...item.track,
+            insertAfterTrackId: getLastArrangementTrackId(),
+            muted: false,
+            solo: false,
+            clips: [],
+            gainNode: null,
+            effects: makeDefaultEffects(item.track.effects),
+          };
           state.melTracks.push(track);
         }
         const clip = { ...item.clip, id: makeId(), melId: item.melId, startBar: clipStart };
@@ -11409,7 +11454,15 @@
         const clipStart = clampArrangementStart(startBar, getArrangementClipDuration("audio", item.clip));
         let track = state.arrangementTracks.find((candidate) => candidate.id === item.sourceTrackId);
         if (!track) {
-          track = { ...item.track, clips: [], muted: false, solo: false, gainNode: null, effects: makeDefaultEffects(item.track.effects) };
+          track = {
+            ...item.track,
+            insertAfterTrackId: getLastArrangementTrackId(),
+            clips: [],
+            muted: false,
+            solo: false,
+            gainNode: null,
+            effects: makeDefaultEffects(item.track.effects),
+          };
           state.arrangementTracks.push(track);
           ensureArrangementTrackAudio(track);
         }
@@ -12164,6 +12217,7 @@
     const destination = {
       ...source,
       id: makeId(),
+      insertAfterTrackId: getLastArrangementTrackId(),
       clips: [],
       gainNode: null,
       fxRuntime: null,
@@ -12428,6 +12482,7 @@
           track = {
             id: record.trackId,
             name: record.trackName,
+            insertAfterTrackId: getLastArrangementTrackId(),
             color: record.color,
             clips: [],
             volume: record.volume,
@@ -13495,6 +13550,7 @@
         return {
           id: pattern.id,
           name: pattern.name,
+          insertAfterTrackId: pattern.insertAfterTrackId || null,
           steps: pattern.steps,
           trackIds,
           cells: Object.fromEntries(trackIds.flatMap((trackId) => {
@@ -15433,6 +15489,7 @@
               id: pattern.id,
               name: pattern.name,
               kind: "pattern",
+              insertAfterTrackId: typeof pattern.insertAfterTrackId === "string" ? pattern.insertAfterTrackId : null,
               color: isPatternColor(pattern.color) ? pattern.color : getPatternColor(index),
               steps: patternSteps,
               trackIds: Array.isArray(pattern.trackIds)

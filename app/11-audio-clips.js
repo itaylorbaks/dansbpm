@@ -535,6 +535,11 @@
       if (item.type === "pattern") {
         const pattern = getPattern(item.patternId);
         if (!pattern) return;
+        const trackId = item.clip.trackId || item.patternId;
+        const trackPattern = getPattern(trackId);
+        if (trackPattern && !state.patternClips.some((clip) => (clip.trackId || clip.patternId) === trackId)) {
+          trackPattern.insertAfterTrackId = getLastArrangementTrackId();
+        }
         const durationBars = getArrangementClipDuration("pattern", item.clip);
         const patternStart = clampArrangementStart(startBar, durationBars);
         const clip = { ...item.clip, id: makeId(), patternId: item.patternId, repeatCount: item.repeatCount, startBar: patternStart };
@@ -546,7 +551,15 @@
         let track = state.melTracks.find((candidate) => candidate.id === state.selectedMixerTrackId)
           || state.melTracks.find((candidate) => candidate.id === item.sourceTrackId);
         if (!track) {
-          track = { ...item.track, muted: false, solo: false, clips: [], gainNode: null, effects: makeDefaultEffects(item.track.effects) };
+          track = {
+            ...item.track,
+            insertAfterTrackId: getLastArrangementTrackId(),
+            muted: false,
+            solo: false,
+            clips: [],
+            gainNode: null,
+            effects: makeDefaultEffects(item.track.effects),
+          };
           state.melTracks.push(track);
         }
         const clip = { ...item.clip, id: makeId(), melId: item.melId, startBar: clipStart };
@@ -556,7 +569,15 @@
         const clipStart = clampArrangementStart(startBar, getArrangementClipDuration("audio", item.clip));
         let track = state.arrangementTracks.find((candidate) => candidate.id === item.sourceTrackId);
         if (!track) {
-          track = { ...item.track, clips: [], muted: false, solo: false, gainNode: null, effects: makeDefaultEffects(item.track.effects) };
+          track = {
+            ...item.track,
+            insertAfterTrackId: getLastArrangementTrackId(),
+            clips: [],
+            muted: false,
+            solo: false,
+            gainNode: null,
+            effects: makeDefaultEffects(item.track.effects),
+          };
           state.arrangementTracks.push(track);
           ensureArrangementTrackAudio(track);
         }
