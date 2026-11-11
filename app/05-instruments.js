@@ -401,6 +401,8 @@
       trackIds: [...getPatternTrackIds(source)],
       cells: Object.fromEntries(Object.entries(source.cells).map(([trackId, cells]) => [trackId, [...cells]])),
       variants: { ...source.variants },
+      automation: normalizeTrackAutomation(source.automation),
+      automationOpen: source.automationOpen === true,
       ...(source.stepPianoNotes ? {
         stepPianoNotes: Object.fromEntries(Object.entries(source.stepPianoNotes).map(([trackId, notes]) =>
           [trackId, notes.map((note) => ({ ...note }))])),

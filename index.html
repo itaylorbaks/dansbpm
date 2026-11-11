@@ -231,6 +231,8 @@
                         </label>
                         <button class="quiet-button" id="new-mel-button" type="button">＋ New Mel</button>
                         <button class="quiet-button" id="export-mel-button" type="button">Export Mel</button>
+                        <button class="quiet-button" id="import-midi-button" type="button">Import MIDI</button>
+                        <button class="quiet-button" id="export-midi-button" type="button">Export MIDI</button>
                         <button class="quiet-button" id="rename-mel-button" type="button">Rename</button>
                         <button class="quiet-button pattern-drag-source" id="mel-drag-source" type="button" draggable="true">Drag Mel to Track View</button>
                         <button class="quiet-button keyboard-record-button" id="piano-keyboard-record-button" type="button" aria-pressed="false">Record keys</button>
@@ -641,6 +643,7 @@
       <input id="drum-samples-input" type="file" accept="audio/*" multiple hidden />
       <input id="recording-input" type="file" accept="audio/*" multiple hidden />
       <input id="project-import-input" type="file" accept=".bpm,application/json" hidden />
+      <input id="midi-import-input" type="file" accept=".mid,.midi,audio/midi,audio/x-midi" hidden />
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
       <dialog class="help-dialog" id="help-dialog">
         <form method="dialog">

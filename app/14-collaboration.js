@@ -917,6 +917,7 @@
       effects: makeDefaultEffects(track.effects),
       effectSettings: makeDefaultEffectSettings(track.effectSettings),
       effectChain: Array.isArray(track.effectChain) ? track.effectChain.map((effect) => ({ ...effect })) : track.effectChain,
+      automation: normalizeTrackAutomation(track.automation),
     };
   }
 

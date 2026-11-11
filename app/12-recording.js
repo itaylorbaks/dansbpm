@@ -168,6 +168,8 @@
       analyser: null,
       sourceGains: null,
       effectChain: [...(source.effectChain || [])],
+      automation: normalizeTrackAutomation(source.automation),
+      automationOpen: source.automationOpen === true,
       effects: makeDefaultEffects(source.effects),
       effectSettings: makeDefaultEffectSettings(source.effectSettings),
     };
@@ -423,6 +425,8 @@
             color: record.color,
             clips: [],
             volume: record.volume,
+            automation: normalizeTrackAutomation(),
+            automationOpen: false,
             muted: record.muted,
             solo: false,
             effects: makeDefaultEffects(),

@@ -41,8 +41,8 @@
       if (mel.notes.length) {
         const track = {
           id: makeId(), name: mel.name, kind: "mel", instrumentId: mel.instrumentId, color: "#b5a0ff",
-              muted: false, solo: false, volume: 1, gainNode: null, effects: makeDefaultEffects(),
-              clips: [{ id: makeId(), melId: mel.id, startBar: state.pianoStartBar }],
+          muted: false, solo: false, volume: 1, automation: normalizeTrackAutomation(), automationOpen: false,
+          gainNode: null, effects: makeDefaultEffects(), clips: [{ id: makeId(), melId: mel.id, startBar: state.pianoStartBar }],
         };
         state.melTracks.push(track);
       }

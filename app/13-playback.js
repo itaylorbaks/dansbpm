@@ -549,6 +549,7 @@
     const arrangementEndBar = state.arrangementLoopEnabled
       ? getArrangementLoopRange().endBar
       : state.arrangementBars;
+    scheduleArrangementAutomation(startTime, startBar, arrangementEndBar);
     state.arrangementTracks.forEach((track) => {
       ensureArrangementTrackAudio(track);
       track.clips.forEach((clip) => {
@@ -593,6 +594,56 @@
     });
   }
 
+  function getArrangementAutomationValue(track, property, bar) {
+    const points = normalizeTrackAutomation(track.automation)[property];
+    let previousBar = 0;
+    let previousValue = track[property] ?? 0;
+    for (const point of points) {
+      if (point.bar >= bar) {
+        const range = point.bar - previousBar;
+        if (range <= 0) return point.value;
+        const amount = Math.max(0, Math.min(1, (bar - previousBar) / range));
+        return previousValue + (point.value - previousValue) * amount;
+      }
+      previousBar = point.bar;
+      previousValue = point.value;
+    }
+    return previousValue;
+  }
+
+  function scheduleArrangementAutomation(startTime, startBar, endBar) {
+    const tracks = [...state.patterns, ...state.melTracks, ...state.arrangementTracks];
+    const secondsPerBar = 240 / state.bpm;
+    tracks.forEach((track) => {
+      const automation = normalizeTrackAutomation(track.automation);
+      if (!automation.volume.length && !automation.pan.length) return;
+      ensureTrackAudio(track);
+      if (automation.volume.length && track.automationGainNode) {
+        const gain = track.automationGainNode.gain;
+        const toAutomationGain = (value) => track.volume > 0 ? value / track.volume : 1;
+        gain.cancelScheduledValues(startTime);
+        gain.setValueAtTime(toAutomationGain(getArrangementAutomationValue(track, "volume", startBar)), startTime);
+        automation.volume
+          .filter((point) => point.bar > startBar && point.bar <= endBar)
+          .forEach((point) => gain.linearRampToValueAtTime(
+            toAutomationGain(point.value),
+            startTime + (point.bar - startBar) * secondsPerBar,
+          ));
+      }
+      if (automation.pan.length && track.panNode) {
+        const pan = track.panNode.pan;
+        pan.cancelScheduledValues(startTime);
+        pan.setValueAtTime(getArrangementAutomationValue(track, "pan", startBar), startTime);
+        automation.pan
+          .filter((point) => point.bar > startBar && point.bar <= endBar)
+          .forEach((point) => pan.linearRampToValueAtTime(
+            point.value,
+            startTime + (point.bar - startBar) * secondsPerBar,
+          ));
+      }
+    });
+  }
+
   function stopPlayback(remote = false) {
     if ((state.isPlaying || state.isStartingPlayback) && !remote &&
       !collaboration.applyingRemote && collaboration.session) {
@@ -628,6 +679,13 @@
     if (stoppedPlaybackMode === "arrangement" && state.view === "arrangement") state.arrangementCursor = 0;
     if (state.audioContext) {
       const now = state.audioContext.currentTime;
+      [...state.patterns, ...state.melTracks, ...state.arrangementTracks].forEach((track) => {
+        track.gainNode?.gain.cancelScheduledValues(now);
+        track.automationGainNode?.gain.cancelScheduledValues(now);
+        track.automationGainNode?.gain.setValueAtTime(1, now);
+        track.panNode?.pan.cancelScheduledValues(now);
+      });
+      updateTrackGains();
       state.tracks.forEach((track) => {
         if (track.gainNode) {
           track.gainNode.gain.cancelScheduledValues(now);
@@ -910,6 +968,8 @@
           color: pattern.color,
           volume: pattern.volume,
           pan: pattern.pan,
+          automation: normalizeTrackAutomation(pattern.automation),
+          automationOpen: pattern.automationOpen === true,
           muted: pattern.muted,
           solo: pattern.solo,
           effects: makeDefaultEffects(pattern.effects),
@@ -944,6 +1004,8 @@
         color: track.color,
         volume: track.volume,
         pan: track.pan,
+        automation: normalizeTrackAutomation(track.automation),
+        automationOpen: track.automationOpen === true,
         muted: track.muted,
         solo: track.solo,
         effects: makeDefaultEffects(track.effects),
@@ -966,6 +1028,8 @@
         color: track.color,
         volume: track.volume,
         pan: track.pan,
+        automation: normalizeTrackAutomation(track.automation),
+        automationOpen: track.automationOpen === true,
         muted: track.muted,
         solo: track.solo,
         effects: makeDefaultEffects(track.effects),

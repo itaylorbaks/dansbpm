@@ -173,7 +173,8 @@
     ["#mel-select", "#piano-instrument-select", "#piano-bars-select"].forEach((selector) => {
       $(selector).closest("label").hidden = active;
     });
-    ["#new-mel-button", "#rename-mel-button", "#piano-keyboard-record-button"].forEach((selector) => {
+    ["#new-mel-button", "#rename-mel-button", "#piano-keyboard-record-button",
+      "#import-midi-button", "#export-midi-button"].forEach((selector) => {
       $(selector).hidden = active;
     });
     $("#mel-drag-source").hidden = false;

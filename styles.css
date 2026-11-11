@@ -366,6 +366,7 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .arrangement-track-labels { min-height: 0; display: flex; flex: 1; flex-direction: column; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; }
 .arrangement-track-labels::-webkit-scrollbar { display: none; }
 .arrangement-label { height: 74px; flex: 0 0 74px; min-width: 0; display: flex; flex-wrap: wrap; align-content: center; align-items: center; column-gap: 5px; row-gap: 3px; border-bottom: 1px solid #25262a; padding: 4px 8px 4px 10px; }
+.automation-label { height: 42px; flex: 0 0 42px; display: flex; align-items: center; border-bottom: 1px solid #25262a; border-left: 2px solid var(--track-color); padding-left: 12px; color: #777980; font-family: var(--mono); font-size: 8px; letter-spacing: .4px; }
 .arrangement-label-info { min-width: 0; flex: 1 1 calc(100% - 20px); }
 .arrangement-label-name { overflow: hidden; color: #d7d8d4; font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .arrangement-label-type { margin-top: 4px; color: #74757b; font-size: 9px; }
@@ -375,6 +376,7 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .arrangement-label-actions { min-width: 0; display: flex; flex: 0 0 auto; align-items: center; gap: 0; }
 .arrangement-label-actions button { width: 19px; height: 20px; flex: 0 0 19px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #7a7b80; cursor: pointer; }
 .arrangement-label-actions button:hover, .arrangement-label-actions button.is-active { border-color: var(--stroke); background: #27282c; color: var(--text); }
+.arrangement-label-actions button.automation-toggle.is-active { color: var(--accent); }
 .arrangement-label-actions svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .arrangement-volume { width: 32px; max-width: 42px; height: 2px; flex: 1 1 32px; margin: 0 0 0 auto; accent-color: var(--accent); }
 .arrangement-track-context-menu { position: fixed; z-index: 80; min-width: 190px; border: 1px solid #424349; border-radius: 6px; background: #232428; padding: 4px; box-shadow: 0 8px 24px #0009; }
@@ -395,6 +397,11 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .timeline-bar::before { position: absolute; left: 0; bottom: 0; height: 7px; border-left: 1px solid #595a5f; content: ""; }
 .arrangement-ruler-playhead { position: absolute; top: 50%; bottom: 0; z-index: 3; width: 2px; margin-left: -1px; background: #f3f4e8; box-shadow: 0 0 7px #fff8; pointer-events: none; }
 .timeline-lane { position: relative; height: 74px; border-bottom: 1px solid #25262a; background-color: #191a1d; background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(var(--bar-width) - 1px), #292a2e calc(var(--bar-width) - 1px), #292a2e var(--bar-width)), repeating-linear-gradient(to right, transparent 0, transparent calc(var(--beat-width) - 1px), rgba(45,46,51,.55) calc(var(--beat-width) - 1px), rgba(45,46,51,.55) var(--beat-width)); }
+.timeline-automation-lane { position: relative; height: 42px; border-bottom: 1px solid #25262a; background-color: #17181b; background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(var(--bar-width) - 1px), #292a2e calc(var(--bar-width) - 1px), #292a2e var(--bar-width)); touch-action: none; }
+.timeline-automation-lane svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.automation-curve { fill: none; stroke: var(--track-color); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.automation-point { fill: var(--track-color); stroke: #17181b; stroke-width: 2; vector-effect: non-scaling-stroke; cursor: grab; }
+.automation-point:hover, .automation-point:focus, .automation-point.is-active { outline: none; fill: #fff; stroke: var(--track-color); }
 .timeline-lane.is-drop-target { background-color: rgba(211,243,107,.06); }
 .drum-arrangement-clip { position: absolute; top: 12px; bottom: 12px; display: flex; align-items: center; gap: 8px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--pattern-color), transparent 56%); border-radius: 5px; background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--pattern-color), transparent 82%) 0, color-mix(in srgb, var(--pattern-color), transparent 82%) 6px, color-mix(in srgb, var(--pattern-color), transparent 91%) 6px, color-mix(in srgb, var(--pattern-color), transparent 91%) 12px); padding: 0 7px; color: color-mix(in srgb, var(--pattern-color), white 35%); font-size: 10px; font-weight: 600; white-space: nowrap; cursor: grab; }
 .drum-arrangement-clip.is-selected, .mel-arrangement-clip.is-selected, .audio-clip.is-selected { outline: 2px solid #fff; outline-offset: 1px; filter: brightness(1.2); }

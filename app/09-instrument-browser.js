@@ -331,6 +331,8 @@
       muted: false,
       solo: false,
       volume: 1,
+      automation: normalizeTrackAutomation(),
+      automationOpen: false,
       gainNode: null,
       effects: makeDefaultEffects(),
       clips: [],
@@ -362,6 +364,8 @@
       muted: false,
       solo: false,
       volume: 1,
+      automation: normalizeTrackAutomation(),
+      automationOpen: false,
       gainNode: null,
       effects: makeDefaultEffects(),
       clips: [],
@@ -455,6 +459,8 @@
       fxRuntime: null,
       analyser: null,
       sourceGains: null,
+      automation: normalizeTrackAutomation(source.automation),
+      automationOpen: source.automationOpen === true,
       effects: makeDefaultEffects(source.effects),
       clips: [],
     };
@@ -487,6 +493,8 @@
       trackIds: [...getPatternTrackIds(currentSource)],
       cells: Object.fromEntries(Object.entries(currentSource.cells).map(([trackId, cells]) => [trackId, [...cells]])),
       variants: { ...currentSource.variants },
+      automation: normalizeTrackAutomation(currentSource.automation),
+      automationOpen: currentSource.automationOpen === true,
       ...(currentSource.stepPianoNotes ? {
         stepPianoNotes: Object.fromEntries(Object.entries(currentSource.stepPianoNotes).map(([trackId, notes]) =>
           [trackId, notes.map((note) => ({ ...note }))])),

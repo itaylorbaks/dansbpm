@@ -400,6 +400,8 @@
       color: TRACK_COLORS[state.arrangementTracks.length % TRACK_COLORS.length],
       clips: [],
       volume: 0.8,
+      automation: normalizeTrackAutomation(),
+      automationOpen: false,
       muted: false,
       solo: false,
       gainNode: null,
@@ -433,6 +435,10 @@
       track.panNode = state.audioContext.createStereoPanner();
       track.panNode.pan.value = track.pan;
     }
+    if (!track.automationGainNode) {
+      track.automationGainNode = state.audioContext.createGain();
+      track.automationGainNode.gain.value = 1;
+    }
     if (!track.gainNode) {
       track.gainNode = state.audioContext.createGain();
       track.gainNode.gain.value = track.muted ? 0 : track.volume;
@@ -464,8 +470,13 @@
       track.panNode = context.createStereoPanner();
       track.panNode.pan.value = track.pan;
     }
+    if (!track.automationGainNode) {
+      track.automationGainNode = context.createGain();
+      track.automationGainNode.gain.value = 1;
+    }
     track.fxRuntime = [];
     track.gainNode.disconnect();
+    track.automationGainNode.disconnect();
     let output = track.gainNode;
 
     const eq = [
@@ -500,7 +511,8 @@
       track.fxRuntime.push(module);
     });
     track.panNode.disconnect();
-    output.connect(track.panNode);
+    output.connect(track.automationGainNode);
+    track.automationGainNode.connect(track.panNode);
     track.panNode.connect(getTrackOutputNode(track));
   }
 
@@ -527,8 +539,10 @@
   function disconnectTrackAudio(track) {
     clearTrackEffectNodes(track);
     track.gainNode?.disconnect();
+    track.automationGainNode?.disconnect();
     track.panNode?.disconnect();
     track.gainNode = null;
+    track.automationGainNode = null;
     track.panNode = null;
   }
 

@@ -318,6 +318,10 @@
             clips: [],
             volume: Number.isFinite(track.volume) ? Math.max(0, Math.min(1, track.volume)) : 0.8,
             pan: Number.isFinite(track.pan) ? Math.max(-1, Math.min(1, track.pan)) : 0,
+            automation: normalizeTrackAutomation(track.automation),
+            automationOpen: typeof track.automationOpen === "boolean"
+              ? track.automationOpen
+              : hasTrackAutomation(track.automation),
             muted: track.muted === true,
             solo: track.solo === true,
             gainNode: null,
@@ -377,6 +381,10 @@
               gridResolution,
               volume: Number.isFinite(pattern.volume) ? Math.max(0, Math.min(1, pattern.volume)) : 1,
               pan: Number.isFinite(pattern.pan) ? Math.max(-1, Math.min(1, pattern.pan)) : 0,
+              automation: normalizeTrackAutomation(pattern.automation),
+              automationOpen: typeof pattern.automationOpen === "boolean"
+                ? pattern.automationOpen
+                : hasTrackAutomation(pattern.automation),
               muted: pattern.muted === true,
               solo: pattern.solo === true,
               effects: makeDefaultEffects(pattern.effects),
@@ -512,6 +520,10 @@
             color: isPatternColor(track.color) ? track.color : "#b5a0ff",
             volume: Number.isFinite(track.volume) ? Math.max(0, Math.min(1, track.volume)) : 1,
             pan: Number.isFinite(track.pan) ? Math.max(-1, Math.min(1, track.pan)) : 0,
+            automation: normalizeTrackAutomation(track.automation),
+            automationOpen: typeof track.automationOpen === "boolean"
+              ? track.automationOpen
+              : hasTrackAutomation(track.automation),
             muted: track.muted === true,
             solo: track.solo === true,
             gainNode: null,

@@ -21,6 +21,7 @@ const parts = [
   "14-collaboration.js",
   "15-projects.js",
   "16-events.js",
+  "17-midi.js",
 ];
 const body = (await Promise.all(parts.map((part) => readFile(join(root, "app", part), "utf8")))).join("");
 const output = `(() => {\n  "use strict";\n${body}})();\n`;

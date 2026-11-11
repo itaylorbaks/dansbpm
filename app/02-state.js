@@ -1,5 +1,30 @@
   let pianoNoteContextTargetIds = [];
   let pianoDragPreviewSequence = 0;
+  function normalizeTrackAutomation(automation) {
+    const result = {};
+    [["volume", 0, 1], ["pan", -1, 1]].forEach(([property, minimum, maximum]) => {
+      const points = Array.isArray(automation?.[property]) ? automation[property]
+        .filter((point) => Number.isFinite(point?.bar) && Number.isFinite(point?.value))
+        .slice(0, 512)
+        .map((point) => ({
+          bar: Math.max(0, Math.min(MAX_ARRANGEMENT_BARS, point.bar)),
+          value: Math.max(minimum, Math.min(maximum, point.value)),
+        }))
+        .sort((left, right) => left.bar - right.bar)
+        : [];
+      result[property] = points.reduce((unique, point) => {
+        if (unique.length && unique[unique.length - 1].bar === point.bar) unique[unique.length - 1] = point;
+        else unique.push(point);
+        return unique;
+      }, []);
+    });
+    return result;
+  }
+
+  function hasTrackAutomation(automation) {
+    return ["volume", "pan"].some((property) => Array.isArray(automation?.[property]) && automation[property].length > 0);
+  }
+
   const state = {
     tracks: [],
     patterns: [],

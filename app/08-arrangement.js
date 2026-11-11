@@ -17,6 +17,8 @@
     const width = state.arrangementBars * BAR_WIDTH;
     const labels = $("#arrangement-track-labels");
     const content = $("#timeline-content");
+    const automationLabelsByTrackId = new Map();
+    const automationLanesByTrackId = new Map();
     labels.replaceChildren();
     content.replaceChildren();
     content.style.width = `${width}px`;
@@ -59,6 +61,7 @@
         selectArrangementTrack(pattern.id);
       });
       const controls = makeArrangementTrackControls(pattern);
+      controls.actions.append(makeAutomationToggle(pattern));
       label.append(controls.actions, controls.volume);
       labels.append(label);
 
@@ -67,6 +70,7 @@
         .filter((clip) => (clip.trackId || clip.patternId) === pattern.id)
         .forEach((clip) => lane.append(createPatternClip(clip)));
       content.append(lane);
+      appendAutomationRows(pattern, width, labels, content, automationLabelsByTrackId, automationLanesByTrackId);
     });
 
     state.melTracks.forEach((track) => {
@@ -98,11 +102,13 @@
         if (!event.target.closest(".mixer-track-button")) selectArrangementTrack(track.id);
       });
       const controls = makeArrangementTrackControls(track);
+      controls.actions.append(makeAutomationToggle(track));
       label.append(controls.actions, controls.volume);
       labels.append(label);
       const lane = createTimelineLane(`mel:${track.id}`, width);
       track.clips.forEach((clip) => lane.append(createMelClipElement(track, clip)));
       content.append(lane);
+      appendAutomationRows(track, width, labels, content, automationLabelsByTrackId, automationLanesByTrackId);
     });
 
     state.arrangementTracks.forEach((track) => {
@@ -158,7 +164,7 @@
         renderArrangement();
         saveState();
       });
-      actions.append(add, mute, solo, makeOpenMixerButton(track));
+      actions.append(add, mute, solo, makeOpenMixerButton(track), makeAutomationToggle(track));
       const volume = document.createElement("input");
       volume.className = "arrangement-volume";
       volume.type = "range";
@@ -184,6 +190,7 @@
       const lane = createTimelineLane(track.id, width);
       track.clips.forEach((clip) => lane.append(createAudioClip(track, clip)));
       content.append(lane);
+      appendAutomationRows(track, width, labels, content, automationLabelsByTrackId, automationLanesByTrackId);
     });
 
     const rows = [
@@ -215,10 +222,14 @@
     const labelsById = new Map(Array.from(labels.children, (label) => [label.dataset.trackId, label]));
     const lanesById = new Map(Array.from(content.querySelectorAll(".timeline-lane"), (lane) =>
       [lane.dataset.trackId, lane]));
-    const orderedLabels = orderedRows.map((row) => labelsById.get(row.id)).filter(Boolean);
-    const orderedLanes = orderedRows.map((row) => lanesById.get(
-      row.type === "pattern" ? `pattern:${row.id}` : row.type === "mel" ? `mel:${row.id}` : row.id,
-    )).filter(Boolean);
+    const orderedLabels = orderedRows.flatMap((row) => [
+      labelsById.get(row.id),
+      ...(automationLabelsByTrackId.get(row.id) || []),
+    ]).filter(Boolean);
+    const orderedLanes = orderedRows.flatMap((row) => [
+      lanesById.get(row.type === "pattern" ? `pattern:${row.id}` : row.type === "mel" ? `mel:${row.id}` : row.id),
+      ...(automationLanesByTrackId.get(row.id) || []),
+    ]).filter(Boolean);
     const timelineRuler = content.firstElementChild;
     labels.replaceChildren(...orderedLabels);
     content.replaceChildren(timelineRuler, ...orderedLanes);
@@ -249,6 +260,170 @@
     updateArrangementCursorMarker();
     updateArrangementSelection();
     if (state.view === "mixer") renderMixer();
+  }
+
+  function makeAutomationToggle(track) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `automation-toggle${track.automationOpen ? " is-active" : ""}`;
+    button.textContent = "A";
+    button.title = `${track.automationOpen ? "Hide" : "Show"} volume and pan automation`;
+    button.setAttribute("aria-label", button.title);
+    button.setAttribute("aria-pressed", String(Boolean(track.automationOpen)));
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      track.automationOpen = !track.automationOpen;
+      renderArrangement();
+      saveState();
+    });
+    return button;
+  }
+
+  function appendAutomationRows(track, width, labels, content, labelsByTrack, lanesByTrack) {
+    if (!track.automationOpen) return;
+    const properties = ["volume", "pan"];
+    const automationLabels = properties.map((property) => {
+      const label = document.createElement("div");
+      label.className = "automation-label";
+      label.textContent = property === "volume" ? "VOL AUTOMATION" : "PAN AUTOMATION";
+      label.style.setProperty("--track-color", track.color || "var(--accent)");
+      return label;
+    });
+    const automationLanes = properties.map((property) => createArrangementAutomationLane(track, property, width));
+    labelsByTrack.set(track.id, automationLabels);
+    lanesByTrack.set(track.id, automationLanes);
+    automationLabels.forEach((label) => labels.append(label));
+    automationLanes.forEach((lane) => content.append(lane));
+  }
+
+  function drawArrangementAutomationLane(lane, track, property, activeIndex = -1) {
+    const svg = lane.querySelector("svg");
+    svg.replaceChildren();
+    const width = Math.max(1, state.arrangementBars * BAR_WIDTH);
+    const height = 42;
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    const points = normalizeTrackAutomation(track.automation)[property]
+      .map((point, index) => ({ ...point, index }));
+    if (points.length) {
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("class", "automation-curve");
+      path.setAttribute("d", points.map((point, index) => {
+        const x = point.bar * BAR_WIDTH;
+        const y = property === "volume"
+          ? height - 6 - point.value * (height - 12)
+          : height - 6 - (point.value + 1) / 2 * (height - 12);
+        return `${index ? "L" : "M"}${x},${y}`;
+      }).join(" "));
+      svg.append(path);
+    }
+    points.forEach((point) => {
+      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      const y = property === "volume"
+        ? height - 6 - point.value * (height - 12)
+        : height - 6 - (point.value + 1) / 2 * (height - 12);
+      circle.setAttribute("class", `automation-point${point.index === activeIndex ? " is-active" : ""}`);
+      circle.setAttribute("cx", String(point.bar * BAR_WIDTH));
+      circle.setAttribute("cy", String(y));
+      circle.setAttribute("r", "5");
+      circle.dataset.automationIndex = String(point.index);
+      circle.setAttribute("role", "slider");
+      circle.setAttribute("tabindex", "0");
+      circle.setAttribute("aria-label", `${track.name} ${property} automation point at bar ${point.bar + 1}`);
+      circle.setAttribute("aria-valuemin", property === "volume" ? "0" : "-1");
+      circle.setAttribute("aria-valuemax", "1");
+      circle.setAttribute("aria-valuenow", String(point.value));
+      circle.addEventListener("keydown", (event) => {
+        if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Delete", "Backspace"].includes(event.key)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const automation = normalizeTrackAutomation(track.automation);
+        const edited = automation[property][point.index];
+        if (!edited) return;
+        if (event.key === "Delete" || event.key === "Backspace") automation[property].splice(point.index, 1);
+        else if (event.key === "ArrowLeft") edited.bar -= 0.25;
+        else if (event.key === "ArrowRight") edited.bar += 0.25;
+        else edited.value += (event.key === "ArrowUp" ? 1 : -1) * (property === "volume" ? 0.05 : 0.1);
+        track.automation = normalizeTrackAutomation(automation);
+        saveState();
+        renderArrangement();
+      });
+      svg.append(circle);
+    });
+  }
+
+  function createArrangementAutomationLane(track, property, width) {
+    const lane = document.createElement("div");
+    lane.className = `timeline-automation-lane is-${property}`;
+    lane.dataset.automationTrackId = track.id;
+    lane.dataset.automationProperty = property;
+    lane.style.width = `${width}px`;
+    lane.style.setProperty("--bar-width", `${BAR_WIDTH}px`);
+    lane.style.setProperty("--track-color", track.color || "var(--accent)");
+    lane.setAttribute("aria-label", `${track.name} ${property} automation lane`);
+    lane.title = "Click to add or edit points; drag to move; Shift-click or select and press Delete to remove.";
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("aria-hidden", "false");
+    lane.append(svg);
+    drawArrangementAutomationLane(lane, track, property);
+    let activeIndex = -1;
+    const getPoint = (event) => {
+      const bounds = lane.getBoundingClientRect();
+      const maxBar = state.arrangementBars;
+      const bar = Math.max(0, Math.min(maxBar, snapArrangementBar((event.clientX - bounds.left) / BAR_WIDTH)));
+      const position = Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height));
+      const value = property === "volume" ? 1 - position : 1 - position * 2;
+      return { bar, value };
+    };
+    const finishEdit = () => {
+      if (activeIndex < 0) return;
+      activeIndex = -1;
+      track.automation = normalizeTrackAutomation(track.automation);
+      saveState();
+      renderArrangement();
+    };
+    lane.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      const automation = normalizeTrackAutomation(track.automation);
+      track.automation = automation;
+      const pointElement = event.target.closest("[data-automation-index]");
+      if (pointElement && (event.detail > 1 || event.shiftKey)) {
+        automation[property].splice(Number(pointElement.dataset.automationIndex), 1);
+        track.automation = normalizeTrackAutomation(automation);
+        saveState();
+        renderArrangement();
+        return;
+      }
+      if (pointElement) {
+        activeIndex = Number(pointElement.dataset.automationIndex);
+      } else {
+        const point = getPoint(event);
+        const existingIndex = automation[property].findIndex((item) => Math.abs(item.bar - point.bar) < 0.001);
+        if (existingIndex >= 0) {
+          activeIndex = existingIndex;
+          automation[property][activeIndex].value = point.value;
+        } else {
+          automation[property].push(point);
+          automation[property].sort((left, right) => left.bar - right.bar);
+          activeIndex = automation[property].findIndex((item) => item.bar === point.bar);
+        }
+      }
+      lane.setPointerCapture(event.pointerId);
+      const point = getPoint(event);
+      if (automation[property][activeIndex]) Object.assign(automation[property][activeIndex], point);
+      drawArrangementAutomationLane(lane, track, property, activeIndex);
+    });
+    lane.addEventListener("pointermove", (event) => {
+      if (activeIndex < 0) return;
+      const point = getPoint(event);
+      const edited = track.automation[property][activeIndex];
+      if (!edited) return;
+      Object.assign(edited, point);
+      drawArrangementAutomationLane(lane, track, property, activeIndex);
+    });
+    lane.addEventListener("pointerup", finishEdit);
+    lane.addEventListener("pointercancel", finishEdit);
+    return lane;
   }
 
   function getMixerSourceTracks() {

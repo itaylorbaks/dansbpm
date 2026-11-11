@@ -441,6 +441,31 @@
   const PIANO_BOTTOM_MIDI = 35;
   let pianoNoteContextTargetIds = [];
   let pianoDragPreviewSequence = 0;
+  function normalizeTrackAutomation(automation) {
+    const result = {};
+    [["volume", 0, 1], ["pan", -1, 1]].forEach(([property, minimum, maximum]) => {
+      const points = Array.isArray(automation?.[property]) ? automation[property]
+        .filter((point) => Number.isFinite(point?.bar) && Number.isFinite(point?.value))
+        .slice(0, 512)
+        .map((point) => ({
+          bar: Math.max(0, Math.min(MAX_ARRANGEMENT_BARS, point.bar)),
+          value: Math.max(minimum, Math.min(maximum, point.value)),
+        }))
+        .sort((left, right) => left.bar - right.bar)
+        : [];
+      result[property] = points.reduce((unique, point) => {
+        if (unique.length && unique[unique.length - 1].bar === point.bar) unique[unique.length - 1] = point;
+        else unique.push(point);
+        return unique;
+      }, []);
+    });
+    return result;
+  }
+
+  function hasTrackAutomation(automation) {
+    return ["volume", "pan"].some((property) => Array.isArray(automation?.[property]) && automation[property].length > 0);
+  }
+
   const state = {
     tracks: [],
     patterns: [],
@@ -870,7 +895,8 @@
     ["#mel-select", "#piano-instrument-select", "#piano-bars-select"].forEach((selector) => {
       $(selector).closest("label").hidden = active;
     });
-    ["#new-mel-button", "#rename-mel-button", "#piano-keyboard-record-button"].forEach((selector) => {
+    ["#new-mel-button", "#rename-mel-button", "#piano-keyboard-record-button",
+      "#import-midi-button", "#export-midi-button"].forEach((selector) => {
       $(selector).hidden = active;
     });
     $("#mel-drag-source").hidden = false;
@@ -1295,8 +1321,8 @@
       if (mel.notes.length) {
         const track = {
           id: makeId(), name: mel.name, kind: "mel", instrumentId: mel.instrumentId, color: "#b5a0ff",
-              muted: false, solo: false, volume: 1, gainNode: null, effects: makeDefaultEffects(),
-              clips: [{ id: makeId(), melId: mel.id, startBar: state.pianoStartBar }],
+          muted: false, solo: false, volume: 1, automation: normalizeTrackAutomation(), automationOpen: false,
+          gainNode: null, effects: makeDefaultEffects(), clips: [{ id: makeId(), melId: mel.id, startBar: state.pianoStartBar }],
         };
         state.melTracks.push(track);
       }
@@ -3034,6 +3060,8 @@
       trackIds: [...getPatternTrackIds(source)],
       cells: Object.fromEntries(Object.entries(source.cells).map(([trackId, cells]) => [trackId, [...cells]])),
       variants: { ...source.variants },
+      automation: normalizeTrackAutomation(source.automation),
+      automationOpen: source.automationOpen === true,
       ...(source.stepPianoNotes ? {
         stepPianoNotes: Object.fromEntries(Object.entries(source.stepPianoNotes).map(([trackId, notes]) =>
           [trackId, notes.map((note) => ({ ...note }))])),
@@ -6929,6 +6957,8 @@
       color: TRACK_COLORS[state.arrangementTracks.length % TRACK_COLORS.length],
       clips: [],
       volume: 0.8,
+      automation: normalizeTrackAutomation(),
+      automationOpen: false,
       muted: false,
       solo: false,
       gainNode: null,
@@ -6962,6 +6992,10 @@
       track.panNode = state.audioContext.createStereoPanner();
       track.panNode.pan.value = track.pan;
     }
+    if (!track.automationGainNode) {
+      track.automationGainNode = state.audioContext.createGain();
+      track.automationGainNode.gain.value = 1;
+    }
     if (!track.gainNode) {
       track.gainNode = state.audioContext.createGain();
       track.gainNode.gain.value = track.muted ? 0 : track.volume;
@@ -6993,8 +7027,13 @@
       track.panNode = context.createStereoPanner();
       track.panNode.pan.value = track.pan;
     }
+    if (!track.automationGainNode) {
+      track.automationGainNode = context.createGain();
+      track.automationGainNode.gain.value = 1;
+    }
     track.fxRuntime = [];
     track.gainNode.disconnect();
+    track.automationGainNode.disconnect();
     let output = track.gainNode;
 
     const eq = [
@@ -7029,7 +7068,8 @@
       track.fxRuntime.push(module);
     });
     track.panNode.disconnect();
-    output.connect(track.panNode);
+    output.connect(track.automationGainNode);
+    track.automationGainNode.connect(track.panNode);
     track.panNode.connect(getTrackOutputNode(track));
   }
 
@@ -7056,8 +7096,10 @@
   function disconnectTrackAudio(track) {
     clearTrackEffectNodes(track);
     track.gainNode?.disconnect();
+    track.automationGainNode?.disconnect();
     track.panNode?.disconnect();
     track.gainNode = null;
+    track.automationGainNode = null;
     track.panNode = null;
   }
 
@@ -7536,6 +7578,8 @@
     const width = state.arrangementBars * BAR_WIDTH;
     const labels = $("#arrangement-track-labels");
     const content = $("#timeline-content");
+    const automationLabelsByTrackId = new Map();
+    const automationLanesByTrackId = new Map();
     labels.replaceChildren();
     content.replaceChildren();
     content.style.width = `${width}px`;
@@ -7578,6 +7622,7 @@
         selectArrangementTrack(pattern.id);
       });
       const controls = makeArrangementTrackControls(pattern);
+      controls.actions.append(makeAutomationToggle(pattern));
       label.append(controls.actions, controls.volume);
       labels.append(label);
 
@@ -7586,6 +7631,7 @@
         .filter((clip) => (clip.trackId || clip.patternId) === pattern.id)
         .forEach((clip) => lane.append(createPatternClip(clip)));
       content.append(lane);
+      appendAutomationRows(pattern, width, labels, content, automationLabelsByTrackId, automationLanesByTrackId);
     });
 
     state.melTracks.forEach((track) => {
@@ -7617,11 +7663,13 @@
         if (!event.target.closest(".mixer-track-button")) selectArrangementTrack(track.id);
       });
       const controls = makeArrangementTrackControls(track);
+      controls.actions.append(makeAutomationToggle(track));
       label.append(controls.actions, controls.volume);
       labels.append(label);
       const lane = createTimelineLane(`mel:${track.id}`, width);
       track.clips.forEach((clip) => lane.append(createMelClipElement(track, clip)));
       content.append(lane);
+      appendAutomationRows(track, width, labels, content, automationLabelsByTrackId, automationLanesByTrackId);
     });
 
     state.arrangementTracks.forEach((track) => {
@@ -7677,7 +7725,7 @@
         renderArrangement();
         saveState();
       });
-      actions.append(add, mute, solo, makeOpenMixerButton(track));
+      actions.append(add, mute, solo, makeOpenMixerButton(track), makeAutomationToggle(track));
       const volume = document.createElement("input");
       volume.className = "arrangement-volume";
       volume.type = "range";
@@ -7703,6 +7751,7 @@
       const lane = createTimelineLane(track.id, width);
       track.clips.forEach((clip) => lane.append(createAudioClip(track, clip)));
       content.append(lane);
+      appendAutomationRows(track, width, labels, content, automationLabelsByTrackId, automationLanesByTrackId);
     });
 
     const rows = [
@@ -7734,10 +7783,14 @@
     const labelsById = new Map(Array.from(labels.children, (label) => [label.dataset.trackId, label]));
     const lanesById = new Map(Array.from(content.querySelectorAll(".timeline-lane"), (lane) =>
       [lane.dataset.trackId, lane]));
-    const orderedLabels = orderedRows.map((row) => labelsById.get(row.id)).filter(Boolean);
-    const orderedLanes = orderedRows.map((row) => lanesById.get(
-      row.type === "pattern" ? `pattern:${row.id}` : row.type === "mel" ? `mel:${row.id}` : row.id,
-    )).filter(Boolean);
+    const orderedLabels = orderedRows.flatMap((row) => [
+      labelsById.get(row.id),
+      ...(automationLabelsByTrackId.get(row.id) || []),
+    ]).filter(Boolean);
+    const orderedLanes = orderedRows.flatMap((row) => [
+      lanesById.get(row.type === "pattern" ? `pattern:${row.id}` : row.type === "mel" ? `mel:${row.id}` : row.id),
+      ...(automationLanesByTrackId.get(row.id) || []),
+    ]).filter(Boolean);
     const timelineRuler = content.firstElementChild;
     labels.replaceChildren(...orderedLabels);
     content.replaceChildren(timelineRuler, ...orderedLanes);
@@ -7768,6 +7821,170 @@
     updateArrangementCursorMarker();
     updateArrangementSelection();
     if (state.view === "mixer") renderMixer();
+  }
+
+  function makeAutomationToggle(track) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `automation-toggle${track.automationOpen ? " is-active" : ""}`;
+    button.textContent = "A";
+    button.title = `${track.automationOpen ? "Hide" : "Show"} volume and pan automation`;
+    button.setAttribute("aria-label", button.title);
+    button.setAttribute("aria-pressed", String(Boolean(track.automationOpen)));
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      track.automationOpen = !track.automationOpen;
+      renderArrangement();
+      saveState();
+    });
+    return button;
+  }
+
+  function appendAutomationRows(track, width, labels, content, labelsByTrack, lanesByTrack) {
+    if (!track.automationOpen) return;
+    const properties = ["volume", "pan"];
+    const automationLabels = properties.map((property) => {
+      const label = document.createElement("div");
+      label.className = "automation-label";
+      label.textContent = property === "volume" ? "VOL AUTOMATION" : "PAN AUTOMATION";
+      label.style.setProperty("--track-color", track.color || "var(--accent)");
+      return label;
+    });
+    const automationLanes = properties.map((property) => createArrangementAutomationLane(track, property, width));
+    labelsByTrack.set(track.id, automationLabels);
+    lanesByTrack.set(track.id, automationLanes);
+    automationLabels.forEach((label) => labels.append(label));
+    automationLanes.forEach((lane) => content.append(lane));
+  }
+
+  function drawArrangementAutomationLane(lane, track, property, activeIndex = -1) {
+    const svg = lane.querySelector("svg");
+    svg.replaceChildren();
+    const width = Math.max(1, state.arrangementBars * BAR_WIDTH);
+    const height = 42;
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    const points = normalizeTrackAutomation(track.automation)[property]
+      .map((point, index) => ({ ...point, index }));
+    if (points.length) {
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("class", "automation-curve");
+      path.setAttribute("d", points.map((point, index) => {
+        const x = point.bar * BAR_WIDTH;
+        const y = property === "volume"
+          ? height - 6 - point.value * (height - 12)
+          : height - 6 - (point.value + 1) / 2 * (height - 12);
+        return `${index ? "L" : "M"}${x},${y}`;
+      }).join(" "));
+      svg.append(path);
+    }
+    points.forEach((point) => {
+      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      const y = property === "volume"
+        ? height - 6 - point.value * (height - 12)
+        : height - 6 - (point.value + 1) / 2 * (height - 12);
+      circle.setAttribute("class", `automation-point${point.index === activeIndex ? " is-active" : ""}`);
+      circle.setAttribute("cx", String(point.bar * BAR_WIDTH));
+      circle.setAttribute("cy", String(y));
+      circle.setAttribute("r", "5");
+      circle.dataset.automationIndex = String(point.index);
+      circle.setAttribute("role", "slider");
+      circle.setAttribute("tabindex", "0");
+      circle.setAttribute("aria-label", `${track.name} ${property} automation point at bar ${point.bar + 1}`);
+      circle.setAttribute("aria-valuemin", property === "volume" ? "0" : "-1");
+      circle.setAttribute("aria-valuemax", "1");
+      circle.setAttribute("aria-valuenow", String(point.value));
+      circle.addEventListener("keydown", (event) => {
+        if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Delete", "Backspace"].includes(event.key)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const automation = normalizeTrackAutomation(track.automation);
+        const edited = automation[property][point.index];
+        if (!edited) return;
+        if (event.key === "Delete" || event.key === "Backspace") automation[property].splice(point.index, 1);
+        else if (event.key === "ArrowLeft") edited.bar -= 0.25;
+        else if (event.key === "ArrowRight") edited.bar += 0.25;
+        else edited.value += (event.key === "ArrowUp" ? 1 : -1) * (property === "volume" ? 0.05 : 0.1);
+        track.automation = normalizeTrackAutomation(automation);
+        saveState();
+        renderArrangement();
+      });
+      svg.append(circle);
+    });
+  }
+
+  function createArrangementAutomationLane(track, property, width) {
+    const lane = document.createElement("div");
+    lane.className = `timeline-automation-lane is-${property}`;
+    lane.dataset.automationTrackId = track.id;
+    lane.dataset.automationProperty = property;
+    lane.style.width = `${width}px`;
+    lane.style.setProperty("--bar-width", `${BAR_WIDTH}px`);
+    lane.style.setProperty("--track-color", track.color || "var(--accent)");
+    lane.setAttribute("aria-label", `${track.name} ${property} automation lane`);
+    lane.title = "Click to add or edit points; drag to move; Shift-click or select and press Delete to remove.";
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("aria-hidden", "false");
+    lane.append(svg);
+    drawArrangementAutomationLane(lane, track, property);
+    let activeIndex = -1;
+    const getPoint = (event) => {
+      const bounds = lane.getBoundingClientRect();
+      const maxBar = state.arrangementBars;
+      const bar = Math.max(0, Math.min(maxBar, snapArrangementBar((event.clientX - bounds.left) / BAR_WIDTH)));
+      const position = Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height));
+      const value = property === "volume" ? 1 - position : 1 - position * 2;
+      return { bar, value };
+    };
+    const finishEdit = () => {
+      if (activeIndex < 0) return;
+      activeIndex = -1;
+      track.automation = normalizeTrackAutomation(track.automation);
+      saveState();
+      renderArrangement();
+    };
+    lane.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      const automation = normalizeTrackAutomation(track.automation);
+      track.automation = automation;
+      const pointElement = event.target.closest("[data-automation-index]");
+      if (pointElement && (event.detail > 1 || event.shiftKey)) {
+        automation[property].splice(Number(pointElement.dataset.automationIndex), 1);
+        track.automation = normalizeTrackAutomation(automation);
+        saveState();
+        renderArrangement();
+        return;
+      }
+      if (pointElement) {
+        activeIndex = Number(pointElement.dataset.automationIndex);
+      } else {
+        const point = getPoint(event);
+        const existingIndex = automation[property].findIndex((item) => Math.abs(item.bar - point.bar) < 0.001);
+        if (existingIndex >= 0) {
+          activeIndex = existingIndex;
+          automation[property][activeIndex].value = point.value;
+        } else {
+          automation[property].push(point);
+          automation[property].sort((left, right) => left.bar - right.bar);
+          activeIndex = automation[property].findIndex((item) => item.bar === point.bar);
+        }
+      }
+      lane.setPointerCapture(event.pointerId);
+      const point = getPoint(event);
+      if (automation[property][activeIndex]) Object.assign(automation[property][activeIndex], point);
+      drawArrangementAutomationLane(lane, track, property, activeIndex);
+    });
+    lane.addEventListener("pointermove", (event) => {
+      if (activeIndex < 0) return;
+      const point = getPoint(event);
+      const edited = track.automation[property][activeIndex];
+      if (!edited) return;
+      Object.assign(edited, point);
+      drawArrangementAutomationLane(lane, track, property, activeIndex);
+    });
+    lane.addEventListener("pointerup", finishEdit);
+    lane.addEventListener("pointercancel", finishEdit);
+    return lane;
   }
 
   function getMixerSourceTracks() {
@@ -8853,6 +9070,8 @@
       muted: false,
       solo: false,
       volume: 1,
+      automation: normalizeTrackAutomation(),
+      automationOpen: false,
       gainNode: null,
       effects: makeDefaultEffects(),
       clips: [],
@@ -8884,6 +9103,8 @@
       muted: false,
       solo: false,
       volume: 1,
+      automation: normalizeTrackAutomation(),
+      automationOpen: false,
       gainNode: null,
       effects: makeDefaultEffects(),
       clips: [],
@@ -8977,6 +9198,8 @@
       fxRuntime: null,
       analyser: null,
       sourceGains: null,
+      automation: normalizeTrackAutomation(source.automation),
+      automationOpen: source.automationOpen === true,
       effects: makeDefaultEffects(source.effects),
       clips: [],
     };
@@ -9009,6 +9232,8 @@
       trackIds: [...getPatternTrackIds(currentSource)],
       cells: Object.fromEntries(Object.entries(currentSource.cells).map(([trackId, cells]) => [trackId, [...cells]])),
       variants: { ...currentSource.variants },
+      automation: normalizeTrackAutomation(currentSource.automation),
+      automationOpen: currentSource.automationOpen === true,
       ...(currentSource.stepPianoNotes ? {
         stepPianoNotes: Object.fromEntries(Object.entries(currentSource.stepPianoNotes).map(([trackId, notes]) =>
           [trackId, notes.map((note) => ({ ...note }))])),
@@ -9826,14 +10051,23 @@
     state.melTracks.forEach((track) => track.clips.forEach((clip) => {
       if (!state.selectedArrangementItems.has(arrangementSelectionKey("mel", clip.id))) return;
       items.push({
-        type: "mel", sourceTrackId: track.id, track: { id: track.id, name: track.name, kind: "mel", instrumentId: track.instrumentId, color: track.color, volume: track.volume, effects: makeDefaultEffects(track.effects) },
+        type: "mel", sourceTrackId: track.id, track: {
+          id: track.id, name: track.name, kind: "mel", instrumentId: track.instrumentId,
+          color: track.color, volume: track.volume, pan: track.pan, automation: normalizeTrackAutomation(track.automation),
+          automationOpen: track.automationOpen === true, effects: makeDefaultEffects(track.effects),
+        },
         clip: { ...clip }, melId: clip.melId, startBar: clip.startBar,
       });
     }));
     state.arrangementTracks.forEach((track) => track.clips.forEach((clip) => {
       if (!state.selectedArrangementItems.has(arrangementSelectionKey("audio", clip.id))) return;
       items.push({
-        type: "audio", sourceTrackId: track.id, track: { id: track.id, name: track.name, color: track.color, volume: track.volume, effects: makeDefaultEffects(track.effects) },
+        type: "audio", sourceTrackId: track.id, track: {
+          id: track.id, name: track.name, color: track.color, volume: track.volume,
+          pan: track.pan,
+          automation: normalizeTrackAutomation(track.automation),
+          automationOpen: track.automationOpen === true, effects: makeDefaultEffects(track.effects),
+        },
         clip: { ...clip }, startBar: clip.startBar,
       });
     }));
@@ -9872,6 +10106,7 @@
           startTick: pasteStartTick + note.startOffset,
           durationTicks: Math.min(note.durationTicks, totalTicks - pasteStartTick - note.startOffset),
           velocity: note.velocity,
+          pan: note.pan,
         }))
         .filter((note) => note.startTick < totalTicks && note.durationTicks > 0);
       if (!pasted.length) {
@@ -10712,6 +10947,8 @@
       analyser: null,
       sourceGains: null,
       effectChain: [...(source.effectChain || [])],
+      automation: normalizeTrackAutomation(source.automation),
+      automationOpen: source.automationOpen === true,
       effects: makeDefaultEffects(source.effects),
       effectSettings: makeDefaultEffectSettings(source.effectSettings),
     };
@@ -10967,6 +11204,8 @@
             color: record.color,
             clips: [],
             volume: record.volume,
+            automation: normalizeTrackAutomation(),
+            automationOpen: false,
             muted: record.muted,
             solo: false,
             effects: makeDefaultEffects(),
@@ -11578,6 +11817,7 @@
     const arrangementEndBar = state.arrangementLoopEnabled
       ? getArrangementLoopRange().endBar
       : state.arrangementBars;
+    scheduleArrangementAutomation(startTime, startBar, arrangementEndBar);
     state.arrangementTracks.forEach((track) => {
       ensureArrangementTrackAudio(track);
       track.clips.forEach((clip) => {
@@ -11622,6 +11862,56 @@
     });
   }
 
+  function getArrangementAutomationValue(track, property, bar) {
+    const points = normalizeTrackAutomation(track.automation)[property];
+    let previousBar = 0;
+    let previousValue = track[property] ?? 0;
+    for (const point of points) {
+      if (point.bar >= bar) {
+        const range = point.bar - previousBar;
+        if (range <= 0) return point.value;
+        const amount = Math.max(0, Math.min(1, (bar - previousBar) / range));
+        return previousValue + (point.value - previousValue) * amount;
+      }
+      previousBar = point.bar;
+      previousValue = point.value;
+    }
+    return previousValue;
+  }
+
+  function scheduleArrangementAutomation(startTime, startBar, endBar) {
+    const tracks = [...state.patterns, ...state.melTracks, ...state.arrangementTracks];
+    const secondsPerBar = 240 / state.bpm;
+    tracks.forEach((track) => {
+      const automation = normalizeTrackAutomation(track.automation);
+      if (!automation.volume.length && !automation.pan.length) return;
+      ensureTrackAudio(track);
+      if (automation.volume.length && track.automationGainNode) {
+        const gain = track.automationGainNode.gain;
+        const toAutomationGain = (value) => track.volume > 0 ? value / track.volume : 1;
+        gain.cancelScheduledValues(startTime);
+        gain.setValueAtTime(toAutomationGain(getArrangementAutomationValue(track, "volume", startBar)), startTime);
+        automation.volume
+          .filter((point) => point.bar > startBar && point.bar <= endBar)
+          .forEach((point) => gain.linearRampToValueAtTime(
+            toAutomationGain(point.value),
+            startTime + (point.bar - startBar) * secondsPerBar,
+          ));
+      }
+      if (automation.pan.length && track.panNode) {
+        const pan = track.panNode.pan;
+        pan.cancelScheduledValues(startTime);
+        pan.setValueAtTime(getArrangementAutomationValue(track, "pan", startBar), startTime);
+        automation.pan
+          .filter((point) => point.bar > startBar && point.bar <= endBar)
+          .forEach((point) => pan.linearRampToValueAtTime(
+            point.value,
+            startTime + (point.bar - startBar) * secondsPerBar,
+          ));
+      }
+    });
+  }
+
   function stopPlayback(remote = false) {
     if ((state.isPlaying || state.isStartingPlayback) && !remote &&
       !collaboration.applyingRemote && collaboration.session) {
@@ -11657,6 +11947,13 @@
     if (stoppedPlaybackMode === "arrangement" && state.view === "arrangement") state.arrangementCursor = 0;
     if (state.audioContext) {
       const now = state.audioContext.currentTime;
+      [...state.patterns, ...state.melTracks, ...state.arrangementTracks].forEach((track) => {
+        track.gainNode?.gain.cancelScheduledValues(now);
+        track.automationGainNode?.gain.cancelScheduledValues(now);
+        track.automationGainNode?.gain.setValueAtTime(1, now);
+        track.panNode?.pan.cancelScheduledValues(now);
+      });
+      updateTrackGains();
       state.tracks.forEach((track) => {
         if (track.gainNode) {
           track.gainNode.gain.cancelScheduledValues(now);
@@ -11939,6 +12236,8 @@
           color: pattern.color,
           volume: pattern.volume,
           pan: pattern.pan,
+          automation: normalizeTrackAutomation(pattern.automation),
+          automationOpen: pattern.automationOpen === true,
           muted: pattern.muted,
           solo: pattern.solo,
           effects: makeDefaultEffects(pattern.effects),
@@ -11973,6 +12272,8 @@
         color: track.color,
         volume: track.volume,
         pan: track.pan,
+        automation: normalizeTrackAutomation(track.automation),
+        automationOpen: track.automationOpen === true,
         muted: track.muted,
         solo: track.solo,
         effects: makeDefaultEffects(track.effects),
@@ -11995,6 +12296,8 @@
         color: track.color,
         volume: track.volume,
         pan: track.pan,
+        automation: normalizeTrackAutomation(track.automation),
+        automationOpen: track.automationOpen === true,
         muted: track.muted,
         solo: track.solo,
         effects: makeDefaultEffects(track.effects),
@@ -12968,6 +13271,7 @@
       effects: makeDefaultEffects(track.effects),
       effectSettings: makeDefaultEffectSettings(track.effectSettings),
       effectChain: Array.isArray(track.effectChain) ? track.effectChain.map((effect) => ({ ...effect })) : track.effectChain,
+      automation: normalizeTrackAutomation(track.automation),
     };
   }
 
@@ -13639,6 +13943,10 @@
             clips: [],
             volume: Number.isFinite(track.volume) ? Math.max(0, Math.min(1, track.volume)) : 0.8,
             pan: Number.isFinite(track.pan) ? Math.max(-1, Math.min(1, track.pan)) : 0,
+            automation: normalizeTrackAutomation(track.automation),
+            automationOpen: typeof track.automationOpen === "boolean"
+              ? track.automationOpen
+              : hasTrackAutomation(track.automation),
             muted: track.muted === true,
             solo: track.solo === true,
             gainNode: null,
@@ -13698,6 +14006,10 @@
               gridResolution,
               volume: Number.isFinite(pattern.volume) ? Math.max(0, Math.min(1, pattern.volume)) : 1,
               pan: Number.isFinite(pattern.pan) ? Math.max(-1, Math.min(1, pattern.pan)) : 0,
+              automation: normalizeTrackAutomation(pattern.automation),
+              automationOpen: typeof pattern.automationOpen === "boolean"
+                ? pattern.automationOpen
+                : hasTrackAutomation(pattern.automation),
               muted: pattern.muted === true,
               solo: pattern.solo === true,
               effects: makeDefaultEffects(pattern.effects),
@@ -13833,6 +14145,10 @@
             color: isPatternColor(track.color) ? track.color : "#b5a0ff",
             volume: Number.isFinite(track.volume) ? Math.max(0, Math.min(1, track.volume)) : 1,
             pan: Number.isFinite(track.pan) ? Math.max(-1, Math.min(1, track.pan)) : 0,
+            automation: normalizeTrackAutomation(track.automation),
+            automationOpen: typeof track.automationOpen === "boolean"
+              ? track.automationOpen
+              : hasTrackAutomation(track.automation),
             muted: track.muted === true,
             solo: track.solo === true,
             gainNode: null,
@@ -14388,6 +14704,13 @@
     });
     $("#export-pattern-button").addEventListener("click", exportPattern);
     $("#export-mel-button").addEventListener("click", exportMel);
+    $("#import-midi-button").addEventListener("click", () => $("#midi-import-input").click());
+    $("#midi-import-input").addEventListener("change", (event) => {
+      const [file] = event.target.files || [];
+      if (file) void importMidiFile(file);
+      event.target.value = "";
+    });
+    $("#export-midi-button").addEventListener("click", exportMidi);
     $("#export-song-button").addEventListener("click", openSongExportMenu);
     $("#export-song-wav-button").addEventListener("click", () => exportArrangementAudio("wav"));
     $("#export-song-mp3-button").addEventListener("click", () => exportArrangementAudio("mp3"));
@@ -15070,5 +15393,263 @@
     } catch (error) {
       showToast(`Could not open the project list: ${error.message || "session storage is unavailable"}`);
     }
+  }
+  function readMidiVariableLength(bytes, cursor) {
+    let value = 0;
+    for (let count = 0; count < 4; count += 1) {
+      if (cursor.index >= bytes.length) throw new Error("The MIDI file is truncated.");
+      const byte = bytes[cursor.index++];
+      value = (value << 7) | (byte & 0x7f);
+      if (!(byte & 0x80)) return value;
+    }
+    throw new Error("The MIDI file contains an invalid variable-length value.");
+  }
+
+  function parseMidiFile(buffer) {
+    const bytes = new Uint8Array(buffer);
+    const cursor = { index: 0 };
+    const readAscii = (length) => {
+      if (cursor.index + length > bytes.length) throw new Error("The MIDI file is truncated.");
+      const text = String.fromCharCode(...bytes.subarray(cursor.index, cursor.index + length));
+      cursor.index += length;
+      return text;
+    };
+    const readUint32 = () => {
+      if (cursor.index + 4 > bytes.length) throw new Error("The MIDI file is truncated.");
+      const value = new DataView(bytes.buffer, bytes.byteOffset + cursor.index, 4).getUint32(0);
+      cursor.index += 4;
+      return value;
+    };
+    const readUint16 = () => {
+      if (cursor.index + 2 > bytes.length) throw new Error("The MIDI file is truncated.");
+      const value = new DataView(bytes.buffer, bytes.byteOffset + cursor.index, 2).getUint16(0);
+      cursor.index += 2;
+      return value;
+    };
+    if (readAscii(4) !== "MThd") throw new Error("That file is not a Standard MIDI File.");
+    const headerLength = readUint32();
+    if (headerLength < 6 || cursor.index + headerLength > bytes.length) throw new Error("The MIDI header is invalid.");
+    const format = readUint16();
+    const trackCount = readUint16();
+    const division = readUint16();
+    cursor.index += headerLength - 6;
+    if (format > 1 || trackCount < 1 || trackCount > 1024) {
+      throw new Error("Only type 0 or 1 MIDI files with up to 1,024 tracks are supported.");
+    }
+    if (division & 0x8000 || division === 0) throw new Error("SMPTE-timed MIDI files are not supported.");
+
+    const tracks = [];
+    const tempos = [];
+    for (let trackIndex = 0; trackIndex < trackCount; trackIndex += 1) {
+      if (readAscii(4) !== "MTrk") throw new Error("The MIDI file contains an invalid track.");
+      const trackLength = readUint32();
+      if (cursor.index + trackLength > bytes.length) throw new Error("The MIDI track is truncated.");
+      const trackBytes = bytes.subarray(cursor.index, cursor.index + trackLength);
+      cursor.index += trackLength;
+      const trackCursor = { index: 0 };
+      const activeNotes = new Map();
+      const notes = [];
+      let absoluteTick = 0;
+      let runningStatus = 0;
+      const readDataByte = () => {
+        if (trackCursor.index >= trackBytes.length) throw new Error("The MIDI track is truncated.");
+        return trackBytes[trackCursor.index++];
+      };
+      while (trackCursor.index < trackBytes.length) {
+        absoluteTick += readMidiVariableLength(trackBytes, trackCursor);
+        let status = readDataByte();
+        if (status < 0x80) {
+          if (!runningStatus) throw new Error("The MIDI track has an invalid running status.");
+          trackCursor.index -= 1;
+          status = runningStatus;
+        } else if (status < 0xf0) {
+          runningStatus = status;
+        }
+
+        if (status === 0xff) {
+          runningStatus = 0;
+          const metaType = readDataByte();
+          const length = readMidiVariableLength(trackBytes, trackCursor);
+          if (trackCursor.index + length > trackBytes.length) throw new Error("The MIDI metadata is truncated.");
+          if (metaType === 0x51 && length === 3) {
+            const microsecondsPerQuarter = (trackBytes[trackCursor.index] << 16) |
+              (trackBytes[trackCursor.index + 1] << 8) | trackBytes[trackCursor.index + 2];
+            if (microsecondsPerQuarter > 0) tempos.push({ tick: absoluteTick, microsecondsPerQuarter });
+          }
+          trackCursor.index += length;
+          if (metaType === 0x2f) break;
+          continue;
+        }
+        if (status === 0xf0 || status === 0xf7) {
+          runningStatus = 0;
+          trackCursor.index += readMidiVariableLength(trackBytes, trackCursor);
+          if (trackCursor.index > trackBytes.length) throw new Error("The MIDI system-exclusive event is truncated.");
+          continue;
+        }
+        if (status >= 0xf0) {
+          runningStatus = 0;
+          const dataLength = status === 0xf2 ? 2 : [0xf1, 0xf3].includes(status) ? 1 : 0;
+          trackCursor.index += dataLength;
+          if (trackCursor.index > trackBytes.length) throw new Error("The MIDI system event is truncated.");
+          continue;
+        }
+
+        const command = status & 0xf0;
+        const channel = status & 0x0f;
+        const first = readDataByte();
+        const second = [0xc0, 0xd0].includes(command) ? 0 : readDataByte();
+        if (command !== 0x80 && command !== 0x90) continue;
+        const key = `${channel}:${first}`;
+        if (command === 0x90 && second > 0) {
+          const queue = activeNotes.get(key) || [];
+          queue.push({ tick: absoluteTick, velocity: second });
+          activeNotes.set(key, queue);
+        } else {
+          const queue = activeNotes.get(key);
+          const active = queue?.shift();
+          if (active) notes.push({ ...active, endTick: Math.max(absoluteTick, active.tick + 1), midi: first });
+          if (queue && !queue.length) activeNotes.delete(key);
+        }
+      }
+      activeNotes.forEach((queue, key) => {
+        const midi = Number(key.split(":")[1]);
+        queue.forEach((active) => notes.push({
+          ...active,
+          endTick: Math.max(absoluteTick, active.tick + 1),
+          midi,
+        }));
+      });
+      tracks.push({ notes, endTick: absoluteTick });
+    }
+    const allNotes = tracks.flatMap((track) => track.notes);
+    const firstTempo = tempos.sort((left, right) => left.tick - right.tick)[0];
+    return {
+      division,
+      bpm: firstTempo ? 60_000_000 / firstTempo.microsecondsPerQuarter : 120,
+      notes: allNotes,
+      endTick: Math.max(0, ...tracks.map((track) => track.endTick)),
+    };
+  }
+
+  function importMidiNotes(parsed) {
+    const maxTick = 8 * PIANO_TICKS_PER_BAR;
+    return parsed.notes
+      .filter((note) => Number.isInteger(note.midi) && note.midi >= PIANO_BOTTOM_MIDI && note.midi <= PIANO_TOP_MIDI)
+      .map((note) => {
+        const startTick = Math.round(note.tick * PIANO_TICKS_PER_BAR / (4 * parsed.division) * 2) / 2;
+        const endTick = Math.round(note.endTick * PIANO_TICKS_PER_BAR / (4 * parsed.division) * 2) / 2;
+        if (startTick >= maxTick) return null;
+        return {
+          id: makeId(),
+          trackId: state.selectedPianoTrackId,
+          midi: note.midi,
+          startTick: Math.max(0, startTick),
+          durationTicks: Math.max(0.5, Math.min(maxTick - startTick, endTick - startTick)),
+          velocity: Math.max(0.01, Math.min(1, note.velocity / 127)),
+        };
+      })
+      .filter(Boolean)
+      .sort((left, right) => left.startTick - right.startTick || left.midi - right.midi)
+      .slice(0, 4096);
+  }
+
+  async function importMidiFile(file) {
+    if (state.stepPianoEditContext) {
+      showToast("Return to the Piano Roll before importing a MIDI melody.");
+      return;
+    }
+    if (file.size > 32 * 1024 * 1024) {
+      showToast("MIDI files must be smaller than 32 MB.");
+      return;
+    }
+    try {
+      const parsed = parseMidiFile(await file.arrayBuffer());
+      const notes = importMidiNotes(parsed);
+      if (!notes.length) throw new Error("No supported notes were found in that MIDI file.");
+      const endTick = Math.max(...notes.map((note) => note.startTick + note.durationTicks));
+      const bars = [1, 2, 4, 8].find((bar) => bar * PIANO_TICKS_PER_BAR >= endTick) || 8;
+      const requestedBpm = Math.round(parsed.bpm);
+      const bpm = Math.max(60, Math.min(180, requestedBpm));
+      const name = file.name.replace(/\.(mid|midi)$/i, "").trim() || "Imported MIDI";
+      const mel = makeMel(name, state.selectedPianoTrackId, bars, notes);
+      if (state.isPlaying) stopPlayback();
+      state.mels.push(mel);
+      state.selectedMelId = mel.id;
+      state.pianoNotes = mel.notes.map((note) => ({ ...note }));
+      state.selectedPianoNoteId = null;
+      state.selectedPianoNoteIds.clear();
+      state.pianoSelectionFromMarquee = false;
+      state.pianoBars = bars;
+      state.bpm = bpm;
+      tempoValue.textContent = String(bpm);
+      renderMelOptions();
+      renderPianoRoll();
+      updateArrangementLength();
+      renderArrangement();
+      saveState();
+      const skipped = Math.max(0, parsed.notes.length - notes.length);
+      const skippedMessage = skipped ? ` ${skipped} notes outside the editor range were skipped.` : "";
+      showToast(requestedBpm === bpm
+        ? `Imported ${notes.length} MIDI notes into "${name}".${skippedMessage}`
+        : `Imported ${notes.length} MIDI notes; tempo was limited to ${bpm} BPM.${skippedMessage}`);
+    } catch (error) {
+      showToast(error.message || "The MIDI file could not be imported.");
+    }
+  }
+
+  function writeMidiVariableLength(value) {
+    let remaining = Math.max(0, Math.floor(value));
+    const bytes = [remaining & 0x7f];
+    while ((remaining >>= 7) > 0) bytes.unshift((remaining & 0x7f) | 0x80);
+    return bytes;
+  }
+
+  function createMidiFile(mel) {
+    const ticksPerQuarter = 480;
+    const midiTicksPerPianoTick = ticksPerQuarter / (PIANO_TICKS_PER_BAR / 4);
+    const events = [];
+    const microsecondsPerQuarter = Math.round(60_000_000 / state.bpm);
+    events.push({ tick: 0, priority: -2, bytes: [0xff, 0x51, 0x03,
+      (microsecondsPerQuarter >> 16) & 0xff, (microsecondsPerQuarter >> 8) & 0xff, microsecondsPerQuarter & 0xff] });
+    events.push({ tick: 0, priority: -1, bytes: [0xff, 0x58, 0x04, 0x04, 0x02, 0x18, 0x08] });
+    mel.notes.forEach((note) => {
+      const start = Math.max(0, Math.round(note.startTick * midiTicksPerPianoTick));
+      const end = Math.max(start + 1, Math.round((note.startTick + note.durationTicks) * midiTicksPerPianoTick));
+      const pitch = Math.max(0, Math.min(127, Math.round(note.midi)));
+      const velocity = Math.max(1, Math.min(127, Math.round((note.velocity ?? 0.8) * 127)));
+      events.push({ tick: start, priority: 1, bytes: [0x90, pitch, velocity] });
+      events.push({ tick: end, priority: 0, bytes: [0x80, pitch, 0] });
+    });
+    events.sort((left, right) => left.tick - right.tick || left.priority - right.priority);
+    const trackBytes = [];
+    let previousTick = 0;
+    events.forEach((event) => {
+      trackBytes.push(...writeMidiVariableLength(event.tick - previousTick), ...event.bytes);
+      previousTick = event.tick;
+    });
+    trackBytes.push(...writeMidiVariableLength(0), 0xff, 0x2f, 0x00);
+    const chunk = (id, data) => [
+      ...Array.from(id, (character) => character.charCodeAt(0)),
+      (data.length >>> 24) & 0xff, (data.length >>> 16) & 0xff, (data.length >>> 8) & 0xff, data.length & 0xff,
+      ...data,
+    ];
+    const header = [0x00, 0x00, 0x00, 0x01, 0x01, 0xe0];
+    return new Uint8Array([...chunk("MThd", header), ...chunk("MTrk", trackBytes)]);
+  }
+
+  function exportMidi() {
+    if (state.stepPianoEditContext) {
+      showToast("Return to the Piano Roll before exporting a MIDI melody.");
+      return;
+    }
+    captureCurrentMel();
+    const mel = getMel();
+    if (!mel || !mel.notes.length) {
+      showToast("Add notes to the Piano Roll before exporting MIDI.");
+      return;
+    }
+    const filename = `${sanitizeFilename(mel.name) || "melody"}.mid`;
+    downloadBlob(new Blob([createMidiFile(mel)], { type: "audio/midi" }), filename);
+    showToast(`Exported "${mel.name}" as MIDI.`);
   }
 })();

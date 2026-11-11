@@ -303,14 +303,23 @@
     state.melTracks.forEach((track) => track.clips.forEach((clip) => {
       if (!state.selectedArrangementItems.has(arrangementSelectionKey("mel", clip.id))) return;
       items.push({
-        type: "mel", sourceTrackId: track.id, track: { id: track.id, name: track.name, kind: "mel", instrumentId: track.instrumentId, color: track.color, volume: track.volume, effects: makeDefaultEffects(track.effects) },
+        type: "mel", sourceTrackId: track.id, track: {
+          id: track.id, name: track.name, kind: "mel", instrumentId: track.instrumentId,
+          color: track.color, volume: track.volume, pan: track.pan, automation: normalizeTrackAutomation(track.automation),
+          automationOpen: track.automationOpen === true, effects: makeDefaultEffects(track.effects),
+        },
         clip: { ...clip }, melId: clip.melId, startBar: clip.startBar,
       });
     }));
     state.arrangementTracks.forEach((track) => track.clips.forEach((clip) => {
       if (!state.selectedArrangementItems.has(arrangementSelectionKey("audio", clip.id))) return;
       items.push({
-        type: "audio", sourceTrackId: track.id, track: { id: track.id, name: track.name, color: track.color, volume: track.volume, effects: makeDefaultEffects(track.effects) },
+        type: "audio", sourceTrackId: track.id, track: {
+          id: track.id, name: track.name, color: track.color, volume: track.volume,
+          pan: track.pan,
+          automation: normalizeTrackAutomation(track.automation),
+          automationOpen: track.automationOpen === true, effects: makeDefaultEffects(track.effects),
+        },
         clip: { ...clip }, startBar: clip.startBar,
       });
     }));
@@ -349,6 +358,7 @@
           startTick: pasteStartTick + note.startOffset,
           durationTicks: Math.min(note.durationTicks, totalTicks - pasteStartTick - note.startOffset),
           velocity: note.velocity,
+          pan: note.pan,
         }))
         .filter((note) => note.startTick < totalTicks && note.durationTicks > 0);
       if (!pasted.length) {

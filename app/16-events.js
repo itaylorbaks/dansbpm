@@ -68,6 +68,13 @@
     });
     $("#export-pattern-button").addEventListener("click", exportPattern);
     $("#export-mel-button").addEventListener("click", exportMel);
+    $("#import-midi-button").addEventListener("click", () => $("#midi-import-input").click());
+    $("#midi-import-input").addEventListener("change", (event) => {
+      const [file] = event.target.files || [];
+      if (file) void importMidiFile(file);
+      event.target.value = "";
+    });
+    $("#export-midi-button").addEventListener("click", exportMidi);
     $("#export-song-button").addEventListener("click", openSongExportMenu);
     $("#export-song-wav-button").addEventListener("click", () => exportArrangementAudio("wav"));
     $("#export-song-mp3-button").addEventListener("click", () => exportArrangementAudio("mp3"));
