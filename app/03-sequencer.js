@@ -62,6 +62,25 @@
         Math.max(0, Math.round(stepCount / slotsPerBar) * 3) * beatSpace + padding}px`);
   }
 
+  function setSequencerScale(scale, anchorClientX = null) {
+    const scroll = sequencerGridScroll;
+    const labelWidth = Number.parseFloat(window.getComputedStyle(scroll).getPropertyValue("--track-label-width")) || 244;
+    const gridStart = Math.min(labelWidth + 6, scroll.clientWidth);
+    const anchorOffsetX = anchorClientX === null
+      ? gridStart
+      : Math.max(gridStart, Math.min(scroll.clientWidth, anchorClientX - scroll.getBoundingClientRect().left));
+    const gridOffset = Math.max(0, scroll.scrollLeft + anchorOffsetX - labelWidth - 6);
+    const scaledGridOffset = gridOffset / state.sequencerScale;
+    const nextScale = Math.max(0.5, Math.min(4, scale));
+    if (nextScale === state.sequencerScale) return;
+    state.sequencerScale = nextScale;
+    $("#sequencer-scale-value").textContent = `${Math.round(nextScale * 100)}%`;
+    $("#sequencer-scale-slider").value = String(Math.round(nextScale * 100));
+    setSequencerGridDimensions(getGridStepCount(), getStepsPerBar());
+    renderStepPianoPreviews();
+    scroll.scrollLeft = scaledGridOffset * nextScale + labelWidth + 6 - anchorOffsetX;
+  }
+
   function getDefaultStepMidi(track) {
     if (Number.isFinite(track.sampleRootMidi)) return track.sampleRootMidi;
     return {

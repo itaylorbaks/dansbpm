@@ -876,6 +876,25 @@
         Math.max(0, Math.round(stepCount / slotsPerBar) * 3) * beatSpace + padding}px`);
   }
 
+  function setSequencerScale(scale, anchorClientX = null) {
+    const scroll = sequencerGridScroll;
+    const labelWidth = Number.parseFloat(window.getComputedStyle(scroll).getPropertyValue("--track-label-width")) || 244;
+    const gridStart = Math.min(labelWidth + 6, scroll.clientWidth);
+    const anchorOffsetX = anchorClientX === null
+      ? gridStart
+      : Math.max(gridStart, Math.min(scroll.clientWidth, anchorClientX - scroll.getBoundingClientRect().left));
+    const gridOffset = Math.max(0, scroll.scrollLeft + anchorOffsetX - labelWidth - 6);
+    const scaledGridOffset = gridOffset / state.sequencerScale;
+    const nextScale = Math.max(0.5, Math.min(4, scale));
+    if (nextScale === state.sequencerScale) return;
+    state.sequencerScale = nextScale;
+    $("#sequencer-scale-value").textContent = `${Math.round(nextScale * 100)}%`;
+    $("#sequencer-scale-slider").value = String(Math.round(nextScale * 100));
+    setSequencerGridDimensions(getGridStepCount(), getStepsPerBar());
+    renderStepPianoPreviews();
+    scroll.scrollLeft = scaledGridOffset * nextScale + labelWidth + 6 - anchorOffsetX;
+  }
+
   function getDefaultStepMidi(track) {
     if (Number.isFinite(track.sampleRootMidi)) return track.sampleRootMidi;
     return {
@@ -2399,6 +2418,22 @@
     viewport.style.top = `${top}px`;
     viewport.style.left = `${scrollBounds.left + scroll.clientLeft + 52}px`;
     viewport.style.width = `${Math.max(0, scroll.clientWidth - 52)}px`;
+  }
+
+  function setPianoRollScale(scale, anchorClientX = null) {
+    const scroll = $("#piano-roll-scroll");
+    const keysWidth = $("#piano-roll-keys").offsetWidth || 52;
+    const anchorOffsetX = anchorClientX === null
+      ? keysWidth
+      : Math.max(keysWidth, Math.min(scroll.clientWidth, anchorClientX - scroll.getBoundingClientRect().left));
+    const tickOffset = Math.max(0, scroll.scrollLeft + anchorOffsetX - keysWidth) / getPianoTickWidth();
+    const nextScale = Math.max(0.5, Math.min(4, scale));
+    if (nextScale === state.pianoScale) return;
+    state.pianoScale = nextScale;
+    renderPianoRoll();
+    scroll.scrollLeft = tickOffset * getPianoTickWidth() + keysWidth - anchorOffsetX;
+    updatePianoRulerViewport();
+    updatePianoPlayhead();
   }
 
   function updatePianoPlayhead(keepVisible = false) {
@@ -18147,7 +18182,15 @@
   function formatCollaborationTimestamp(timestamp) {
     return new Date(timestamp).toLocaleString();
   }
-  let arrangementScaleSaveTimer = null;
+  let scaleSaveTimer = null;
+
+  function scheduleScaleSave() {
+    if (scaleSaveTimer !== null) window.clearTimeout(scaleSaveTimer);
+    scaleSaveTimer = window.setTimeout(() => {
+      scaleSaveTimer = null;
+      saveState();
+    }, 250);
+  }
 
   function bindEvents() {
     document.addEventListener("pointermove", paintStepAtPointer);
@@ -18415,10 +18458,15 @@
       saveState();
     });
     $("#piano-scale-slider").addEventListener("input", (event) => {
-      state.pianoScale = Number(event.target.value) / 100;
-      renderPianoRoll();
+      setPianoRollScale(Number(event.target.value) / 100);
     });
     $("#piano-scale-slider").addEventListener("change", saveState);
+    $("#piano-roll-scroll").addEventListener("wheel", (event) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      setPianoRollScale(state.pianoScale * Math.exp(-event.deltaY * 0.002), event.clientX);
+      scheduleScaleSave();
+    }, { passive: false });
     $("#piano-roll-grid").addEventListener("click", (event) => {
       if (state.pianoDrawMode) return;
       if (state.suppressPianoGridClick) {
@@ -18517,12 +18565,15 @@
       setPatternGridResolution(event.target.value);
     });
     $("#sequencer-scale-slider").addEventListener("input", (event) => {
-      state.sequencerScale = Number(event.target.value) / 100;
-      $("#sequencer-scale-value").textContent = `${event.target.value}%`;
-      setSequencerGridDimensions(getGridStepCount(), getStepsPerBar());
-      renderStepPianoPreviews();
+      setSequencerScale(Number(event.target.value) / 100);
     });
     $("#sequencer-scale-slider").addEventListener("change", saveState);
+    $("#sequencer-grid-scroll").addEventListener("wheel", (event) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      setSequencerScale(state.sequencerScale * Math.exp(-event.deltaY * 0.002), event.clientX);
+      scheduleScaleSave();
+    }, { passive: false });
     $("#assets-button").addEventListener("click", () => openAssetLibrary());
     $("#sequencer-browser-button").addEventListener("click", () => openAssetLibrary());
     const soundSearchInput = $("#sound-library-search-input");
@@ -18664,11 +18715,7 @@
       if (!event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
       setArrangementScale(state.arrangementScale * Math.exp(-event.deltaY * 0.002), event.clientX);
-      if (arrangementScaleSaveTimer !== null) window.clearTimeout(arrangementScaleSaveTimer);
-      arrangementScaleSaveTimer = window.setTimeout(() => {
-        arrangementScaleSaveTimer = null;
-        saveState();
-      }, 250);
+      scheduleScaleSave();
     }, { passive: false });
     $("#arrangement-slice-button").addEventListener("click", () => setArrangementSliceMode(!arrangementSliceMode));
     $("#record-audio-button").addEventListener("click", toggleAudioRecording);

@@ -969,6 +969,22 @@
     viewport.style.width = `${Math.max(0, scroll.clientWidth - 52)}px`;
   }
 
+  function setPianoRollScale(scale, anchorClientX = null) {
+    const scroll = $("#piano-roll-scroll");
+    const keysWidth = $("#piano-roll-keys").offsetWidth || 52;
+    const anchorOffsetX = anchorClientX === null
+      ? keysWidth
+      : Math.max(keysWidth, Math.min(scroll.clientWidth, anchorClientX - scroll.getBoundingClientRect().left));
+    const tickOffset = Math.max(0, scroll.scrollLeft + anchorOffsetX - keysWidth) / getPianoTickWidth();
+    const nextScale = Math.max(0.5, Math.min(4, scale));
+    if (nextScale === state.pianoScale) return;
+    state.pianoScale = nextScale;
+    renderPianoRoll();
+    scroll.scrollLeft = tickOffset * getPianoTickWidth() + keysWidth - anchorOffsetX;
+    updatePianoRulerViewport();
+    updatePianoPlayhead();
+  }
+
   function updatePianoPlayhead(keepVisible = false) {
     const marker = $("#piano-roll-playhead");
     const maxTick = getPianoLoopRange().totalBars * PIANO_TICKS_PER_BAR;
