@@ -11,6 +11,17 @@
         return;
       }
       if (event.target.closest("[data-selectable-type]")) return;
+      const laneTrackId = lane.dataset.trackId;
+      const selectedTrackId = laneTrackId.startsWith("pattern:")
+        ? laneTrackId.slice("pattern:".length)
+        : laneTrackId.startsWith("mel:")
+          ? laneTrackId.slice("mel:".length)
+          : laneTrackId;
+      if (state.patterns.some((track) => track.id === selectedTrackId) ||
+        state.melTracks.some((track) => track.id === selectedTrackId) ||
+        state.arrangementTracks.some((track) => track.id === selectedTrackId)) {
+        selectArrangementTrack(selectedTrackId);
+      }
       setArrangementCursor(barAtPointer(event, lane));
     });
     lane.addEventListener("dragover", (event) => {

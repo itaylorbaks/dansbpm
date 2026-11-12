@@ -11482,6 +11482,17 @@
         return;
       }
       if (event.target.closest("[data-selectable-type]")) return;
+      const laneTrackId = lane.dataset.trackId;
+      const selectedTrackId = laneTrackId.startsWith("pattern:")
+        ? laneTrackId.slice("pattern:".length)
+        : laneTrackId.startsWith("mel:")
+          ? laneTrackId.slice("mel:".length)
+          : laneTrackId;
+      if (state.patterns.some((track) => track.id === selectedTrackId) ||
+        state.melTracks.some((track) => track.id === selectedTrackId) ||
+        state.arrangementTracks.some((track) => track.id === selectedTrackId)) {
+        selectArrangementTrack(selectedTrackId);
+      }
       setArrangementCursor(barAtPointer(event, lane));
     });
     lane.addEventListener("dragover", (event) => {
@@ -12399,6 +12410,7 @@
       if (sliceArrangementClipFromPointer(event, "pattern", clip)) return;
       if (event.target.closest(".clip-resize-handle")) return;
       event.stopPropagation();
+      selectArrangementTrack(clip.trackId || clip.patternId);
       if (!selectArrangementItem("pattern", clip.id, event)) return;
       setArrangementCursor(clip.startBar);
     });
@@ -12487,7 +12499,7 @@
     });
   }
 
-  function copyEditorSelection() {
+  function copyEditorSelection({ trackOnly = false } = {}) {
     if (state.view === "sequencer") {
       if (!state.selectedStepCells.size) return;
       const tracks = Array.from(document.querySelectorAll(".track-row"), (row) =>
@@ -12533,14 +12545,52 @@
       };
       return;
     }
-    if (!["arrangement", "mixer"].includes(state.view) || !state.selectedArrangementItems.size) return;
+    if (!["arrangement", "mixer"].includes(state.view)) return;
+    let trackCopy = null;
+    if (trackOnly || !state.selectedArrangementItems.size) {
+      const selectedTrackId = state.selectedMixerTrackId;
+      const patternTrack = state.patterns.find((pattern) => pattern.id === selectedTrackId &&
+        state.patternClips.some((clip) => (clip.trackId || clip.patternId) === pattern.id));
+      const melTrack = state.melTracks.find((track) => track.id === selectedTrackId);
+      const audioTrack = state.arrangementTracks.find((track) => track.id === selectedTrackId);
+      if (patternTrack) {
+        trackCopy = { type: "pattern", sourceTrackId: patternTrack.id, track: { patternId: patternTrack.id } };
+      } else if (melTrack) {
+        trackCopy = {
+          type: "mel",
+          sourceTrackId: melTrack.id,
+          track: {
+            id: melTrack.id, name: melTrack.name, kind: "mel", instrumentId: melTrack.instrumentId,
+            color: melTrack.color, volume: melTrack.volume, pan: melTrack.pan,
+            automation: normalizeTrackAutomation(melTrack.automation),
+            automationOpen: melTrack.automationOpen === true, effects: makeDefaultEffects(melTrack.effects),
+          },
+        };
+      } else if (audioTrack) {
+        trackCopy = {
+          type: "audio",
+          sourceTrackId: audioTrack.id,
+          track: {
+            id: audioTrack.id, name: audioTrack.name, color: audioTrack.color, volume: audioTrack.volume,
+            pan: audioTrack.pan, automation: normalizeTrackAutomation(audioTrack.automation),
+            automationOpen: audioTrack.automationOpen === true, effects: makeDefaultEffects(audioTrack.effects),
+          },
+        };
+      }
+    }
     const items = [];
     state.patternClips.forEach((clip) => {
-      if (!state.selectedArrangementItems.has(arrangementSelectionKey("pattern", clip.id))) return;
-      items.push({ type: "pattern", patternId: clip.patternId, startBar: clip.startBar, clip: { ...clip }, repeatCount: clip.repeatCount || 1 });
+      const sourceTrackId = clip.trackId || clip.patternId;
+      if (!trackCopy && !state.selectedArrangementItems.has(arrangementSelectionKey("pattern", clip.id))) return;
+      if (trackCopy && (trackCopy.type !== "pattern" || trackCopy.sourceTrackId !== sourceTrackId)) return;
+      items.push({
+        type: "pattern", sourceTrackId, patternId: clip.patternId, startBar: clip.startBar,
+        track: { patternId: clip.patternId }, clip: { ...clip }, repeatCount: clip.repeatCount || 1,
+      });
     });
     state.melTracks.forEach((track) => track.clips.forEach((clip) => {
-      if (!state.selectedArrangementItems.has(arrangementSelectionKey("mel", clip.id))) return;
+      if (!trackCopy && !state.selectedArrangementItems.has(arrangementSelectionKey("mel", clip.id))) return;
+      if (trackCopy && (trackCopy.type !== "mel" || trackCopy.sourceTrackId !== track.id)) return;
       items.push({
         type: "mel", sourceTrackId: track.id, track: {
           id: track.id, name: track.name, kind: "mel", instrumentId: track.instrumentId,
@@ -12551,7 +12601,8 @@
       });
     }));
     state.arrangementTracks.forEach((track) => track.clips.forEach((clip) => {
-      if (!state.selectedArrangementItems.has(arrangementSelectionKey("audio", clip.id))) return;
+      if (!trackCopy && !state.selectedArrangementItems.has(arrangementSelectionKey("audio", clip.id))) return;
+      if (trackCopy && (trackCopy.type !== "audio" || trackCopy.sourceTrackId !== track.id)) return;
       items.push({
         type: "audio", sourceTrackId: track.id, track: {
           id: track.id, name: track.name, color: track.color, volume: track.volume,
@@ -12562,18 +12613,76 @@
         clip: { ...clip }, startBar: clip.startBar,
       });
     }));
-    if (!items.length) return;
-    const firstBar = Math.min(...items.map((item) => item.startBar));
-    const lastBar = Math.max(...items.map((item) => item.startBar + getArrangementClipDuration(item.type, item.clip)));
+    if (!items.length && !trackCopy) return;
+    const firstBar = items.length ? Math.min(...items.map((item) => item.startBar)) : 0;
+    const lastBar = items.length
+      ? Math.max(...items.map((item) => item.startBar + getArrangementClipDuration(item.type, item.clip)))
+      : 1;
     state.clipboard = {
       type: "arrangement",
       items: items.map((item) => ({ ...item, startOffset: item.startBar - firstBar })),
       span: Math.max(1, lastBar - firstBar),
       pasteCount: 0,
+      ...(trackCopy ? { trackCopy } : {}),
     };
   }
 
-  function pasteEditorClipboard() {
+  function createArrangementPasteTrack(type, sourceTrackId, trackSnapshot = null) {
+    if (type === "pattern") {
+      const source = getPattern(sourceTrackId) || (trackSnapshot?.patternId
+        ? getPattern(trackSnapshot.patternId) : null);
+      if (!source) return null;
+      const destination = createPatternLaneCopy(source);
+      destination.insertAfterTrackId = getLastArrangementTrackId();
+      return destination.id;
+    }
+    if (type === "mel") {
+      if (!trackSnapshot) return null;
+      const destination = {
+        id: makeId(),
+        name: `${trackSnapshot.name} copy`,
+        insertAfterTrackId: getLastArrangementTrackId(),
+        kind: "mel",
+        instrumentId: trackSnapshot.instrumentId,
+        color: trackSnapshot.color,
+        muted: false,
+        solo: false,
+        volume: trackSnapshot.volume,
+        pan: trackSnapshot.pan,
+        automation: normalizeTrackAutomation(trackSnapshot.automation),
+        automationOpen: trackSnapshot.automationOpen === true,
+        gainNode: null,
+        effects: makeDefaultEffects(trackSnapshot.effects),
+        clips: [],
+      };
+      state.melTracks.push(destination);
+      return destination.id;
+    }
+    if (type === "audio") {
+      if (!trackSnapshot) return null;
+      const destination = {
+        id: makeId(),
+        name: `${trackSnapshot.name} copy`,
+        insertAfterTrackId: getLastArrangementTrackId(),
+        color: trackSnapshot.color,
+        muted: false,
+        solo: false,
+        volume: trackSnapshot.volume,
+        pan: trackSnapshot.pan,
+        automation: normalizeTrackAutomation(trackSnapshot.automation),
+        automationOpen: trackSnapshot.automationOpen === true,
+        gainNode: null,
+        effects: makeDefaultEffects(trackSnapshot.effects),
+        clips: [],
+      };
+      state.arrangementTracks.push(destination);
+      ensureArrangementTrackAudio(destination);
+      return destination.id;
+    }
+    return null;
+  }
+
+  function pasteEditorClipboard({ newTrack = false } = {}) {
     const expectedType = state.view === "sequencer" ? "sequencer" :
       state.view === "piano-roll" ? "piano-roll" :
         ["arrangement", "mixer"].includes(state.view) ? "arrangement" : null;
@@ -12648,56 +12757,94 @@
     }
     const offset = snapArrangementBar(state.arrangementCursor + clipboard.pasteCount * clipboard.span);
     const selection = new Set();
-    clipboard.items.forEach((item) => {
+    const items = clipboard.items || [];
+    const itemTypes = new Set(items.map((item) => item.type));
+    const pasteType = clipboard.trackCopy?.type || (itemTypes.size === 1 ? [...itemTypes][0] : null);
+    const selectedPatternTrack = state.patterns.find((pattern) => pattern.id === state.selectedMixerTrackId &&
+      state.patternClips.some((clip) => (clip.trackId || clip.patternId) === pattern.id));
+    const selectedTarget = selectedPatternTrack
+      ? { type: "pattern", id: selectedPatternTrack.id }
+      : state.melTracks.some((track) => track.id === state.selectedMixerTrackId)
+        ? { type: "mel", id: state.selectedMixerTrackId }
+        : state.arrangementTracks.some((track) => track.id === state.selectedMixerTrackId)
+          ? { type: "audio", id: state.selectedMixerTrackId }
+          : null;
+    const targetMatches = pasteType && itemTypes.size <= 1 && selectedTarget?.type === pasteType;
+    const makeTrackCopy = Boolean(clipboard.trackCopy && (
+      newTrack || !targetMatches || selectedTarget.id === clipboard.trackCopy.sourceTrackId || !items.length
+    ));
+    const makeNewTracks = newTrack || makeTrackCopy;
+    const destinationBySource = new Map();
+    const pastedTrackIds = new Set();
+    const getDestinationTrackId = (item) => {
+      if (targetMatches && !makeNewTracks) return selectedTarget.id;
+      const sourceTrackId = item.sourceTrackId || item.clip.trackId || item.patternId;
+      const sourceKey = `${item.type}:${sourceTrackId}`;
+      if (destinationBySource.has(sourceKey)) return destinationBySource.get(sourceKey);
+      if (!makeNewTracks) {
+        const sourceTrack = item.type === "pattern"
+          ? state.patterns.find((track) => track.id === sourceTrackId)
+          : item.type === "mel"
+            ? state.melTracks.find((track) => track.id === sourceTrackId)
+            : state.arrangementTracks.find((track) => track.id === sourceTrackId);
+        if (sourceTrack) {
+          destinationBySource.set(sourceKey, sourceTrack.id);
+          return sourceTrack.id;
+        }
+      }
+      const trackSnapshot = item.track || clipboard.trackCopy?.track;
+      const destinationId = createArrangementPasteTrack(item.type, sourceTrackId, trackSnapshot);
+      if (destinationId) {
+        destinationBySource.set(sourceKey, destinationId);
+        pastedTrackIds.add(destinationId);
+      }
+      return destinationId;
+    };
+    if (!items.length && clipboard.trackCopy) {
+      const destinationId = createArrangementPasteTrack(
+        clipboard.trackCopy.type, clipboard.trackCopy.sourceTrackId, clipboard.trackCopy.track,
+      );
+      if (destinationId) pastedTrackIds.add(destinationId);
+    }
+    items.forEach((item) => {
       const startBar = Math.max(0, Math.min(MAX_ARRANGEMENT_BARS - 0.001, snapArrangementBar(offset + item.startOffset)));
       if (item.type === "pattern") {
         const pattern = getPattern(item.patternId);
         if (!pattern) return;
-        const trackId = item.clip.trackId || item.patternId;
+        const trackId = getDestinationTrackId(item);
+        if (!trackId) return;
         const trackPattern = getPattern(trackId);
         if (trackPattern && !state.patternClips.some((clip) => (clip.trackId || clip.patternId) === trackId)) {
           trackPattern.insertAfterTrackId = getLastArrangementTrackId();
         }
         const durationBars = getArrangementClipDuration("pattern", item.clip);
         const patternStart = clampArrangementStart(startBar, durationBars);
-        const clip = { ...item.clip, id: makeId(), patternId: item.patternId, repeatCount: item.repeatCount, startBar: patternStart };
+        const clip = {
+          ...item.clip, id: makeId(), patternId: item.patternId, trackId,
+          repeatCount: item.repeatCount, startBar: patternStart,
+        };
         state.patternClips.push(clip);
         selection.add(arrangementSelectionKey("pattern", clip.id));
       } else if (item.type === "mel") {
+        if (!getMel(item.melId)) return;
         const melLength = getArrangementClipDuration("mel", item.clip);
         const clipStart = clampArrangementStart(startBar, melLength);
-        let track = state.melTracks.find((candidate) => candidate.id === state.selectedMixerTrackId)
-          || state.melTracks.find((candidate) => candidate.id === item.sourceTrackId);
+        const destinationId = getDestinationTrackId(item);
+        if (!destinationId) return;
+        let track = state.melTracks.find((candidate) => candidate.id === destinationId);
         if (!track) {
-          track = {
-            ...item.track,
-            insertAfterTrackId: getLastArrangementTrackId(),
-            muted: false,
-            solo: false,
-            clips: [],
-            gainNode: null,
-            effects: makeDefaultEffects(item.track.effects),
-          };
-          state.melTracks.push(track);
+          return;
         }
         const clip = { ...item.clip, id: makeId(), melId: item.melId, startBar: clipStart };
         track.clips.push(clip);
         selection.add(arrangementSelectionKey("mel", clip.id));
       } else if (item.type === "audio") {
         const clipStart = clampArrangementStart(startBar, getArrangementClipDuration("audio", item.clip));
-        let track = state.arrangementTracks.find((candidate) => candidate.id === item.sourceTrackId);
+        const destinationId = getDestinationTrackId(item);
+        if (!destinationId) return;
+        let track = state.arrangementTracks.find((candidate) => candidate.id === destinationId);
         if (!track) {
-          track = {
-            ...item.track,
-            insertAfterTrackId: getLastArrangementTrackId(),
-            clips: [],
-            muted: false,
-            solo: false,
-            gainNode: null,
-            effects: makeDefaultEffects(item.track.effects),
-          };
-          state.arrangementTracks.push(track);
-          ensureArrangementTrackAudio(track);
+          return;
         }
         const clip = { ...item.clip, id: makeId(), startBar: clipStart };
         track.clips.push(clip);
@@ -12705,12 +12852,13 @@
         if (clip.blob) persistClip(track, clip).catch(() => showToast("The copied recording was pasted, but could not be saved."));
       }
     });
-    if (!selection.size) {
+    if (!selection.size && !pastedTrackIds.size) {
       showToast("The copied arrangement items are no longer available.");
       return;
     }
     state.selectedArrangementItems = selection;
     state.arrangementSelectionFromMarquee = false;
+    state.selectedMixerTrackId = [...pastedTrackIds].at(-1) || selectedTarget?.id || state.selectedMixerTrackId;
     clipboard.pasteCount += 1;
     updateArrangementLength();
     renderArrangement();
@@ -18904,10 +19052,10 @@
           else selectAllPianoNotes();
         } else if (key === "c" && ["arrangement", "sequencer", "piano-roll", "mixer"].includes(state.view)) {
           event.preventDefault();
-          copyEditorSelection();
+          copyEditorSelection({ trackOnly: event.shiftKey && ["arrangement", "mixer"].includes(state.view) });
         } else if (key === "v" && ["arrangement", "sequencer", "piano-roll", "mixer"].includes(state.view)) {
           event.preventDefault();
-          pasteEditorClipboard();
+          pasteEditorClipboard({ newTrack: event.shiftKey && ["arrangement", "mixer"].includes(state.view) });
         } else if (key === "x" && ["arrangement", "piano-roll", "mixer"].includes(state.view)) {
           event.preventDefault();
           copyEditorSelection();

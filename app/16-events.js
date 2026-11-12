@@ -720,10 +720,10 @@
           else selectAllPianoNotes();
         } else if (key === "c" && ["arrangement", "sequencer", "piano-roll", "mixer"].includes(state.view)) {
           event.preventDefault();
-          copyEditorSelection();
+          copyEditorSelection({ trackOnly: event.shiftKey && ["arrangement", "mixer"].includes(state.view) });
         } else if (key === "v" && ["arrangement", "sequencer", "piano-roll", "mixer"].includes(state.view)) {
           event.preventDefault();
-          pasteEditorClipboard();
+          pasteEditorClipboard({ newTrack: event.shiftKey && ["arrangement", "mixer"].includes(state.view) });
         } else if (key === "x" && ["arrangement", "piano-roll", "mixer"].includes(state.view)) {
           event.preventDefault();
           copyEditorSelection();
