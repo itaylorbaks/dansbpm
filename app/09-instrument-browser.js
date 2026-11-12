@@ -154,7 +154,8 @@
     return row;
   }
 
-  function renderInstrumentBrowser(query = "") {
+  function renderInstrumentBrowser(query = "", force = false) {
+    if (!$("#source-browser-dialog").open && !force) return;
     const browser = $("#instrument-browser");
     browser.replaceChildren();
     const allInstruments = state.tracks.filter((track) => !track.sourceId);
@@ -343,7 +344,7 @@
     captureCurrentMel();
     renderArrangementAssetBrowser();
     renderRecordingBrowser();
-    renderInstrumentBrowser();
+    renderInstrumentBrowser("", true);
     const dialog = $("#source-browser-dialog");
     if (!dialog.open) dialog.show();
     syncAssetLibraryDialogFullscreen();

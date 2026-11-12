@@ -1234,6 +1234,7 @@
   }
 
   async function connectMasterPitchProcessor(context) {
+    if (state.masterPitchNode?.context === context) return state.masterPitchNode;
     if (context === state.audioContext) await applySelectedAudioOutput(context);
     if (state.masterPitchNode?.context === context) return state.masterPitchNode;
     const pendingSetup = masterPitchProcessorSetups.get(context);
@@ -1300,8 +1301,17 @@
   }
 
   async function ensureAudio() {
-    const context = await initializeAudio();
-    return context.resume();
+    const initialization = initializeAudio();
+    const context = state.audioContext;
+    if (!context) {
+      const initializedContext = await initialization;
+      await initializedContext.resume();
+      return initializedContext;
+    }
+    const resume = context.resume();
+    await Promise.all([initialization, resume]);
+    if (context.state !== "running") throw new Error("Audio could not start. Check the browser's audio output.");
+    return context;
   }
 
   function createNoiseBuffer(context) {

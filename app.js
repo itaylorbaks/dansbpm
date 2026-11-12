@@ -10622,6 +10622,7 @@ const DRIVE_SAMPLE_TRACKS = [
   }
 
   async function connectMasterPitchProcessor(context) {
+    if (state.masterPitchNode?.context === context) return state.masterPitchNode;
     if (context === state.audioContext) await applySelectedAudioOutput(context);
     if (state.masterPitchNode?.context === context) return state.masterPitchNode;
     const pendingSetup = masterPitchProcessorSetups.get(context);
@@ -10688,8 +10689,17 @@ const DRIVE_SAMPLE_TRACKS = [
   }
 
   async function ensureAudio() {
-    const context = await initializeAudio();
-    return context.resume();
+    const initialization = initializeAudio();
+    const context = state.audioContext;
+    if (!context) {
+      const initializedContext = await initialization;
+      await initializedContext.resume();
+      return initializedContext;
+    }
+    const resume = context.resume();
+    await Promise.all([initialization, resume]);
+    if (context.state !== "running") throw new Error("Audio could not start. Check the browser's audio output.");
+    return context;
   }
 
   function createNoiseBuffer(context) {
@@ -17051,7 +17061,8 @@ const DRIVE_SAMPLE_TRACKS = [
     return row;
   }
 
-  function renderInstrumentBrowser(query = "") {
+  function renderInstrumentBrowser(query = "", force = false) {
+    if (!$("#source-browser-dialog").open && !force) return;
     const browser = $("#instrument-browser");
     browser.replaceChildren();
     const allInstruments = state.tracks.filter((track) => !track.sourceId);
@@ -17240,7 +17251,7 @@ const DRIVE_SAMPLE_TRACKS = [
     captureCurrentMel();
     renderArrangementAssetBrowser();
     renderRecordingBrowser();
-    renderInstrumentBrowser();
+    renderInstrumentBrowser("", true);
     const dialog = $("#source-browser-dialog");
     if (!dialog.open) dialog.show();
     syncAssetLibraryDialogFullscreen();
