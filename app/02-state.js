@@ -57,6 +57,12 @@
       time: clamp(edits.time, 25, 400, 100),
       boost: clamp(edits.boost, -12, 24, 0),
       reverb: clamp(edits.reverb, 0, 100, 0),
+      eqLowHz: clamp(edits.eqLowHz, 30, 250, 120),
+      eqLowGain: clamp(edits.eqLowGain, -12, 12, 0),
+      eqMidHz: clamp(edits.eqMidHz, 250, 4000, 1000),
+      eqMidGain: clamp(edits.eqMidGain, -12, 12, 0),
+      eqHighHz: clamp(edits.eqHighHz, 2000, 18000, 8000),
+      eqHighGain: clamp(edits.eqHighGain, -12, 12, 0),
     };
   }
 

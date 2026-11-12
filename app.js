@@ -6494,6 +6494,12 @@ const DRIVE_SAMPLE_TRACKS = [
       time: clamp(edits.time, 25, 400, 100),
       boost: clamp(edits.boost, -12, 24, 0),
       reverb: clamp(edits.reverb, 0, 100, 0),
+      eqLowHz: clamp(edits.eqLowHz, 30, 250, 120),
+      eqLowGain: clamp(edits.eqLowGain, -12, 12, 0),
+      eqMidHz: clamp(edits.eqMidHz, 250, 4000, 1000),
+      eqMidGain: clamp(edits.eqMidGain, -12, 12, 0),
+      eqHighHz: clamp(edits.eqHighHz, 2000, 18000, 8000),
+      eqHighGain: clamp(edits.eqHighGain, -12, 12, 0),
     };
   }
 
@@ -9415,6 +9421,10 @@ const DRIVE_SAMPLE_TRACKS = [
     }
   }
 
+  const sampleWaveformPeakCache = new WeakMap();
+  let stepMixPreview = null;
+  let stepMixPreviewSequence = 0;
+
   function addPatternInstrument(trackId) {
     const pattern = getPattern();
     const source = state.tracks.find((item) => item.id === trackId && !item.sourceId && item.kind !== "drumkit");
@@ -9598,12 +9608,16 @@ const DRIVE_SAMPLE_TRACKS = [
     }
   }
 
-  function getSoundDurationScale(track) {
-    return state.soundDurationEdits[getSoundDurationKey(track)] ?? 1;
-  }
-
   function getSoundProcessingEdits(track) {
-    return normalizeSoundProcessingEdits(state.soundProcessingEdits[getSoundDurationKey(track)]);
+    const soundId = getSoundDurationKey(track);
+    const stored = state.soundProcessingEdits[soundId] || {};
+    const edits = normalizeSoundProcessingEdits(stored);
+    const legacyDurationScale = state.soundDurationEdits[soundId];
+    if (Number.isFinite(legacyDurationScale) && legacyDurationScale < 1) {
+      edits.trimEnd = Math.max(edits.trimStart + 1, Math.round(edits.trimStart +
+        (edits.trimEnd - edits.trimStart) * legacyDurationScale));
+    }
+    return edits;
   }
 
   function getSamplePlaybackRange(track, buffer) {
@@ -9635,12 +9649,20 @@ const DRIVE_SAMPLE_TRACKS = [
       swapStereo: edits.swapStereo,
       fadeIn: edits.fadeIn,
       fadeOut: edits.fadeOut,
+      sampleStart: edits.sampleStart,
+      playbackStartOffset: edits.playbackStartOffset,
+      trimStart: edits.trimStart,
+      trimEnd: edits.trimEnd,
     });
     if (buffers.has(cacheKey)) return buffers.get(cacheKey);
 
     const processed = state.audioContext.createBuffer(buffer.numberOfChannels, buffer.length, buffer.sampleRate);
-    const fadeInFrames = Math.floor(buffer.length * edits.fadeIn / 100);
-    const fadeOutFrames = Math.floor(buffer.length * edits.fadeOut / 100);
+    const fadeStart = Math.floor(Math.max(edits.trimStart,
+      edits.sampleStart + edits.playbackStartOffset / buffer.duration * 100) / 100 * buffer.length);
+    const fadeEnd = Math.floor(edits.trimEnd / 100 * buffer.length);
+    const fadeRegionFrames = Math.max(0, fadeEnd - fadeStart);
+    const fadeInFrames = Math.floor(fadeRegionFrames * edits.fadeIn / 100);
+    const fadeOutFrames = Math.floor(fadeRegionFrames * edits.fadeOut / 100);
     let peak = 0;
     for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
       const sourceChannel = edits.swapStereo && buffer.numberOfChannels > 1
@@ -9650,8 +9672,12 @@ const DRIVE_SAMPLE_TRACKS = [
       const destination = processed.getChannelData(channel);
       for (let sample = 0; sample < buffer.length; sample += 1) {
         const sourceIndex = reversed ? buffer.length - sample - 1 : sample;
-        const fadeInGain = fadeInFrames ? Math.min(1, sample / fadeInFrames) : 1;
-        const fadeOutGain = fadeOutFrames ? Math.min(1, (buffer.length - sample - 1) / fadeOutFrames) : 1;
+        const fadeInGain = fadeInFrames
+          ? sample < fadeStart ? 0 : Math.min(1, (sample - fadeStart) / fadeInFrames)
+          : 1;
+        const fadeOutGain = fadeOutFrames
+          ? sample >= fadeEnd ? 0 : Math.min(1, (fadeEnd - sample - 1) / fadeOutFrames)
+          : 1;
         const polarity = edits.reversePolarity ? -1 : 1;
         const value = source[sourceIndex] * Math.min(fadeInGain, fadeOutGain) * polarity;
         destination[sample] = value;
@@ -9782,7 +9808,20 @@ const DRIVE_SAMPLE_TRACKS = [
     $("#step-track-mix-title").textContent = `${track.name} mix`;
     const controls = $("#step-track-mix-controls");
     controls.replaceChildren();
+    controls.className = "step-track-mix-layout";
+    controls.dataset.trackId = track.id;
     const hasSample = Boolean(track.sample || track.sampleUrl || track.kind === "sample");
+    const eqGraph = makeStepTrackMixEqGraph(track);
+
+    const lower = document.createElement("div");
+    lower.className = "step-mix-lower";
+    const left = document.createElement("div");
+    left.className = "step-mix-left";
+    const right = document.createElement("div");
+    right.className = "step-mix-right";
+
+    left.append(makeSoundWaveformEditor(track));
+
     const soundGroup = document.createElement("div");
     soundGroup.className = "step-mix-group";
     const soundHeading = document.createElement("h3");
@@ -9792,10 +9831,10 @@ const DRIVE_SAMPLE_TRACKS = [
       makeStepTrackMixRange(track, "pitch", "Row pitch", -12, 12, 1, " st"),
       makeStepTrackMixRange(track, "volume", "Volume", 0, 100, 1, "%"),
       makeStepTrackMixRange(track, "swing", "Swing", 0, 45, 1, "%"),
-      ...(track.kind === "drumkit" ? [] : [makeSoundDurationMixRange(track)]),
       makeSoundProcessingRange(track, "boost", "Boost", -12, 24, 1, " dB"),
       makeSoundProcessingRange(track, "reverb", "Reverb", 0, 100, 1, "%"),
     );
+    right.append(soundGroup);
     if (hasSample) {
       const playbackGroup = document.createElement("div");
       playbackGroup.className = "step-mix-group";
@@ -9816,12 +9855,8 @@ const DRIVE_SAMPLE_TRACKS = [
         makeSoundProcessingToggle(track, "reverse", "Reverse"),
         makeSoundProcessingToggle(track, "reversePolarity", "Reverse polarity"),
         makeSoundProcessingToggle(track, "swapStereo", "Swap stereo"),
-        makeSoundProcessingRange(track, "fadeIn", "Fade in", 0, 50, 1, "%"),
-        makeSoundProcessingRange(track, "fadeOut", "Fade out", 0, 50, 1, "%"),
         makeSoundProcessingRange(track, "sampleStart", "SMP start", 0, 100, 1, "%"),
         makeSoundProcessingRange(track, "arpeggiatorLength", "Arpeggiator length", 1, 16, 1, " steps"),
-        makeSoundProcessingRange(track, "trimStart", "In", 0, 99, 1, "%"),
-        makeSoundProcessingRange(track, "trimEnd", "Out", 1, 100, 1, "%"),
         makeSoundProcessingRange(track, "crossfade", "Loop crossfade", 0, 500, 5, " ms"),
       );
 
@@ -9836,52 +9871,651 @@ const DRIVE_SAMPLE_TRACKS = [
           (value) => `${Number(value).toFixed(2)}×`),
         makeSoundProcessingRange(track, "time", "Time", 25, 400, 1, "%"),
       );
-      controls.append(playbackGroup, editGroup, stretchGroup);
+      right.append(playbackGroup, editGroup, stretchGroup);
     }
-    const eqGroup = document.createElement("div");
-    eqGroup.className = "step-mix-group";
-    const eqHeading = document.createElement("h3");
-    eqHeading.textContent = "3-band EQ";
-    eqGroup.append(
-      eqHeading,
-      makeMixerRange(track, "eqLow", "Low", -12, 12, 1, " dB"),
-      makeMixerRange(track, "eqMid", "Mid", -12, 12, 1, " dB"),
-      makeMixerRange(track, "eqHigh", "High", -12, 12, 1, " dB"),
-    );
     const editButton = document.createElement("button");
     editButton.className = "quiet-button step-piano-edit-button";
     editButton.type = "button";
     editButton.textContent = "Edit progression in Piano Roll";
     editButton.addEventListener("click", () => openStepInstrumentPianoRoll(track.id));
-    controls.append(soundGroup, eqGroup, editButton);
+    right.append(editButton);
+    lower.append(left, right);
+    controls.append(eqGraph.element, lower);
     $("#step-track-mix-dialog").showModal();
+    requestAnimationFrame(() => {
+      eqGraph.refresh();
+      controls.querySelectorAll(".step-mix-waveform").forEach((canvas) =>
+        drawStepMixWaveform(canvas, track, getSoundProcessingEdits(track)));
+    });
+    if (hasSample && !track.sample?.buffer) {
+      loadLibrarySample(track).then(() => {
+        if (controls.dataset.trackId === track.id) {
+          controls.querySelectorAll(".step-mix-waveform").forEach((canvas) =>
+            drawStepMixWaveform(canvas, track, getSoundProcessingEdits(track)));
+        }
+      }).catch((error) => showToast(error.message || `Could not load ${track.name}.`));
+    }
   }
 
-  function makeSoundDurationMixRange(track) {
-    const control = document.createElement("label");
-    control.className = "mixer-effect-control step-mix-control";
-    const caption = document.createElement("span");
-    caption.className = "mixer-control-caption";
-    caption.textContent = "Trim / duration";
-    const input = document.createElement("input");
-    input.type = "range";
-    input.min = "1";
-    input.max = "100";
-    input.step = "1";
-    input.setAttribute("aria-label", `${track.name} trim / duration`);
-    const output = document.createElement("output");
-    const soundId = getSoundDurationKey(track);
-    input.value = String(Math.round((state.soundDurationEdits[soundId] ?? 1) * 100));
-    output.textContent = `${input.value}%`;
-    input.addEventListener("input", () => {
-      const durationScale = Math.max(0.01, Math.min(1, Number(input.value) / 100));
-      if (durationScale === 1) delete state.soundDurationEdits[soundId];
-      else state.soundDurationEdits[soundId] = durationScale;
-      output.textContent = `${input.value}%`;
-      saveState();
+  function makeStepTrackMixEqGraph(track) {
+    const bands = [
+      { id: "low", label: "Low · 30–250 Hz", frequencyKey: "eqLowHz", gainKey: "eqLowGain", min: 30, max: 250 },
+      { id: "mid", label: "Mid · 250–4,000 Hz", frequencyKey: "eqMidHz", gainKey: "eqMidGain", min: 250, max: 4000 },
+      { id: "high", label: "High · 2,000–18,000 Hz", frequencyKey: "eqHighHz", gainKey: "eqHighGain", min: 2000, max: 18000 },
+    ];
+    const group = document.createElement("section");
+    group.className = "step-mix-eq-group";
+    const heading = document.createElement("h3");
+    heading.textContent = "EQ response · drag points to adjust frequency and gain";
+    const stage = document.createElement("div");
+    stage.className = "step-mix-eq-stage";
+    const canvas = document.createElement("canvas");
+    canvas.className = "step-mix-eq-graph";
+    canvas.setAttribute("role", "img");
+    canvas.setAttribute("aria-label", "Equalizer response curve from 20 hertz to 20 kilohertz");
+    const handles = new Map();
+    bands.forEach((band) => {
+      const handle = document.createElement("button");
+      handle.type = "button";
+      handle.className = `step-mix-eq-handle is-${band.id}`;
+      handle.dataset.eqBand = band.id;
+      handle.setAttribute("role", "slider");
+      handle.setAttribute("aria-label", `${band.label} EQ point`);
+      handle.setAttribute("aria-valuemin", "-12");
+      handle.setAttribute("aria-valuemax", "12");
+      handles.set(band.id, handle);
+      stage.append(handle);
     });
-    control.append(caption, input, output);
-    return control;
+    stage.prepend(canvas);
+    group.append(heading, stage);
+
+    const refresh = () => {
+      const edits = getSoundProcessingEdits(track);
+      drawStepMixEqCurve(canvas, edits);
+      const bounds = stage.getBoundingClientRect();
+      if (!bounds.width || !bounds.height) return;
+      getStepMixEqBandPoints(edits, bounds.width, bounds.height).forEach((point) => {
+        const handle = handles.get(point.id);
+        handle.style.left = `${point.x}px`;
+        handle.style.top = `${point.y}px`;
+        handle.setAttribute("aria-valuenow", String(edits[point.gainKey]));
+        handle.setAttribute("aria-valuetext", `${Math.round(edits[point.frequencyKey])} Hz, ${edits[point.gainKey].toFixed(1)} dB`);
+      });
+    };
+
+    const updateBand = (band, clientX, clientY) => {
+      const bounds = stage.getBoundingClientRect();
+      const graphLeft = 42;
+      const graphRight = 12;
+      const graphTop = 12;
+      const graphBottom = 25;
+      const xRatio = Math.max(0, Math.min(1,
+        (clientX - bounds.left - graphLeft) / (bounds.width - graphLeft - graphRight)));
+      const yRatio = Math.max(0, Math.min(1,
+        (clientY - bounds.top - graphTop) / (bounds.height - graphTop - graphBottom)));
+      const frequency = Math.round(Math.max(band.min, Math.min(band.max, 20 * 1000 ** xRatio)));
+      const gain = Math.round(Math.max(-12, Math.min(12, 18 - yRatio * 36)) * 10) / 10;
+      const edits = getSoundProcessingEdits(track);
+      state.soundProcessingEdits[getSoundDurationKey(track)] = normalizeSoundProcessingEdits({
+        ...edits,
+        [band.frequencyKey]: frequency,
+        [band.gainKey]: gain,
+      });
+      refresh();
+      refreshStepMixPreview(track, false);
+    };
+
+    let activeBand = null;
+    let activePointerId = null;
+    stage.addEventListener("pointerdown", (event) => {
+      let band = bands.find((item) => item.id === event.target.closest("[data-eq-band]")?.dataset.eqBand);
+      if (!band && event.target === canvas) {
+        const bounds = stage.getBoundingClientRect();
+        const points = getStepMixEqBandPoints(getSoundProcessingEdits(track), bounds.width, bounds.height);
+        const x = event.clientX - bounds.left;
+        const y = event.clientY - bounds.top;
+        const point = points.reduce((nearest, current) =>
+          Math.hypot(current.x - x, current.y - y) < Math.hypot(nearest.x - x, nearest.y - y) ? current : nearest);
+        band = bands.find((item) => item.id === point.id);
+      }
+      if (!band) return;
+      event.preventDefault();
+      activeBand = band;
+      activePointerId = event.pointerId;
+      stage.setPointerCapture(activePointerId);
+      updateBand(activeBand, event.clientX, event.clientY);
+    });
+    stage.addEventListener("pointermove", (event) => {
+      if (event.pointerId === activePointerId && activeBand) {
+        updateBand(activeBand, event.clientX, event.clientY);
+      }
+    });
+    const finishDrag = (event) => {
+      if (event.pointerId !== activePointerId) return;
+      activeBand = null;
+      activePointerId = null;
+      saveState();
+    };
+    stage.addEventListener("pointerup", finishDrag);
+    stage.addEventListener("pointercancel", finishDrag);
+    handles.forEach((handle, id) => {
+      handle.addEventListener("keydown", (event) => {
+        const band = bands.find((item) => item.id === id);
+        const edits = getSoundProcessingEdits(track);
+        const next = { ...edits };
+        if (event.key === "ArrowUp") next[band.gainKey] = Math.min(12, edits[band.gainKey] + 0.5);
+        else if (event.key === "ArrowDown") next[band.gainKey] = Math.max(-12, edits[band.gainKey] - 0.5);
+        else if (event.key === "ArrowRight") next[band.frequencyKey] = Math.min(band.max, Math.round(edits[band.frequencyKey] * 1.05));
+        else if (event.key === "ArrowLeft") next[band.frequencyKey] = Math.max(band.min, Math.round(edits[band.frequencyKey] / 1.05));
+        else return;
+        event.preventDefault();
+        state.soundProcessingEdits[getSoundDurationKey(track)] = normalizeSoundProcessingEdits(next);
+        refresh();
+        refreshStepMixPreview(track, false);
+        saveState();
+      });
+    });
+    refresh();
+    return { element: group, refresh };
+  }
+
+  function makeSoundWaveformEditor(track) {
+    const soundId = getSoundDurationKey(track);
+    const editor = document.createElement("section");
+    editor.className = "step-mix-waveform-editor";
+    const headingRow = document.createElement("div");
+    headingRow.className = "step-mix-waveform-heading";
+    const heading = document.createElement("h3");
+    heading.textContent = "Waveform · trim and fades";
+    const playButton = makeStepMixPreviewButton(track);
+    headingRow.append(heading, playButton);
+    const stage = document.createElement("div");
+    stage.className = "step-mix-waveform-stage";
+    const canvas = document.createElement("canvas");
+    canvas.className = "step-mix-waveform";
+    canvas.setAttribute("role", "img");
+    canvas.setAttribute("aria-label", `${track.name} waveform with editable trim and fade handles`);
+    const handles = new Map();
+    [
+      ["trimStart", "Trim start"],
+      ["trimEnd", "Trim end"],
+      ["fadeIn", "Fade in"],
+      ["fadeOut", "Fade out"],
+    ].forEach(([key, label]) => {
+      const handle = document.createElement("button");
+      handle.type = "button";
+      handle.className = `step-mix-waveform-handle is-${key}`;
+      handle.dataset.handle = key;
+      handle.setAttribute("role", "slider");
+      handle.setAttribute("aria-label", `${track.name} ${label}`);
+      handles.set(key, handle);
+      stage.append(handle);
+    });
+    const readout = document.createElement("output");
+    readout.className = "step-mix-waveform-readout";
+    stage.prepend(canvas);
+    editor.append(headingRow, stage, readout);
+
+    const refresh = () => {
+      const edits = getSoundProcessingEdits(track);
+      const range = edits.trimEnd - edits.trimStart;
+      const positions = {
+        trimStart: edits.trimStart,
+        trimEnd: edits.trimEnd,
+        fadeIn: edits.trimStart + range * edits.fadeIn / 100,
+        fadeOut: edits.trimEnd - range * edits.fadeOut / 100,
+      };
+      handles.forEach((handle, key) => {
+        handle.style.left = `${positions[key]}%`;
+        handle.setAttribute("aria-valuemin", key === "trimEnd" ? String(edits.trimStart + 1) : "0");
+        handle.setAttribute("aria-valuemax", key === "trimStart" ? String(edits.trimEnd - 1) :
+          key === "trimEnd" ? "100" : "50");
+        handle.setAttribute("aria-valuenow", String(edits[key]));
+        handle.setAttribute("aria-valuetext", key === "trimStart" || key === "trimEnd"
+          ? `${edits[key]} percent`
+          : `${edits[key]} percent fade`);
+      });
+      readout.textContent = `IN ${edits.trimStart}%   FADE IN ${edits.fadeIn}%   FADE OUT ${edits.fadeOut}%   OUT ${edits.trimEnd}%`;
+      drawStepMixWaveform(canvas, track, edits);
+    };
+
+    const setHandleValue = (key, percent) => {
+      const edits = getSoundProcessingEdits(track);
+      const range = edits.trimEnd - edits.trimStart;
+      const next = { ...edits };
+      if (key === "trimStart") next.trimStart = Math.min(edits.trimEnd - 1, Math.max(0, Math.round(percent)));
+      else if (key === "trimEnd") next.trimEnd = Math.max(edits.trimStart + 1, Math.min(100, Math.round(percent)));
+      else if (key === "fadeIn") next.fadeIn = Math.max(0, Math.min(50,
+        (percent - edits.trimStart) / range * 100));
+      else next.fadeOut = Math.max(0, Math.min(50, (edits.trimEnd - percent) / range * 100));
+      state.soundProcessingEdits[soundId] = normalizeSoundProcessingEdits(next);
+      delete state.soundDurationEdits[soundId];
+      refresh();
+      refreshStepMixPreview(track, true);
+    };
+
+    handles.forEach((handle, key) => {
+      let pointerId = null;
+      handle.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        pointerId = event.pointerId;
+        handle.setPointerCapture(pointerId);
+        const bounds = stage.getBoundingClientRect();
+        setHandleValue(key, (event.clientX - bounds.left) / bounds.width * 100);
+      });
+      handle.addEventListener("pointermove", (event) => {
+        if (pointerId !== event.pointerId) return;
+        const bounds = stage.getBoundingClientRect();
+        setHandleValue(key, (event.clientX - bounds.left) / bounds.width * 100);
+      });
+      const finish = (event) => {
+        if (pointerId !== event.pointerId) return;
+        pointerId = null;
+        saveState();
+      };
+      handle.addEventListener("pointerup", finish);
+      handle.addEventListener("pointercancel", finish);
+      handle.addEventListener("keydown", (event) => {
+        const direction = event.key === "ArrowRight" || event.key === "ArrowUp" ? 1 :
+          event.key === "ArrowLeft" || event.key === "ArrowDown" ? -1 : 0;
+        if (!direction) return;
+        event.preventDefault();
+        const bounds = stage.getBoundingClientRect();
+        const x = Number.parseFloat(handle.style.left) + direction * 100 / bounds.width;
+        setHandleValue(key, x);
+        saveState();
+      });
+    });
+    refresh();
+    return editor;
+  }
+
+  function makeStepMixPreviewButton(track) {
+    const button = document.createElement("button");
+    button.className = "quiet-button step-mix-preview-button";
+    button.type = "button";
+    button.textContent = "▶ Play loop";
+    button.setAttribute("aria-label", `Play ${track.name} on loop`);
+    button.setAttribute("aria-pressed", "false");
+    button.addEventListener("click", () => toggleStepMixPreview(track, button));
+    return button;
+  }
+
+  function toggleStepMixPreview(track, button) {
+    if (stepMixPreview?.button === button) {
+      stopStepMixPreview();
+      return;
+    }
+    stopStepMixPreview();
+    const request = stepMixPreviewSequence;
+    button.disabled = true;
+    (async () => {
+      try {
+        await ensureAudio();
+        if (track.sampleUrl || track.kind === "sample") await loadLibrarySample(track);
+        if (request !== stepMixPreviewSequence || !$("#step-track-mix-dialog").open) return;
+        ensureTrackAudio(track);
+        const preview = {
+          track,
+          soundId: getSoundDurationKey(track),
+          button,
+          outputNode: track.gainNode || state.masterGain,
+          voices: new Set(),
+          interval: null,
+          restartTimer: null,
+        };
+        stepMixPreview = preview;
+        button.textContent = "■ Stop";
+        button.setAttribute("aria-label", `Stop ${track.name} preview`);
+        button.setAttribute("aria-pressed", "true");
+        if (track.sample || track.sampleUrl || track.kind === "sample") {
+          startStepMixSamplePreview(preview);
+        } else {
+          const duration = Math.max(0.15, getStepDuration() * 4);
+          const playNote = () => {
+            if (stepMixPreview !== preview) return;
+            playPianoNote(track, state.audioContext.currentTime + 0.02, getDefaultStepMidi(track),
+              duration * 0.9, 0.8, track, preview.outputNode);
+          };
+          playNote();
+          preview.interval = window.setInterval(playNote, duration * 1000);
+        }
+      } catch (error) {
+        if (request === stepMixPreviewSequence) {
+          stopStepMixPreview();
+          showToast(error.message || `Could not preview ${track.name}.`);
+        }
+      } finally {
+        button.disabled = false;
+      }
+    })();
+  }
+
+  function startStepMixSamplePreview(preview) {
+    const track = preview.track;
+    const buffer = getLibrarySamplePlaybackBuffer(track);
+    if (!buffer) throw new Error(`The audio for ${track.name} is unavailable.`);
+    const range = getSamplePlaybackRange(track, buffer);
+    if (range.duration <= 0.005) throw new Error("The trimmed sound is too short to preview.");
+    const context = state.audioContext;
+    const edits = getSoundProcessingEdits(track);
+    const rateScale = getSoundPlaybackRateScale(track);
+    const canPitchShift = state.masterPitchSupported !== false &&
+      typeof window.AudioWorkletNode === "function";
+    const playbackRate = canPitchShift ? rateScale : rateScale * Math.pow(2, edits.pitch / 12);
+    const startTime = context.currentTime + 0.015;
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+    source.loopStart = range.offset;
+    source.loopEnd = range.offset + range.duration;
+    source.playbackRate.setValueAtTime(playbackRate, startTime);
+    const envelope = context.createGain();
+    envelope.gain.setValueAtTime(0.0001, startTime);
+    envelope.gain.linearRampToValueAtTime(0.75, startTime + 0.025);
+    let pitchNode = null;
+    const pitchCorrection = canPitchShift
+      ? Math.max(-36, Math.min(36, edits.pitch - 12 * Math.log2(rateScale)))
+      : 0;
+    if (Math.abs(pitchCorrection) >= 0.001) {
+      pitchNode = new window.AudioWorkletNode(context, "dansbpm-master-pitch");
+      pitchNode.parameters.get("semitones").setValueAtTime(pitchCorrection, startTime);
+      source.connect(pitchNode);
+      pitchNode.connect(envelope);
+    } else {
+      source.connect(envelope);
+    }
+    envelope.connect(getSoundProcessingInput(track, preview.outputNode));
+    const voice = { source, envelope, pitchNode };
+    preview.voices.add(voice);
+    source.onended = () => {
+      source.disconnect();
+      envelope.disconnect();
+      pitchNode?.disconnect();
+      preview.voices.delete(voice);
+    };
+    source.start(startTime, range.offset);
+  }
+
+  function fadeOutStepMixPreviewVoice(voice, context) {
+    const endTime = context.currentTime + 0.025;
+    voice.envelope.gain.cancelScheduledValues(context.currentTime);
+    voice.envelope.gain.setValueAtTime(voice.envelope.gain.value, context.currentTime);
+    voice.envelope.gain.linearRampToValueAtTime(0.0001, endTime);
+    try {
+      voice.source.stop(endTime + 0.005);
+    } catch (error) {
+      if (error.name !== "InvalidStateError") throw error;
+    }
+  }
+
+  function refreshStepMixPreview(track, restartSample) {
+    const preview = stepMixPreview;
+    if (!preview || preview.soundId !== getSoundDurationKey(track)) return;
+    getSoundProcessingInput(track, preview.outputNode);
+    if (!restartSample || !track.sample && !track.sampleUrl && track.kind !== "sample") return;
+    if (preview.restartTimer !== null) window.clearTimeout(preview.restartTimer);
+    preview.restartTimer = window.setTimeout(() => {
+      preview.restartTimer = null;
+      if (stepMixPreview !== preview) return;
+      const previousVoices = [...preview.voices];
+      try {
+        startStepMixSamplePreview(preview);
+        previousVoices.forEach((voice) => fadeOutStepMixPreviewVoice(voice, state.audioContext));
+      } catch (error) {
+        showToast(error.message || `Could not preview ${track.name}.`);
+        stopStepMixPreview();
+      }
+    }, 90);
+  }
+
+  function stopStepMixPreview() {
+    stepMixPreviewSequence += 1;
+    const preview = stepMixPreview;
+    stepMixPreview = null;
+    if (!preview) return;
+    if (preview.interval !== null) window.clearInterval(preview.interval);
+    if (preview.restartTimer !== null) window.clearTimeout(preview.restartTimer);
+    [...preview.voices].forEach((voice) => fadeOutStepMixPreviewVoice(voice, state.audioContext));
+    preview.button.textContent = "▶ Play loop";
+    preview.button.setAttribute("aria-label", `Play ${preview.track.name} on loop`);
+    preview.button.setAttribute("aria-pressed", "false");
+  }
+
+  function drawStepMixWaveform(canvas, track, edits) {
+    const bounds = canvas.getBoundingClientRect();
+    if (!bounds.width || !bounds.height) return;
+    const pixelRatio = window.devicePixelRatio || 1;
+    const width = Math.round(bounds.width * pixelRatio);
+    const height = Math.round(bounds.height * pixelRatio);
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+    const context = canvas.getContext("2d");
+    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    const w = bounds.width;
+    const h = bounds.height;
+    context.clearRect(0, 0, w, h);
+    context.fillStyle = "#141518";
+    context.fillRect(0, 0, w, h);
+    context.strokeStyle = "#303238";
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(0, h / 2);
+    context.lineTo(w, h / 2);
+    context.stroke();
+    const buffer = track.sample?.buffer;
+    if (buffer) {
+      let peaks = sampleWaveformPeakCache.get(buffer);
+      if (!peaks) {
+        const bins = Math.min(1200, buffer.length);
+        const channelData = Array.from({ length: buffer.numberOfChannels }, (_, index) => buffer.getChannelData(index));
+        peaks = new Float32Array(bins);
+        for (let bin = 0; bin < bins; bin += 1) {
+          const start = Math.floor(bin / bins * buffer.length);
+          const end = Math.max(start + 1, Math.floor((bin + 1) / bins * buffer.length));
+          for (const samples of channelData) {
+            for (let index = start; index < Math.min(end, buffer.length); index += 1) {
+              peaks[bin] = Math.max(peaks[bin], Math.abs(samples[index]));
+            }
+          }
+        }
+        sampleWaveformPeakCache.set(buffer, peaks);
+      }
+      context.fillStyle = "#8ebf70";
+      for (let x = 0; x < w; x += 2) {
+        const start = Math.floor(x / w * peaks.length);
+        const end = Math.max(start + 1, Math.floor((x + 2) / w * peaks.length));
+        let peak = 0;
+        for (let index = start; index < Math.min(end, peaks.length); index += 1) peak = Math.max(peak, peaks[index]);
+        const barHeight = Math.max(1, peak * h * 0.42);
+        context.fillRect(x, (h - barHeight) / 2, 1, barHeight);
+      }
+    } else {
+      const wave = track.patch?.wave || (track.kind === "kick" ? "sine" : "triangle");
+      context.fillStyle = "#8ebf70";
+      for (let x = 0; x < w; x += 2) {
+        const progress = x / w;
+        const phase = progress * Math.PI * 18;
+        const sine = Math.sin(phase);
+        const oscillator = wave === "square" ? Math.sign(sine)
+          : wave === "sawtooth" ? 2 * (phase / (2 * Math.PI) - Math.floor(phase / (2 * Math.PI) + 0.5))
+            : wave === "triangle" ? 2 / Math.PI * Math.asin(sine) : sine;
+        const decay = track.kind === "kick" || track.kind === "snare"
+          ? Math.exp(-progress * 5)
+          : Math.min(1, progress * 18) * Math.exp(-progress * 1.8);
+        const barHeight = Math.max(1, Math.abs(oscillator * decay) * h * 0.42);
+        context.fillRect(x, (h - barHeight) / 2, 1, barHeight);
+      }
+      context.fillStyle = "#707278";
+      context.font = "9px monospace";
+      context.textAlign = "right";
+      context.fillText("SYNTH", w - 8, 12);
+    }
+
+    const startX = edits.trimStart / 100 * w;
+    const endX = edits.trimEnd / 100 * w;
+    const fadeInX = startX + (endX - startX) * edits.fadeIn / 100;
+    const fadeOutX = endX - (endX - startX) * edits.fadeOut / 100;
+    context.fillStyle = "#0009";
+    context.fillRect(0, 0, startX, h);
+    context.fillRect(endX, 0, w - endX, h);
+    context.fillStyle = "#8ebf7018";
+    context.fillRect(startX, 0, endX - startX, h);
+    context.strokeStyle = "#c3e3a8";
+    context.lineWidth = 2;
+    context.beginPath();
+    context.moveTo(startX, edits.fadeIn ? h - 10 : 10);
+    context.lineTo(fadeInX, 10);
+    context.lineTo(fadeOutX, 10);
+    context.lineTo(endX, edits.fadeOut ? h - 10 : 10);
+    context.stroke();
+    context.setLineDash([3, 3]);
+    context.strokeStyle = "#8ebf70";
+    [startX, endX].forEach((x) => {
+      context.beginPath();
+      context.moveTo(x, 0);
+      context.lineTo(x, h);
+      context.stroke();
+    });
+    context.setLineDash([]);
+  }
+
+  function getStepMixEqBands(edits) {
+    return [
+      { id: "low", frequencyKey: "eqLowHz", gainKey: "eqLowGain", min: 30, max: 250,
+        frequency: edits.eqLowHz, gain: edits.eqLowGain },
+      { id: "mid", frequencyKey: "eqMidHz", gainKey: "eqMidGain", min: 250, max: 4000,
+        frequency: edits.eqMidHz, gain: edits.eqMidGain },
+      { id: "high", frequencyKey: "eqHighHz", gainKey: "eqHighGain", min: 2000, max: 18000,
+        frequency: edits.eqHighHz, gain: edits.eqHighGain },
+    ];
+  }
+
+  function getStepMixEqResponseDb(frequency, center, gain, sampleRate) {
+    if (!gain) return 0;
+    const omega = 2 * Math.PI * center / sampleRate;
+    const alpha = Math.sin(omega) / 2;
+    const amplitude = 10 ** (gain / 40);
+    const coefficients = [
+      (1 + alpha * amplitude) / (1 + alpha / amplitude),
+      (-2 * Math.cos(omega)) / (1 + alpha / amplitude),
+      (1 - alpha * amplitude) / (1 + alpha / amplitude),
+      (-2 * Math.cos(omega)) / (1 + alpha / amplitude),
+      (1 - alpha / amplitude) / (1 + alpha / amplitude),
+    ];
+    const phase = 2 * Math.PI * frequency / sampleRate;
+    const real = coefficients[0] + coefficients[1] * Math.cos(phase) +
+      coefficients[2] * Math.cos(2 * phase);
+    const imaginary = -coefficients[1] * Math.sin(phase) - coefficients[2] * Math.sin(2 * phase);
+    const denominatorReal = 1 + coefficients[3] * Math.cos(phase) + coefficients[4] * Math.cos(2 * phase);
+    const denominatorImaginary = -coefficients[3] * Math.sin(phase) - coefficients[4] * Math.sin(2 * phase);
+    return 20 * Math.log10(Math.max(0.000001,
+      Math.hypot(real, imaginary) / Math.hypot(denominatorReal, denominatorImaginary)));
+  }
+
+  function getStepMixEqBandPoints(edits, width, height) {
+    const left = 42;
+    const right = 12;
+    const top = 12;
+    const bottom = 25;
+    const graphWidth = width - left - right;
+    const graphHeight = height - top - bottom;
+    const sampleRate = state.audioContext?.sampleRate || 44100;
+    const bands = getStepMixEqBands(edits);
+    const toX = (frequency) => left + Math.log(frequency / 20) / Math.log(1000) * graphWidth;
+    const toY = (db) => top + (18 - Math.max(-18, Math.min(18, db))) / 36 * graphHeight;
+    return bands.map((band) => ({
+      ...band,
+      x: toX(band.frequency),
+      y: toY(bands.reduce((sum, item) =>
+        sum + getStepMixEqResponseDb(band.frequency, item.frequency, item.gain, sampleRate), 0)),
+    }));
+  }
+
+  function drawStepMixEqCurve(canvas, edits) {
+    if (!canvas) return;
+    const bounds = canvas.getBoundingClientRect();
+    if (!bounds.width || !bounds.height) return;
+    const pixelRatio = window.devicePixelRatio || 1;
+    const width = Math.round(bounds.width * pixelRatio);
+    const height = Math.round(bounds.height * pixelRatio);
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+    const context = canvas.getContext("2d");
+    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    const w = bounds.width;
+    const h = bounds.height;
+    const left = 42;
+    const right = 12;
+    const top = 12;
+    const bottom = 25;
+    const graphWidth = w - left - right;
+    const graphHeight = h - top - bottom;
+    const minDb = -18;
+    const maxDb = 18;
+    const sampleRate = state.audioContext?.sampleRate || 44100;
+    context.clearRect(0, 0, w, h);
+    context.fillStyle = "#141518";
+    context.fillRect(0, 0, w, h);
+    const toY = (db) => top + (maxDb - Math.max(minDb, Math.min(maxDb, db))) /
+      (maxDb - minDb) * graphHeight;
+    const toX = (frequency) => left + Math.log(frequency / 20) / Math.log(20000 / 20) * graphWidth;
+
+    context.font = "9px monospace";
+    context.textAlign = "right";
+    [-12, 0, 12].forEach((db) => {
+      const y = toY(db);
+      context.strokeStyle = db === 0 ? "#4b4d52" : "#292b30";
+      context.beginPath();
+      context.moveTo(left, y);
+      context.lineTo(w - right, y);
+      context.stroke();
+      context.fillStyle = "#777980";
+      context.fillText(`${db} dB`, left - 6, y + 3);
+    });
+    context.textAlign = "center";
+    [[20, "20"], [100, "100"], [1000, "1k"], [10000, "10k"], [20000, "20k"]].forEach(([frequency, label]) => {
+      const x = toX(frequency);
+      context.strokeStyle = "#292b30";
+      context.beginPath();
+      context.moveTo(x, top);
+      context.lineTo(x, h - bottom);
+      context.stroke();
+      context.fillStyle = "#777980";
+      context.fillText(label, x, h - 8);
+    });
+
+    const bands = getStepMixEqBands(edits);
+
+    context.beginPath();
+    for (let point = 0; point <= 240; point += 1) {
+      const xRatio = point / 240;
+      const frequency = 20 * (20000 / 20) ** xRatio;
+      const db = bands.reduce((sum, band) =>
+        sum + getStepMixEqResponseDb(frequency, band.frequency, band.gain, sampleRate), 0);
+      const x = left + xRatio * graphWidth;
+      if (point === 0) context.moveTo(x, toY(db));
+      else context.lineTo(x, toY(db));
+    }
+    context.strokeStyle = "#a9d788";
+    context.lineWidth = 2;
+    context.stroke();
+    context.lineTo(w - right, toY(0));
+    context.lineTo(left, toY(0));
+    context.closePath();
+    context.fillStyle = "#8ebf7018";
+    context.fill();
+    context.lineWidth = 1;
+    getStepMixEqBandPoints(edits, w, h).forEach(({ x, y }) => {
+      context.fillStyle = "#d8efc1";
+      context.beginPath();
+      context.arc(x, y, 3, 0, Math.PI * 2);
+      context.fill();
+    });
   }
 
   function makeSoundProcessingRange(track, key, label, min, max, step, unit, formatValue = (value) => `${value}${unit}`) {
@@ -9912,16 +10546,21 @@ const DRIVE_SAMPLE_TRACKS = [
       state.soundProcessingEdits[soundId] = normalizeSoundProcessingEdits({ ...edits, [key]: nextValue });
       const updated = state.soundProcessingEdits[soundId];
       const group = control.closest(".step-mix-group");
-      group.querySelectorAll("[data-sound-edit-key]").forEach((item) => {
-        const editKey = item.dataset.soundEditKey;
-        const range = item.querySelector("input");
-        const output = item.querySelector("output");
-        range.value = String(updated[editKey]);
-        output.textContent = item === control ? formatValue(updated[editKey]) : `${updated[editKey]}%`;
-        if (editKey === "trimStart") range.max = String(updated.trimEnd - 1);
-        if (editKey === "trimEnd") range.min = String(updated.trimStart + 1);
-      });
+      if (key === "trimStart" || key === "trimEnd") {
+        const startControl = group.querySelector('[data-sound-edit-key="trimStart"]');
+        const endControl = group.querySelector('[data-sound-edit-key="trimEnd"]');
+        startControl.querySelector("input").max = String(updated.trimEnd - 1);
+        endControl.querySelector("input").min = String(updated.trimStart + 1);
+        startControl.querySelector("input").value = String(updated.trimStart);
+        endControl.querySelector("input").value = String(updated.trimEnd);
+        startControl.querySelector("output").textContent = `${updated.trimStart}%`;
+        endControl.querySelector("output").textContent = `${updated.trimEnd}%`;
+      }
       value.textContent = formatValue(updated[key]);
+      refreshStepMixPreview(track, [
+        "fadeIn", "fadeOut", "playbackStartOffset", "sampleStart", "trimStart", "trimEnd",
+        "pitch", "playbackMultiplier", "time",
+      ].includes(key));
       saveState();
     });
     control.append(caption, input, value);
@@ -9948,6 +10587,8 @@ const DRIVE_SAMPLE_TRACKS = [
         const edits = getSoundProcessingEdits(track);
         state.soundProcessingEdits[soundId] = normalizeSoundProcessingEdits({ ...edits, [key]: input.checked });
       }
+      refreshStepMixPreview(track, key === "reverse" || key === "normalize" ||
+        key === "reversePolarity" || key === "swapStereo");
       saveState();
     });
     control.append(input, caption);
@@ -20333,28 +20974,50 @@ const DRIVE_SAMPLE_TRACKS = [
 
   function getSoundProcessingInput(track, outputNode) {
     const edits = getSoundProcessingEdits(track);
-    if (!edits.boost && !edits.reverb) return outputNode;
+    const soundId = getSoundDurationKey(track);
+    const hasEq = edits.eqLowGain || edits.eqMidGain || edits.eqHighGain;
     let processors = soundProcessingOutputNodes.get(outputNode);
+    let processor = processors?.get(soundId);
+    if (!processor && !edits.boost && !edits.reverb && !hasEq) return outputNode;
     if (!processors) {
       processors = new Map();
       soundProcessingOutputNodes.set(outputNode, processors);
     }
-    const soundId = getSoundDurationKey(track);
-    let processor = processors.get(soundId);
     if (!processor) {
       const gain = state.audioContext.createGain();
-      processor = { gain, effect: null, connected: false };
+      const filters = [
+        ["eqLowHz", "eqLowGain"],
+        ["eqMidHz", "eqMidGain"],
+        ["eqHighHz", "eqHighGain"],
+      ].map(() => {
+        const filter = state.audioContext.createBiquadFilter();
+        filter.type = "peaking";
+        filter.Q.value = 1;
+        return filter;
+      });
+      gain.connect(filters[0]);
+      filters[0].connect(filters[1]);
+      filters[1].connect(filters[2]);
+      filters[2].connect(outputNode);
+      processor = { gain, filters, effect: null, outputNode };
       processors.set(soundId, processor);
     }
     const now = state.audioContext.currentTime;
     processor.gain.gain.setTargetAtTime(Math.pow(10, edits.boost / 20), now, 0.015);
+    [
+      [edits.eqLowHz, edits.eqLowGain],
+      [edits.eqMidHz, edits.eqMidGain],
+      [edits.eqHighHz, edits.eqHighGain],
+    ].forEach(([frequency, gain], index) => {
+      processor.filters[index].frequency.setTargetAtTime(frequency, now, 0.015);
+      processor.filters[index].gain.setTargetAtTime(gain, now, 0.015);
+    });
     if (edits.reverb > 0) {
       if (!processor.effect) {
         processor.effect = createTrackEffect(state.audioContext, "reverb", edits.reverb);
-        processor.gain.disconnect();
-        processor.gain.connect(processor.effect.input);
+        processor.filters[2].disconnect(processor.outputNode);
+        processor.filters[2].connect(processor.effect.input);
         processor.effect.output.connect(outputNode);
-        processor.connected = true;
       }
       const mix = edits.reverb / 100;
       processor.effect.dry.gain.setTargetAtTime(1 - mix * 0.65, now, 0.015);
@@ -20362,9 +21025,6 @@ const DRIVE_SAMPLE_TRACKS = [
     } else if (processor.effect) {
       processor.effect.dry.gain.setTargetAtTime(1, now, 0.015);
       processor.effect.wet.gain.setTargetAtTime(0, now, 0.015);
-    } else if (!processor.connected) {
-      processor.gain.connect(outputNode);
-      processor.connected = true;
     }
     return processor.gain;
   }
@@ -20372,6 +21032,19 @@ const DRIVE_SAMPLE_TRACKS = [
   function getSoundPlaybackRateScale(track) {
     const edits = getSoundProcessingEdits(track);
     return Math.max(0.125, Math.min(8, edits.playbackMultiplier * 100 / edits.time));
+  }
+
+  function getSoundTrimmedNote(track, time, duration) {
+    const edits = getSoundProcessingEdits(track);
+    const trimScale = (edits.trimEnd - edits.trimStart) / 100;
+    const trimmedDuration = duration * trimScale;
+    return {
+      time: time + duration * edits.trimStart / 100,
+      duration: trimmedDuration,
+      trimScale,
+      attack: edits.fadeIn ? trimmedDuration * edits.fadeIn / 100 : undefined,
+      release: edits.fadeOut ? trimmedDuration * edits.fadeOut / 100 : undefined,
+    };
   }
 
   function playProcessedSample(track, buffer, offset, sourceDuration, time, rate, velocity,
@@ -20435,7 +21108,6 @@ const DRIVE_SAMPLE_TRACKS = [
   function triggerTrack(track, time, step, variant = track.variant, noteDuration = getStepDuration(), outputTrack = track, outputNode = null, pitchOffset = 0) {
     const context = state.audioContext;
     const pitchRatio = Math.pow(2, ((track.pitch || 0) + pitchOffset) / 12);
-    const soundDurationScale = getSoundDurationScale(track);
     ensureTrackAudio(outputTrack);
     const output = getSoundProcessingInput(track, outputNode || outputTrack.gainNode);
     if (track.sample || track.sampleUrl || track.kind === "sample") {
@@ -20444,7 +21116,7 @@ const DRIVE_SAMPLE_TRACKS = [
       const range = getSamplePlaybackRange(track, sampleBuffer);
       const rateScale = getSoundPlaybackRateScale(track);
       const rate = pitchRatio * rateScale;
-      const sourceDuration = range.duration * soundDurationScale;
+      const sourceDuration = range.duration;
       const maxOutputDuration = track.sampleOneShot
         ? null
         : noteDuration * getSoundProcessingEdits(track).arpeggiatorLength;
@@ -20452,7 +21124,9 @@ const DRIVE_SAMPLE_TRACKS = [
         1, maxOutputDuration, output);
       return;
     }
-    noteDuration *= soundDurationScale;
+    const trimmedNote = getSoundTrimmedNote(track, time, noteDuration);
+    time = trimmedNote.time;
+    noteDuration = trimmedNote.duration;
     const durationScale = noteDuration / getStepDuration();
     switch (track.kind) {
       case "kick": playKick(context, output, time, step, variant, durationScale, pitchRatio); break;
@@ -20461,8 +21135,12 @@ const DRIVE_SAMPLE_TRACKS = [
       case "hat": playHat(context, output, time, false, variant, durationScale, pitchRatio); break;
       case "openhat": playHat(context, output, time, true, variant, durationScale, pitchRatio); break;
       case "rim": playRim(context, output, time, variant, durationScale, pitchRatio); break;
-      case "drumkit": playDrumKitNote(track, time, 36, noteDuration, 0.8, outputTrack, output); break;
-      case "instrument": playInstrumentVoice(track, time, 60 + (track.pitch || 0), noteDuration, 0.8, outputTrack, output, { soundDurationScale }); break;
+      case "drumkit": playDrumKitNote(track, time, 36, noteDuration, 0.8, outputTrack, output, trimmedNote.attack, trimmedNote.release); break;
+      case "instrument": playInstrumentVoice(track, time, 60 + (track.pitch || 0), noteDuration, 0.8, outputTrack, output, {
+        attack: trimmedNote.attack,
+        soundFadeOut: trimmedNote.release,
+        soundDurationScale: trimmedNote.trimScale,
+      }); break;
       default: break;
     }
   }
@@ -20470,7 +21148,6 @@ const DRIVE_SAMPLE_TRACKS = [
   function playPianoNote(track, time, midi, duration, velocity = 0.8, outputTrack = track, outputNode = null, noteOptions = {}) {
     if (!track) return;
     velocity *= Math.max(0, Math.min(1, noteOptions.volume ?? 1));
-    const soundDurationScale = getSoundDurationScale(track);
     if (!track.libraryOnly || !outputNode) ensureSequencerTrackAudio(track);
     ensureTrackAudio(outputTrack);
     outputNode ||= outputTrack.gainNode;
@@ -20494,22 +21171,26 @@ const DRIVE_SAMPLE_TRACKS = [
       const range = getSamplePlaybackRange(track, sampleBuffer);
       const rateScale = getSoundPlaybackRateScale(track);
       const rate = Math.pow(2, (midi - rootMidi + detune / 100) / 12) * rateScale;
-      const sourceDuration = range.duration * soundDurationScale;
+      const sourceDuration = range.duration;
       const arpLength = getSoundProcessingEdits(track).arpeggiatorLength;
       const maxOutputDuration = Math.max(0.01, duration) * arpLength;
       playProcessedSample(track, sampleBuffer, range.offset, sourceDuration, time, rate,
         velocity, maxOutputDuration, outputNode, noteOptions);
       return;
     }
+    const trimmedNote = getSoundTrimmedNote(track, time, duration);
     if (track.kind === "instrument") {
-      playInstrumentVoice(track, time, midi, duration * soundDurationScale, velocity, outputTrack, outputNode, {
+      playInstrumentVoice(track, trimmedNote.time, midi, trimmedNote.duration, velocity, outputTrack, outputNode, {
         ...noteOptions,
-        soundDurationScale,
+        attack: trimmedNote.attack ?? noteOptions.attack,
+        soundFadeOut: trimmedNote.release,
+        soundDurationScale: trimmedNote.trimScale,
       });
       return;
     }
     if (track.kind === "drumkit") {
-      playDrumKitNote(track, time, midi, duration * soundDurationScale, velocity, outputTrack, outputNode, noteOptions.attack);
+      playDrumKitNote(track, trimmedNote.time, midi, trimmedNote.duration, velocity, outputTrack, outputNode,
+        trimmedNote.attack ?? noteOptions.attack, trimmedNote.release);
       return;
     }
     triggerTrack(track, time, 0, track.variant, duration, outputTrack, outputNode, midi - getDefaultStepMidi(track));
@@ -20610,7 +21291,9 @@ const DRIVE_SAMPLE_TRACKS = [
     );
     const decay = Math.min(parameter("decay", 0.25), Math.max(0, duration - attack));
     const sustain = Math.max(0, Math.min(0.9, parameter("sustain", 0.55)));
-    const release = Math.max(0.01, parameter("release", 0.25) * durationScale);
+    const release = Math.max(0.01, Number.isFinite(noteOptions.soundFadeOut)
+      ? noteOptions.soundFadeOut
+      : parameter("release", 0.25) * durationScale);
     const gateEnd = time + Math.max(0.02, duration);
     const outputLevel = Number.isFinite(patch.output) ? Math.max(0, Math.min(1, patch.output)) : 0.72;
     const peak = velocity * 0.48 * outputLevel;
@@ -20689,7 +21372,9 @@ const DRIVE_SAMPLE_TRACKS = [
     const soundDurationScale = Number.isFinite(noteOptions.soundDurationScale)
       ? Math.max(0.01, Math.min(1, noteOptions.soundDurationScale))
       : 1;
-    const release = Math.max(0.01, (Number(patch.release) || 0.1) * soundDurationScale);
+    const release = Math.max(0.01, Number.isFinite(noteOptions.soundFadeOut)
+      ? noteOptions.soundFadeOut
+      : (Number(patch.release) || 0.1) * soundDurationScale);
     const sustain = Math.max(0.04, Math.min(0.9, Number(patch.sustain) || 0.3));
     const gateEnd = time + Math.max(0.02, duration);
     const envelope = context.createGain();
@@ -20728,7 +21413,8 @@ const DRIVE_SAMPLE_TRACKS = [
     }
   }
 
-  function playDrumKitNote(track, time, midi, duration, velocity, outputTrack = track, outputNode = outputTrack.gainNode, attack = 0) {
+  function playDrumKitNote(track, time, midi, duration, velocity, outputTrack = track,
+    outputNode = outputTrack.gainNode, attack = 0, fadeOut = 0) {
     const kit = track.patch?.kit || "909";
     const sounds = DRUM_KIT_PROFILES[kit] || DRUM_KIT_PROFILES["909"];
     const scale = Math.max(0.25, Math.min(4, duration / getStepDuration()));
@@ -20736,6 +21422,11 @@ const DRIVE_SAMPLE_TRACKS = [
     const noteGain = state.audioContext.createGain();
     noteGain.gain.setValueAtTime(0.0001, time);
     noteGain.gain.linearRampToValueAtTime(velocity, time + Math.max(0, Number.isFinite(attack) ? attack : 0));
+    if (Number.isFinite(fadeOut) && fadeOut > 0) {
+      const fadeStart = Math.max(time + Math.max(0, attack), time + duration - fadeOut);
+      noteGain.gain.setValueAtTime(velocity, fadeStart);
+      noteGain.gain.linearRampToValueAtTime(0.0001, time + duration);
+    }
     noteGain.connect(outputNode);
     if (midi === 35 || midi === 36) playKick(context, noteGain, time, midi, sounds.kick, scale);
     else if (midi === 37) playRim(context, noteGain, time, sounds.rim, scale * 0.7);
@@ -25246,6 +25937,10 @@ const DRIVE_SAMPLE_TRACKS = [
       if (event.target === $("#step-instrument-dialog")) $("#step-instrument-dialog").close();
     });
     $("#step-track-mix-close").addEventListener("click", () => $("#step-track-mix-dialog").close());
+    $("#step-track-mix-dialog").addEventListener("close", () => {
+      stopStepMixPreview();
+      saveState();
+    });
     $("#step-track-mix-dialog").addEventListener("click", (event) => {
       if (event.target === $("#step-track-mix-dialog")) $("#step-track-mix-dialog").close();
     });

@@ -472,6 +472,10 @@
       if (event.target === $("#step-instrument-dialog")) $("#step-instrument-dialog").close();
     });
     $("#step-track-mix-close").addEventListener("click", () => $("#step-track-mix-dialog").close());
+    $("#step-track-mix-dialog").addEventListener("close", () => {
+      stopStepMixPreview();
+      saveState();
+    });
     $("#step-track-mix-dialog").addEventListener("click", (event) => {
       if (event.target === $("#step-track-mix-dialog")) $("#step-track-mix-dialog").close();
     });

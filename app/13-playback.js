@@ -16,28 +16,50 @@
 
   function getSoundProcessingInput(track, outputNode) {
     const edits = getSoundProcessingEdits(track);
-    if (!edits.boost && !edits.reverb) return outputNode;
+    const soundId = getSoundDurationKey(track);
+    const hasEq = edits.eqLowGain || edits.eqMidGain || edits.eqHighGain;
     let processors = soundProcessingOutputNodes.get(outputNode);
+    let processor = processors?.get(soundId);
+    if (!processor && !edits.boost && !edits.reverb && !hasEq) return outputNode;
     if (!processors) {
       processors = new Map();
       soundProcessingOutputNodes.set(outputNode, processors);
     }
-    const soundId = getSoundDurationKey(track);
-    let processor = processors.get(soundId);
     if (!processor) {
       const gain = state.audioContext.createGain();
-      processor = { gain, effect: null, connected: false };
+      const filters = [
+        ["eqLowHz", "eqLowGain"],
+        ["eqMidHz", "eqMidGain"],
+        ["eqHighHz", "eqHighGain"],
+      ].map(() => {
+        const filter = state.audioContext.createBiquadFilter();
+        filter.type = "peaking";
+        filter.Q.value = 1;
+        return filter;
+      });
+      gain.connect(filters[0]);
+      filters[0].connect(filters[1]);
+      filters[1].connect(filters[2]);
+      filters[2].connect(outputNode);
+      processor = { gain, filters, effect: null, outputNode };
       processors.set(soundId, processor);
     }
     const now = state.audioContext.currentTime;
     processor.gain.gain.setTargetAtTime(Math.pow(10, edits.boost / 20), now, 0.015);
+    [
+      [edits.eqLowHz, edits.eqLowGain],
+      [edits.eqMidHz, edits.eqMidGain],
+      [edits.eqHighHz, edits.eqHighGain],
+    ].forEach(([frequency, gain], index) => {
+      processor.filters[index].frequency.setTargetAtTime(frequency, now, 0.015);
+      processor.filters[index].gain.setTargetAtTime(gain, now, 0.015);
+    });
     if (edits.reverb > 0) {
       if (!processor.effect) {
         processor.effect = createTrackEffect(state.audioContext, "reverb", edits.reverb);
-        processor.gain.disconnect();
-        processor.gain.connect(processor.effect.input);
+        processor.filters[2].disconnect(processor.outputNode);
+        processor.filters[2].connect(processor.effect.input);
         processor.effect.output.connect(outputNode);
-        processor.connected = true;
       }
       const mix = edits.reverb / 100;
       processor.effect.dry.gain.setTargetAtTime(1 - mix * 0.65, now, 0.015);
@@ -45,9 +67,6 @@
     } else if (processor.effect) {
       processor.effect.dry.gain.setTargetAtTime(1, now, 0.015);
       processor.effect.wet.gain.setTargetAtTime(0, now, 0.015);
-    } else if (!processor.connected) {
-      processor.gain.connect(outputNode);
-      processor.connected = true;
     }
     return processor.gain;
   }
@@ -55,6 +74,19 @@
   function getSoundPlaybackRateScale(track) {
     const edits = getSoundProcessingEdits(track);
     return Math.max(0.125, Math.min(8, edits.playbackMultiplier * 100 / edits.time));
+  }
+
+  function getSoundTrimmedNote(track, time, duration) {
+    const edits = getSoundProcessingEdits(track);
+    const trimScale = (edits.trimEnd - edits.trimStart) / 100;
+    const trimmedDuration = duration * trimScale;
+    return {
+      time: time + duration * edits.trimStart / 100,
+      duration: trimmedDuration,
+      trimScale,
+      attack: edits.fadeIn ? trimmedDuration * edits.fadeIn / 100 : undefined,
+      release: edits.fadeOut ? trimmedDuration * edits.fadeOut / 100 : undefined,
+    };
   }
 
   function playProcessedSample(track, buffer, offset, sourceDuration, time, rate, velocity,
@@ -118,7 +150,6 @@
   function triggerTrack(track, time, step, variant = track.variant, noteDuration = getStepDuration(), outputTrack = track, outputNode = null, pitchOffset = 0) {
     const context = state.audioContext;
     const pitchRatio = Math.pow(2, ((track.pitch || 0) + pitchOffset) / 12);
-    const soundDurationScale = getSoundDurationScale(track);
     ensureTrackAudio(outputTrack);
     const output = getSoundProcessingInput(track, outputNode || outputTrack.gainNode);
     if (track.sample || track.sampleUrl || track.kind === "sample") {
@@ -127,7 +158,7 @@
       const range = getSamplePlaybackRange(track, sampleBuffer);
       const rateScale = getSoundPlaybackRateScale(track);
       const rate = pitchRatio * rateScale;
-      const sourceDuration = range.duration * soundDurationScale;
+      const sourceDuration = range.duration;
       const maxOutputDuration = track.sampleOneShot
         ? null
         : noteDuration * getSoundProcessingEdits(track).arpeggiatorLength;
@@ -135,7 +166,9 @@
         1, maxOutputDuration, output);
       return;
     }
-    noteDuration *= soundDurationScale;
+    const trimmedNote = getSoundTrimmedNote(track, time, noteDuration);
+    time = trimmedNote.time;
+    noteDuration = trimmedNote.duration;
     const durationScale = noteDuration / getStepDuration();
     switch (track.kind) {
       case "kick": playKick(context, output, time, step, variant, durationScale, pitchRatio); break;
@@ -144,8 +177,12 @@
       case "hat": playHat(context, output, time, false, variant, durationScale, pitchRatio); break;
       case "openhat": playHat(context, output, time, true, variant, durationScale, pitchRatio); break;
       case "rim": playRim(context, output, time, variant, durationScale, pitchRatio); break;
-      case "drumkit": playDrumKitNote(track, time, 36, noteDuration, 0.8, outputTrack, output); break;
-      case "instrument": playInstrumentVoice(track, time, 60 + (track.pitch || 0), noteDuration, 0.8, outputTrack, output, { soundDurationScale }); break;
+      case "drumkit": playDrumKitNote(track, time, 36, noteDuration, 0.8, outputTrack, output, trimmedNote.attack, trimmedNote.release); break;
+      case "instrument": playInstrumentVoice(track, time, 60 + (track.pitch || 0), noteDuration, 0.8, outputTrack, output, {
+        attack: trimmedNote.attack,
+        soundFadeOut: trimmedNote.release,
+        soundDurationScale: trimmedNote.trimScale,
+      }); break;
       default: break;
     }
   }
@@ -153,7 +190,6 @@
   function playPianoNote(track, time, midi, duration, velocity = 0.8, outputTrack = track, outputNode = null, noteOptions = {}) {
     if (!track) return;
     velocity *= Math.max(0, Math.min(1, noteOptions.volume ?? 1));
-    const soundDurationScale = getSoundDurationScale(track);
     if (!track.libraryOnly || !outputNode) ensureSequencerTrackAudio(track);
     ensureTrackAudio(outputTrack);
     outputNode ||= outputTrack.gainNode;
@@ -177,22 +213,26 @@
       const range = getSamplePlaybackRange(track, sampleBuffer);
       const rateScale = getSoundPlaybackRateScale(track);
       const rate = Math.pow(2, (midi - rootMidi + detune / 100) / 12) * rateScale;
-      const sourceDuration = range.duration * soundDurationScale;
+      const sourceDuration = range.duration;
       const arpLength = getSoundProcessingEdits(track).arpeggiatorLength;
       const maxOutputDuration = Math.max(0.01, duration) * arpLength;
       playProcessedSample(track, sampleBuffer, range.offset, sourceDuration, time, rate,
         velocity, maxOutputDuration, outputNode, noteOptions);
       return;
     }
+    const trimmedNote = getSoundTrimmedNote(track, time, duration);
     if (track.kind === "instrument") {
-      playInstrumentVoice(track, time, midi, duration * soundDurationScale, velocity, outputTrack, outputNode, {
+      playInstrumentVoice(track, trimmedNote.time, midi, trimmedNote.duration, velocity, outputTrack, outputNode, {
         ...noteOptions,
-        soundDurationScale,
+        attack: trimmedNote.attack ?? noteOptions.attack,
+        soundFadeOut: trimmedNote.release,
+        soundDurationScale: trimmedNote.trimScale,
       });
       return;
     }
     if (track.kind === "drumkit") {
-      playDrumKitNote(track, time, midi, duration * soundDurationScale, velocity, outputTrack, outputNode, noteOptions.attack);
+      playDrumKitNote(track, trimmedNote.time, midi, trimmedNote.duration, velocity, outputTrack, outputNode,
+        trimmedNote.attack ?? noteOptions.attack, trimmedNote.release);
       return;
     }
     triggerTrack(track, time, 0, track.variant, duration, outputTrack, outputNode, midi - getDefaultStepMidi(track));
@@ -293,7 +333,9 @@
     );
     const decay = Math.min(parameter("decay", 0.25), Math.max(0, duration - attack));
     const sustain = Math.max(0, Math.min(0.9, parameter("sustain", 0.55)));
-    const release = Math.max(0.01, parameter("release", 0.25) * durationScale);
+    const release = Math.max(0.01, Number.isFinite(noteOptions.soundFadeOut)
+      ? noteOptions.soundFadeOut
+      : parameter("release", 0.25) * durationScale);
     const gateEnd = time + Math.max(0.02, duration);
     const outputLevel = Number.isFinite(patch.output) ? Math.max(0, Math.min(1, patch.output)) : 0.72;
     const peak = velocity * 0.48 * outputLevel;
@@ -372,7 +414,9 @@
     const soundDurationScale = Number.isFinite(noteOptions.soundDurationScale)
       ? Math.max(0.01, Math.min(1, noteOptions.soundDurationScale))
       : 1;
-    const release = Math.max(0.01, (Number(patch.release) || 0.1) * soundDurationScale);
+    const release = Math.max(0.01, Number.isFinite(noteOptions.soundFadeOut)
+      ? noteOptions.soundFadeOut
+      : (Number(patch.release) || 0.1) * soundDurationScale);
     const sustain = Math.max(0.04, Math.min(0.9, Number(patch.sustain) || 0.3));
     const gateEnd = time + Math.max(0.02, duration);
     const envelope = context.createGain();
@@ -411,7 +455,8 @@
     }
   }
 
-  function playDrumKitNote(track, time, midi, duration, velocity, outputTrack = track, outputNode = outputTrack.gainNode, attack = 0) {
+  function playDrumKitNote(track, time, midi, duration, velocity, outputTrack = track,
+    outputNode = outputTrack.gainNode, attack = 0, fadeOut = 0) {
     const kit = track.patch?.kit || "909";
     const sounds = DRUM_KIT_PROFILES[kit] || DRUM_KIT_PROFILES["909"];
     const scale = Math.max(0.25, Math.min(4, duration / getStepDuration()));
@@ -419,6 +464,11 @@
     const noteGain = state.audioContext.createGain();
     noteGain.gain.setValueAtTime(0.0001, time);
     noteGain.gain.linearRampToValueAtTime(velocity, time + Math.max(0, Number.isFinite(attack) ? attack : 0));
+    if (Number.isFinite(fadeOut) && fadeOut > 0) {
+      const fadeStart = Math.max(time + Math.max(0, attack), time + duration - fadeOut);
+      noteGain.gain.setValueAtTime(velocity, fadeStart);
+      noteGain.gain.linearRampToValueAtTime(0.0001, time + duration);
+    }
     noteGain.connect(outputNode);
     if (midi === 35 || midi === 36) playKick(context, noteGain, time, midi, sounds.kick, scale);
     else if (midi === 37) playRim(context, noteGain, time, sounds.rim, scale * 0.7);
