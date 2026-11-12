@@ -11418,8 +11418,8 @@
       lane.append(preview);
     }
     const startBar = arrangementDropStartAtPointer(event, lane);
-    preview.style.left = `${startBar * BAR_WIDTH + 4}px`;
-    preview.style.width = `${Math.max(12, drag.durationBars * BAR_WIDTH - 8)}px`;
+    preview.style.left = `${startBar * BAR_WIDTH}px`;
+    preview.style.width = `${Math.max(12, drag.durationBars * BAR_WIDTH)}px`;
   }
 
   function clearArrangementDragPreview() {
@@ -11751,13 +11751,13 @@
       boundary < playbackBars - 0.001; boundary += repeatLengthBars) {
       const divider = document.createElement("span");
       divider.className = "pattern-repeat-divider";
-      divider.style.left = `${Math.max(0, boundary * BAR_WIDTH - 4)}px`;
+      divider.style.left = `${Math.max(0, boundary * BAR_WIDTH)}px`;
       overlay.append(divider);
     }
     if (durationBars > playbackBars + 0.001) {
       const extension = document.createElement("span");
       extension.className = "pattern-extension-region";
-      extension.style.left = `${Math.max(0, playbackBars * BAR_WIDTH - 4)}px`;
+      extension.style.left = `${Math.max(0, playbackBars * BAR_WIDTH)}px`;
       extension.style.width = `${Math.max(0, (durationBars - playbackBars) * BAR_WIDTH)}px`;
       overlay.append(extension);
     }
@@ -11811,8 +11811,8 @@
       clip.durationSeconds = durationBars * sourceSecondsPerBar;
       const repeatLength = getArrangementClipRepeatLength("audio", clip);
       clip.repeatCount = Math.max(1, Math.ceil((sourceOffsetSeconds / sourceSecondsPerBar + durationBars - 0.0001) / repeatLength));
-      const width = Math.max(12, durationBars * BAR_WIDTH - 8);
-      element.style.left = `${startBar * BAR_WIDTH + 4}px`;
+      const width = Math.max(12, durationBars * BAR_WIDTH);
+      element.style.left = `${startBar * BAR_WIDTH}px`;
       element.style.width = `${width}px`;
       drawAudioClipWaveform(element.querySelector(".clip-waveform-canvas"), clip,
         Math.max(1, durationBars * BAR_WIDTH), track.color);
@@ -12210,8 +12210,8 @@
     element.dataset.clipId = clip.id;
     element.dataset.selectableType = "audio";
     element.style.setProperty("--clip-color", track.color);
-    element.style.left = `${clip.startBar * BAR_WIDTH + 4}px`;
-    const clipWidth = Math.max(12, durationBars * BAR_WIDTH - 8);
+    element.style.left = `${clip.startBar * BAR_WIDTH}px`;
+    const clipWidth = Math.max(12, durationBars * BAR_WIDTH);
     element.style.width = `${clipWidth}px`;
     const metadataLabel = describeAudioMetadata(clip.audioMetadata);
     const adjustmentLabel = clip.audioAdjustment
@@ -12281,8 +12281,8 @@
     element.dataset.selectableType = "mel";
     element.style.setProperty("--clip-color", track.color);
     element.style.setProperty("--pattern-color", track.color);
-    element.style.left = `${clip.startBar * BAR_WIDTH + 4}px`;
-    element.style.width = `${Math.max(12, bars * BAR_WIDTH - 8)}px`;
+    element.style.left = `${clip.startBar * BAR_WIDTH}px`;
+    element.style.width = `${Math.max(12, bars * BAR_WIDTH)}px`;
     const name = document.createElement("span");
     name.className = "mel-clip-name";
     name.textContent = `${mel.name.toUpperCase()} · ${Number(bars.toFixed(2))} BAR${bars === 1 ? "" : "S"}`;
@@ -12328,8 +12328,8 @@
     element.style.setProperty("--pattern-color", pattern?.color || "var(--accent)");
     element.style.setProperty("--clip-color", pattern?.color || "var(--accent)");
     element.draggable = true;
-    element.style.left = `${clip.startBar * BAR_WIDTH + 4}px`;
-    element.style.width = `${Math.max(12, totalBars * BAR_WIDTH - 8)}px`;
+    element.style.left = `${clip.startBar * BAR_WIDTH}px`;
+    element.style.width = `${Math.max(12, totalBars * BAR_WIDTH)}px`;
     element.setAttribute("aria-label", `${patternName}, bar ${clip.startBar + 1}, ${displayBars} bars; drag to move, repeat, or resize`);
     const icon = document.createElement("span");
     icon.className = "pattern-clip-icon";
@@ -13201,8 +13201,8 @@
     state.arrangementCursor = Math.max(0, Math.min(state.arrangementBars - 0.001, endBar));
     updateArrangementCursorMarker();
 
-    preview.element.style.left = `${preview.startBar * BAR_WIDTH + 4}px`;
-    preview.element.style.width = `${Math.max(4, durationBars * BAR_WIDTH - 8)}px`;
+    preview.element.style.left = `${preview.startBar * BAR_WIDTH}px`;
+    preview.element.style.width = `${Math.max(4, durationBars * BAR_WIDTH)}px`;
     preview.element.setAttribute("aria-label", `Recording from bar ${Math.floor(preview.startBar) + 1}`);
     const lane = Array.from($("#timeline-content").querySelectorAll(".timeline-lane"))
       .find((item) => item.dataset.trackId === preview.track.id);

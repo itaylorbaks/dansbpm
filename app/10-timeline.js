@@ -320,13 +320,13 @@
       boundary < playbackBars - 0.001; boundary += repeatLengthBars) {
       const divider = document.createElement("span");
       divider.className = "pattern-repeat-divider";
-      divider.style.left = `${Math.max(0, boundary * BAR_WIDTH - 4)}px`;
+      divider.style.left = `${Math.max(0, boundary * BAR_WIDTH)}px`;
       overlay.append(divider);
     }
     if (durationBars > playbackBars + 0.001) {
       const extension = document.createElement("span");
       extension.className = "pattern-extension-region";
-      extension.style.left = `${Math.max(0, playbackBars * BAR_WIDTH - 4)}px`;
+      extension.style.left = `${Math.max(0, playbackBars * BAR_WIDTH)}px`;
       extension.style.width = `${Math.max(0, (durationBars - playbackBars) * BAR_WIDTH)}px`;
       overlay.append(extension);
     }
@@ -380,8 +380,8 @@
       clip.durationSeconds = durationBars * sourceSecondsPerBar;
       const repeatLength = getArrangementClipRepeatLength("audio", clip);
       clip.repeatCount = Math.max(1, Math.ceil((sourceOffsetSeconds / sourceSecondsPerBar + durationBars - 0.0001) / repeatLength));
-      const width = Math.max(12, durationBars * BAR_WIDTH - 8);
-      element.style.left = `${startBar * BAR_WIDTH + 4}px`;
+      const width = Math.max(12, durationBars * BAR_WIDTH);
+      element.style.left = `${startBar * BAR_WIDTH}px`;
       element.style.width = `${width}px`;
       drawAudioClipWaveform(element.querySelector(".clip-waveform-canvas"), clip,
         Math.max(1, durationBars * BAR_WIDTH), track.color);

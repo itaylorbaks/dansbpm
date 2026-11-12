@@ -224,8 +224,8 @@
     element.dataset.clipId = clip.id;
     element.dataset.selectableType = "audio";
     element.style.setProperty("--clip-color", track.color);
-    element.style.left = `${clip.startBar * BAR_WIDTH + 4}px`;
-    const clipWidth = Math.max(12, durationBars * BAR_WIDTH - 8);
+    element.style.left = `${clip.startBar * BAR_WIDTH}px`;
+    const clipWidth = Math.max(12, durationBars * BAR_WIDTH);
     element.style.width = `${clipWidth}px`;
     const metadataLabel = describeAudioMetadata(clip.audioMetadata);
     const adjustmentLabel = clip.audioAdjustment
@@ -295,8 +295,8 @@
     element.dataset.selectableType = "mel";
     element.style.setProperty("--clip-color", track.color);
     element.style.setProperty("--pattern-color", track.color);
-    element.style.left = `${clip.startBar * BAR_WIDTH + 4}px`;
-    element.style.width = `${Math.max(12, bars * BAR_WIDTH - 8)}px`;
+    element.style.left = `${clip.startBar * BAR_WIDTH}px`;
+    element.style.width = `${Math.max(12, bars * BAR_WIDTH)}px`;
     const name = document.createElement("span");
     name.className = "mel-clip-name";
     name.textContent = `${mel.name.toUpperCase()} · ${Number(bars.toFixed(2))} BAR${bars === 1 ? "" : "S"}`;
@@ -342,8 +342,8 @@
     element.style.setProperty("--pattern-color", pattern?.color || "var(--accent)");
     element.style.setProperty("--clip-color", pattern?.color || "var(--accent)");
     element.draggable = true;
-    element.style.left = `${clip.startBar * BAR_WIDTH + 4}px`;
-    element.style.width = `${Math.max(12, totalBars * BAR_WIDTH - 8)}px`;
+    element.style.left = `${clip.startBar * BAR_WIDTH}px`;
+    element.style.width = `${Math.max(12, totalBars * BAR_WIDTH)}px`;
     element.setAttribute("aria-label", `${patternName}, bar ${clip.startBar + 1}, ${displayBars} bars; drag to move, repeat, or resize`);
     const icon = document.createElement("span");
     icon.className = "pattern-clip-icon";
@@ -1215,8 +1215,8 @@
     state.arrangementCursor = Math.max(0, Math.min(state.arrangementBars - 0.001, endBar));
     updateArrangementCursorMarker();
 
-    preview.element.style.left = `${preview.startBar * BAR_WIDTH + 4}px`;
-    preview.element.style.width = `${Math.max(4, durationBars * BAR_WIDTH - 8)}px`;
+    preview.element.style.left = `${preview.startBar * BAR_WIDTH}px`;
+    preview.element.style.width = `${Math.max(4, durationBars * BAR_WIDTH)}px`;
     preview.element.setAttribute("aria-label", `Recording from bar ${Math.floor(preview.startBar) + 1}`);
     const lane = Array.from($("#timeline-content").querySelectorAll(".timeline-lane"))
       .find((item) => item.dataset.trackId === preview.track.id);
