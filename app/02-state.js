@@ -206,6 +206,7 @@
   let stepInstrumentPickerMode = "step";
   let stepInstrumentPendingId = null;
   const librarySampleLoads = new Map();
+  const masterPitchProcessorSetups = new WeakMap();
   const reversedLibrarySampleBuffers = new WeakMap();
 
   function makeTracks() {

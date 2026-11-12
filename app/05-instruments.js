@@ -1236,34 +1236,45 @@
   async function connectMasterPitchProcessor(context) {
     if (context === state.audioContext) await applySelectedAudioOutput(context);
     if (state.masterPitchNode?.context === context) return state.masterPitchNode;
-    if (!context.audioWorklet || typeof window.AudioWorkletNode !== "function") {
-      state.masterPitchSupported = false;
-      if (state.masterPitch !== 0) showToast("Master pitch shifting is not supported in this browser.");
-      updateProjectKeyIndicator();
-      state.masterGain.connect(context.destination);
-      state.masterPitchNode = null;
-      return null;
-    }
-    state.masterPitchSupported = true;
-    const source = new Blob([getMasterPitchProcessorSource()], { type: "text/javascript" });
-    const moduleUrl = URL.createObjectURL(source);
-    try {
-      await context.audioWorklet.addModule(moduleUrl);
-    } finally {
-      URL.revokeObjectURL(moduleUrl);
-    }
-    const node = new window.AudioWorkletNode(context, "dansbpm-master-pitch", {
-      numberOfInputs: 1,
-      numberOfOutputs: 1,
-      outputChannelCount: [2],
-      channelCount: 2,
-      channelCountMode: "explicit",
+    const pendingSetup = masterPitchProcessorSetups.get(context);
+    if (pendingSetup) return pendingSetup;
+    const setup = Promise.resolve().then(async () => {
+      if (!context.audioWorklet || typeof window.AudioWorkletNode !== "function") {
+        state.masterPitchSupported = false;
+        if (state.masterPitch !== 0) showToast("Master pitch shifting is not supported in this browser.");
+        updateProjectKeyIndicator();
+        state.masterGain.connect(context.destination);
+        state.masterPitchNode = null;
+        return null;
+      }
+      state.masterPitchSupported = true;
+      const source = new Blob([getMasterPitchProcessorSource()], { type: "text/javascript" });
+      const moduleUrl = URL.createObjectURL(source);
+      try {
+        await context.audioWorklet.addModule(moduleUrl);
+      } finally {
+        URL.revokeObjectURL(moduleUrl);
+      }
+      const node = new window.AudioWorkletNode(context, "dansbpm-master-pitch", {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        outputChannelCount: [2],
+        channelCount: 2,
+        channelCountMode: "explicit",
+      });
+      node.parameters.get("semitones").setValueAtTime(state.masterPitch, context.currentTime);
+      state.masterGain.connect(node);
+      node.connect(context.destination);
+      state.masterPitchNode = node;
+      return node;
     });
-    node.parameters.get("semitones").setValueAtTime(state.masterPitch, context.currentTime);
-    state.masterGain.connect(node);
-    node.connect(context.destination);
-    state.masterPitchNode = node;
-    return node;
+    masterPitchProcessorSetups.set(context, setup);
+    try {
+      return await setup;
+    } catch (error) {
+      masterPitchProcessorSetups.delete(context);
+      throw error;
+    }
   }
 
   async function initializeAudio() {
