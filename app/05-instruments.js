@@ -185,22 +185,71 @@
     return state.soundDurationEdits[getSoundDurationKey(track)] ?? 1;
   }
 
+  function getSoundProcessingEdits(track) {
+    return normalizeSoundProcessingEdits(state.soundProcessingEdits[getSoundDurationKey(track)]);
+  }
+
+  function getSamplePlaybackRange(track, buffer) {
+    const edits = getSoundProcessingEdits(track);
+    const duration = buffer.duration;
+    const offset = Math.min(duration, Math.max(edits.sampleStart, edits.trimStart) / 100 * duration +
+      edits.playbackStartOffset / 1000);
+    const end = Math.max(offset, edits.trimEnd / 100 * duration);
+    return { offset, duration: end - offset };
+  }
+
   function getLibrarySamplePlaybackBuffer(track) {
     const buffer = track.sample?.buffer;
-    if (!buffer || state.soundReverseEdits[getSoundDurationKey(track)] !== true) return buffer;
-    let reversedBuffer = reversedLibrarySampleBuffers.get(buffer);
-    if (!reversedBuffer) {
-      reversedBuffer = state.audioContext.createBuffer(buffer.numberOfChannels, buffer.length, buffer.sampleRate);
-      for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
-        const source = buffer.getChannelData(channel);
-        const destination = reversedBuffer.getChannelData(channel);
-        for (let sample = 0; sample < source.length; sample += 1) {
-          destination[sample] = source[source.length - sample - 1];
-        }
-      }
-      reversedLibrarySampleBuffers.set(buffer, reversedBuffer);
+    if (!buffer) return buffer;
+    const soundId = getSoundDurationKey(track);
+    const edits = getSoundProcessingEdits(track);
+    const reversed = state.soundReverseEdits[soundId] === true;
+    if (!edits.normalize && !reversed && !edits.reversePolarity &&
+      !edits.swapStereo && !edits.fadeIn && !edits.fadeOut) return buffer;
+    let buffers = processedLibrarySampleBuffers.get(buffer);
+    if (!buffers) {
+      buffers = new Map();
+      processedLibrarySampleBuffers.set(buffer, buffers);
     }
-    return reversedBuffer;
+    const cacheKey = JSON.stringify({
+      normalize: edits.normalize,
+      reversed,
+      reversePolarity: edits.reversePolarity,
+      swapStereo: edits.swapStereo,
+      fadeIn: edits.fadeIn,
+      fadeOut: edits.fadeOut,
+    });
+    if (buffers.has(cacheKey)) return buffers.get(cacheKey);
+
+    const processed = state.audioContext.createBuffer(buffer.numberOfChannels, buffer.length, buffer.sampleRate);
+    const fadeInFrames = Math.floor(buffer.length * edits.fadeIn / 100);
+    const fadeOutFrames = Math.floor(buffer.length * edits.fadeOut / 100);
+    let peak = 0;
+    for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
+      const sourceChannel = edits.swapStereo && buffer.numberOfChannels > 1
+        ? channel === 0 ? 1 : channel === 1 ? 0 : channel
+        : channel;
+      const source = buffer.getChannelData(sourceChannel);
+      const destination = processed.getChannelData(channel);
+      for (let sample = 0; sample < buffer.length; sample += 1) {
+        const sourceIndex = reversed ? buffer.length - sample - 1 : sample;
+        const fadeInGain = fadeInFrames ? Math.min(1, sample / fadeInFrames) : 1;
+        const fadeOutGain = fadeOutFrames ? Math.min(1, (buffer.length - sample - 1) / fadeOutFrames) : 1;
+        const polarity = edits.reversePolarity ? -1 : 1;
+        const value = source[sourceIndex] * Math.min(fadeInGain, fadeOutGain) * polarity;
+        destination[sample] = value;
+        peak = Math.max(peak, Math.abs(value));
+      }
+    }
+    if (edits.normalize && peak > 0) {
+      const gain = 0.99 / peak;
+      for (let channel = 0; channel < processed.numberOfChannels; channel += 1) {
+        const samples = processed.getChannelData(channel);
+        for (let sample = 0; sample < processed.length; sample += 1) samples[sample] *= gain;
+      }
+    }
+    buffers.set(cacheKey, processed);
+    return processed;
   }
 
   function closeSoundDurationMenu() {
@@ -216,14 +265,7 @@
     const dialog = event.currentTarget.closest("dialog");
     if (dialog && menu.parentElement !== dialog) dialog.append(menu);
     const soundId = getSoundDurationKey(track);
-    const slider = $("#sound-duration-slider");
-    slider.value = String(Math.round((state.soundDurationEdits[soundId] ?? 1) * 100));
     $("#sound-duration-title").textContent = track.name;
-    $("#sound-duration-value").textContent = `${slider.value}%`;
-    $("#sound-duration-control").hidden = track.kind === "drumkit";
-    $("#sound-duration-reset").hidden = track.kind === "drumkit";
-    $("#sound-reverse-control").hidden = track.kind !== "sample";
-    $("#sound-reverse-toggle").checked = track.kind === "sample" && state.soundReverseEdits[soundId] === true;
     const favoriteButton = $("#sound-duration-favorite");
     favoriteButton.textContent = isFavoriteSound(track) ? "Remove from favorites" : "Add to favorites";
     favoriteButton.setAttribute("aria-pressed", String(isFavoriteSound(track)));
@@ -235,25 +277,6 @@
     };
     menu.style.left = `${Math.max(bounds.left + 8, Math.min(event.clientX, bounds.right - menu.offsetWidth - 8))}px`;
     menu.style.top = `${Math.max(bounds.top + 8, Math.min(event.clientY, bounds.bottom - menu.offsetHeight - 8))}px`;
-  }
-
-  function setSoundDurationFromMenu(value) {
-    const menu = $("#sound-duration-menu");
-    const soundId = menu.dataset.soundId;
-    if (!soundId) return;
-    const durationScale = Math.max(0.01, Math.min(1, value / 100));
-    if (durationScale === 1) delete state.soundDurationEdits[soundId];
-    else state.soundDurationEdits[soundId] = durationScale;
-    $("#sound-duration-value").textContent = `${Math.round(durationScale * 100)}%`;
-    saveState();
-  }
-
-  function setSoundReverseFromMenu(isReversed) {
-    const soundId = $("#sound-duration-menu").dataset.soundId;
-    if (!soundId) return;
-    if (isReversed) state.soundReverseEdits[soundId] = true;
-    else delete state.soundReverseEdits[soundId];
-    saveState();
   }
 
   async function applyStepInstrumentSelection() {
@@ -342,16 +365,62 @@
     $("#step-track-mix-title").textContent = `${track.name} mix`;
     const controls = $("#step-track-mix-controls");
     controls.replaceChildren();
+    const hasSample = Boolean(track.sample || track.sampleUrl || track.kind === "sample");
     const soundGroup = document.createElement("div");
     soundGroup.className = "step-mix-group";
     const soundHeading = document.createElement("h3");
     soundHeading.textContent = "Sound";
     soundGroup.append(
       soundHeading,
-      makeStepTrackMixRange(track, "pitch", "Pitch", -12, 12, 1, " st"),
+      makeStepTrackMixRange(track, "pitch", "Row pitch", -12, 12, 1, " st"),
       makeStepTrackMixRange(track, "volume", "Volume", 0, 100, 1, "%"),
       makeStepTrackMixRange(track, "swing", "Swing", 0, 45, 1, "%"),
+      ...(track.kind === "drumkit" ? [] : [makeSoundDurationMixRange(track)]),
+      makeSoundProcessingRange(track, "boost", "Boost", -12, 24, 1, " dB"),
+      makeSoundProcessingRange(track, "reverb", "Reverb", 0, 100, 1, "%"),
     );
+    if (hasSample) {
+      const playbackGroup = document.createElement("div");
+      playbackGroup.className = "step-mix-group";
+      const playbackHeading = document.createElement("h3");
+      playbackHeading.textContent = "Playback";
+      playbackGroup.append(
+        playbackHeading,
+        makeSoundProcessingRange(track, "playbackStartOffset", "Start offset", 0, 5000, 10, " ms"),
+      );
+
+      const editGroup = document.createElement("div");
+      editGroup.className = "step-mix-group";
+      const editHeading = document.createElement("h3");
+      editHeading.textContent = "Precomputed Effects";
+      editGroup.append(
+        editHeading,
+        makeSoundProcessingToggle(track, "normalize", "Normalize"),
+        makeSoundProcessingToggle(track, "reverse", "Reverse"),
+        makeSoundProcessingToggle(track, "reversePolarity", "Reverse polarity"),
+        makeSoundProcessingToggle(track, "swapStereo", "Swap stereo"),
+        makeSoundProcessingRange(track, "fadeIn", "Fade in", 0, 50, 1, "%"),
+        makeSoundProcessingRange(track, "fadeOut", "Fade out", 0, 50, 1, "%"),
+        makeSoundProcessingRange(track, "sampleStart", "SMP start", 0, 100, 1, "%"),
+        makeSoundProcessingRange(track, "arpeggiatorLength", "Arpeggiator length", 1, 16, 1, " steps"),
+        makeSoundProcessingRange(track, "trimStart", "In", 0, 99, 1, "%"),
+        makeSoundProcessingRange(track, "trimEnd", "Out", 1, 100, 1, "%"),
+        makeSoundProcessingRange(track, "crossfade", "Loop crossfade", 0, 500, 5, " ms"),
+      );
+
+      const stretchGroup = document.createElement("div");
+      stretchGroup.className = "step-mix-group";
+      const stretchHeading = document.createElement("h3");
+      stretchHeading.textContent = "Time Stretching";
+      stretchGroup.append(
+        stretchHeading,
+        makeSoundProcessingRange(track, "pitch", "Pitch", -12, 12, 0.1, " st"),
+        makeSoundProcessingRange(track, "playbackMultiplier", "Mul", 0.25, 4, 0.05, "×",
+          (value) => `${Number(value).toFixed(2)}×`),
+        makeSoundProcessingRange(track, "time", "Time", 25, 400, 1, "%"),
+      );
+      controls.append(playbackGroup, editGroup, stretchGroup);
+    }
     const eqGroup = document.createElement("div");
     eqGroup.className = "step-mix-group";
     const eqHeading = document.createElement("h3");
@@ -369,6 +438,103 @@
     editButton.addEventListener("click", () => openStepInstrumentPianoRoll(track.id));
     controls.append(soundGroup, eqGroup, editButton);
     $("#step-track-mix-dialog").showModal();
+  }
+
+  function makeSoundDurationMixRange(track) {
+    const control = document.createElement("label");
+    control.className = "mixer-effect-control step-mix-control";
+    const caption = document.createElement("span");
+    caption.className = "mixer-control-caption";
+    caption.textContent = "Trim / duration";
+    const input = document.createElement("input");
+    input.type = "range";
+    input.min = "1";
+    input.max = "100";
+    input.step = "1";
+    input.setAttribute("aria-label", `${track.name} trim / duration`);
+    const output = document.createElement("output");
+    const soundId = getSoundDurationKey(track);
+    input.value = String(Math.round((state.soundDurationEdits[soundId] ?? 1) * 100));
+    output.textContent = `${input.value}%`;
+    input.addEventListener("input", () => {
+      const durationScale = Math.max(0.01, Math.min(1, Number(input.value) / 100));
+      if (durationScale === 1) delete state.soundDurationEdits[soundId];
+      else state.soundDurationEdits[soundId] = durationScale;
+      output.textContent = `${input.value}%`;
+      saveState();
+    });
+    control.append(caption, input, output);
+    return control;
+  }
+
+  function makeSoundProcessingRange(track, key, label, min, max, step, unit, formatValue = (value) => `${value}${unit}`) {
+    const control = document.createElement("label");
+    control.className = "mixer-effect-control step-mix-control";
+    control.dataset.soundEditKey = key;
+    const caption = document.createElement("span");
+    caption.className = "mixer-control-caption";
+    caption.textContent = label;
+    const input = document.createElement("input");
+    input.type = "range";
+    input.min = String(min);
+    input.max = String(max);
+    input.step = String(step);
+    const soundId = getSoundDurationKey(track);
+    const current = getSoundProcessingEdits(track);
+    if (key === "trimStart") input.max = String(current.trimEnd - 1);
+    if (key === "trimEnd") input.min = String(current.trimStart + 1);
+    input.value = String(current[key]);
+    const value = document.createElement("output");
+    value.textContent = formatValue(current[key]);
+    input.setAttribute("aria-label", `${track.name} ${label}`);
+    input.addEventListener("input", () => {
+      const edits = getSoundProcessingEdits(track);
+      let nextValue = Number(input.value);
+      if (key === "trimStart") nextValue = Math.min(nextValue, edits.trimEnd - 1);
+      if (key === "trimEnd") nextValue = Math.max(nextValue, edits.trimStart + 1);
+      state.soundProcessingEdits[soundId] = normalizeSoundProcessingEdits({ ...edits, [key]: nextValue });
+      const updated = state.soundProcessingEdits[soundId];
+      const group = control.closest(".step-mix-group");
+      group.querySelectorAll("[data-sound-edit-key]").forEach((item) => {
+        const editKey = item.dataset.soundEditKey;
+        const range = item.querySelector("input");
+        const output = item.querySelector("output");
+        range.value = String(updated[editKey]);
+        output.textContent = item === control ? formatValue(updated[editKey]) : `${updated[editKey]}%`;
+        if (editKey === "trimStart") range.max = String(updated.trimEnd - 1);
+        if (editKey === "trimEnd") range.min = String(updated.trimStart + 1);
+      });
+      value.textContent = formatValue(updated[key]);
+      saveState();
+    });
+    control.append(caption, input, value);
+    return control;
+  }
+
+  function makeSoundProcessingToggle(track, key, label) {
+    const control = document.createElement("label");
+    control.className = "step-mix-toggle";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    const soundId = getSoundDurationKey(track);
+    input.checked = key === "reverse"
+      ? state.soundReverseEdits[soundId] === true
+      : getSoundProcessingEdits(track)[key];
+    input.setAttribute("aria-label", `${track.name} ${label}`);
+    const caption = document.createElement("span");
+    caption.textContent = label;
+    input.addEventListener("change", () => {
+      if (key === "reverse") {
+        if (input.checked) state.soundReverseEdits[soundId] = true;
+        else delete state.soundReverseEdits[soundId];
+      } else {
+        const edits = getSoundProcessingEdits(track);
+        state.soundProcessingEdits[soundId] = normalizeSoundProcessingEdits({ ...edits, [key]: input.checked });
+      }
+      saveState();
+    });
+    control.append(input, caption);
+    return control;
   }
 
   function makeStepTrackMixRange(track, id, label, min, max, step, unit) {
@@ -1248,6 +1414,17 @@
     masterPitchDirectConnections.add(context);
   }
 
+  function createMasterLimiter(context) {
+    const limiter = context.createDynamicsCompressor();
+    limiter.threshold.value = -3;
+    limiter.knee.value = 0;
+    limiter.ratio.value = 20;
+    limiter.attack.value = 0.003;
+    limiter.release.value = 0.12;
+    limiter.connect(context.destination);
+    return limiter;
+  }
+
   async function loadMasterPitchProcessorModule(context) {
     let setup = masterPitchProcessorModules.get(context);
     if (!setup) {
@@ -1330,13 +1507,7 @@
       state.audioContext = new AudioContext();
       state.masterGain = state.audioContext.createGain();
       state.masterGain.gain.value = 0.82;
-      state.masterLimiter = state.audioContext.createDynamicsCompressor();
-      state.masterLimiter.threshold.value = -3;
-      state.masterLimiter.knee.value = 0;
-      state.masterLimiter.ratio.value = 20;
-      state.masterLimiter.attack.value = 0.003;
-      state.masterLimiter.release.value = 0.12;
-      state.masterLimiter.connect(state.audioContext.destination);
+      state.masterLimiter = createMasterLimiter(state.audioContext);
       await connectMasterPitchProcessor(state.audioContext);
       ensureTrackAudio(state.masterTrack);
       state.effectTracks.forEach(ensureTrackAudio);

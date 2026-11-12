@@ -36,6 +36,30 @@
     return ["volume", "pan"].some((property) => Array.isArray(automation?.[property]) && automation[property].length > 0);
   }
 
+  function normalizeSoundProcessingEdits(edits = {}) {
+    const clamp = (value, minimum, maximum, fallback) =>
+      Number.isFinite(value) ? Math.max(minimum, Math.min(maximum, value)) : fallback;
+    const trimStart = Math.round(clamp(edits.trimStart, 0, 99, 0));
+    return {
+      normalize: edits.normalize === true,
+      reversePolarity: edits.reversePolarity === true,
+      swapStereo: edits.swapStereo === true,
+      fadeIn: clamp(edits.fadeIn, 0, 50, 0),
+      fadeOut: clamp(edits.fadeOut, 0, 50, 0),
+      playbackStartOffset: clamp(edits.playbackStartOffset, 0, 5000, 0),
+      sampleStart: clamp(edits.sampleStart, 0, 100, 0),
+      trimStart,
+      trimEnd: Math.max(trimStart + 1, Math.round(clamp(edits.trimEnd, 1, 100, 100))),
+      arpeggiatorLength: Math.round(clamp(edits.arpeggiatorLength, 1, 16, 1)),
+      crossfade: clamp(edits.crossfade, 0, 500, 0),
+      pitch: clamp(edits.pitch, -12, 12, 0),
+      playbackMultiplier: clamp(edits.playbackMultiplier, 0.25, 4, 1),
+      time: clamp(edits.time, 25, 400, 100),
+      boost: clamp(edits.boost, -12, 24, 0),
+      reverb: clamp(edits.reverb, 0, 100, 0),
+    };
+  }
+
   const state = {
     tracks: [],
     patterns: [],
@@ -66,6 +90,7 @@
     pianoScaleLock: false,
     soundDurationEdits: {},
     soundReverseEdits: {},
+    soundProcessingEdits: {},
     favoriteSoundIds: [],
     selectedPianoTrackId: "piano-grand",
     selectedPianoNoteId: null,
@@ -210,7 +235,8 @@
   const masterPitchProcessorModules = new WeakMap();
   const masterPitchProcessorSetups = new WeakMap();
   const masterPitchDirectConnections = new WeakSet();
-  const reversedLibrarySampleBuffers = new WeakMap();
+  const processedLibrarySampleBuffers = new WeakMap();
+  const soundProcessingOutputNodes = new WeakMap();
 
   function makeTracks() {
     const tracks = [...TRACKS, ...LIBRARY_TRACKS].map((definition) => {

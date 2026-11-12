@@ -309,10 +309,12 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .step-instrument-choice::before { display: inline-block; width: 6px; height: 6px; margin-right: 7px; border-radius: 2px; background: var(--instrument-color); content: ""; vertical-align: 1px; }
 .step-instrument-choice:hover, .step-instrument-choice:focus-visible { border-color: var(--instrument-color); background: #2a2b2e; }
 .step-instrument-choice.is-selected { border-color: var(--instrument-color); background: #30312f; color: #f0f0eb; box-shadow: inset 0 0 0 1px var(--instrument-color); }
-.step-track-mix-dialog { width: min(480px, calc(100vw - 28px)); overflow-y: auto; }
+.step-track-mix-dialog { width: min(760px, calc(100vw - 28px)); max-height: min(85vh, 820px); overflow-y: auto; }
 .step-track-mix-dialog #step-track-mix-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .step-piano-edit-button { grid-column: 1 / -1; justify-self: start; }
 .step-mix-group { display: grid; align-content: start; gap: 7px; }
+.step-mix-toggle { display: flex; align-items: center; gap: 8px; min-height: 28px; color: #b7b8bb; font-size: 10px; }
+.step-mix-toggle input { accent-color: var(--accent); }
 .step-mix-control { grid-template-columns: minmax(48px, .7fr) minmax(70px, 1.4fr) 42px; }
 .project-dialog, .export-dialog, .collaboration-dialog { position: fixed; width: min(440px, calc(100vw - 30px)); max-height: min(620px, calc(100vh - 32px)); overflow: auto; border: 1px solid #3a3b40; border-radius: 10px; background: #1b1c1f; padding: 22px; color: var(--text); box-shadow: 0 20px 60px #0009; }
 .project-dialog { width: min(680px, calc(100vw - 30px)); overflow-x: hidden; overflow-y: auto; }
@@ -639,15 +641,8 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .sound-duration-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--accent); font-family: var(--mono); font-size: 9px; letter-spacing: .5px; }
 .sound-duration-heading span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sound-duration-heading .quiet-button { width: 24px; height: 24px; flex: 0 0 auto; padding: 0; font-size: 14px; }
-.sound-duration-control { display: flex; flex-direction: column; gap: 5px; color: #c6c7cb; font-size: 10px; }
-.sound-duration-control > span { display: flex; justify-content: space-between; }
-.sound-duration-control output { color: #92949a; font-family: var(--mono); }
-.sound-duration-control input { width: 100%; margin: 0; accent-color: var(--accent); }
 .sound-duration-favorite { width: 100%; }
 .sound-duration-favorite[aria-pressed="true"] { border-color: #687641; color: var(--accent); }
-.sound-reverse-control { display: flex; align-items: center; gap: 7px; color: #c6c7cb; font-size: 10px; }
-.sound-reverse-control input { margin: 0; accent-color: var(--accent); }
-.sound-duration-actions { display: flex; justify-content: flex-end; gap: 6px; }
 .piano-roll-footer { flex: 0 0 auto; color: #77787e; font-family: var(--mono); font-size: 8px; }
 
 @media (max-width: 760px) {

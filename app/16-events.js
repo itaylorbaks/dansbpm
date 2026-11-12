@@ -431,12 +431,6 @@
         renderSoundSearchSuggestions("");
       }
     }, true);
-    $("#sound-duration-slider").addEventListener("input", (event) => {
-      setSoundDurationFromMenu(Number(event.currentTarget.value));
-    });
-    $("#sound-reverse-toggle").addEventListener("change", (event) => {
-      setSoundReverseFromMenu(event.currentTarget.checked);
-    });
     $("#sound-duration-favorite").addEventListener("click", () => {
       const track = state.tracks.find((item) => item.id === $("#sound-duration-menu").dataset.trackId);
       if (!track) {
@@ -452,10 +446,6 @@
         return;
       }
       previewInstrumentSound(track);
-    });
-    $("#sound-duration-reset").addEventListener("click", () => {
-      $("#sound-duration-slider").value = "100";
-      setSoundDurationFromMenu(100);
     });
     $("#sound-duration-close").addEventListener("click", closeSoundDurationMenu);
     document.addEventListener("pointerdown", (event) => {

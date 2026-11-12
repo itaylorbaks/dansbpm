@@ -14,31 +14,125 @@
     }
   }
 
+  function getSoundProcessingInput(track, outputNode) {
+    const edits = getSoundProcessingEdits(track);
+    if (!edits.boost && !edits.reverb) return outputNode;
+    let processors = soundProcessingOutputNodes.get(outputNode);
+    if (!processors) {
+      processors = new Map();
+      soundProcessingOutputNodes.set(outputNode, processors);
+    }
+    const soundId = getSoundDurationKey(track);
+    let processor = processors.get(soundId);
+    if (!processor) {
+      const gain = state.audioContext.createGain();
+      processor = { gain, effect: null, connected: false };
+      processors.set(soundId, processor);
+    }
+    const now = state.audioContext.currentTime;
+    processor.gain.gain.setTargetAtTime(Math.pow(10, edits.boost / 20), now, 0.015);
+    if (edits.reverb > 0) {
+      if (!processor.effect) {
+        processor.effect = createTrackEffect(state.audioContext, "reverb", edits.reverb);
+        processor.gain.disconnect();
+        processor.gain.connect(processor.effect.input);
+        processor.effect.output.connect(outputNode);
+        processor.connected = true;
+      }
+      const mix = edits.reverb / 100;
+      processor.effect.dry.gain.setTargetAtTime(1 - mix * 0.65, now, 0.015);
+      processor.effect.wet.gain.setTargetAtTime(mix * 0.65, now, 0.015);
+    } else if (processor.effect) {
+      processor.effect.dry.gain.setTargetAtTime(1, now, 0.015);
+      processor.effect.wet.gain.setTargetAtTime(0, now, 0.015);
+    } else if (!processor.connected) {
+      processor.gain.connect(outputNode);
+      processor.connected = true;
+    }
+    return processor.gain;
+  }
+
+  function getSoundPlaybackRateScale(track) {
+    const edits = getSoundProcessingEdits(track);
+    return Math.max(0.125, Math.min(8, edits.playbackMultiplier * 100 / edits.time));
+  }
+
+  function playProcessedSample(track, buffer, offset, sourceDuration, time, rate, velocity,
+    maxOutputDuration, outputNode, noteOptions = {}) {
+    if (sourceDuration <= 0 || rate <= 0) return;
+    const edits = getSoundProcessingEdits(track);
+    const canPitchShift = state.masterPitchSupported !== false &&
+      typeof window.AudioWorkletNode === "function";
+    const playbackRate = rate * (canPitchShift ? 1 : Math.pow(2, edits.pitch / 12));
+    const totalSourceDuration = maxOutputDuration === null
+      ? sourceDuration
+      : Math.min(sourceDuration, maxOutputDuration * playbackRate);
+    const sliceCount = edits.arpeggiatorLength;
+    const sliceDuration = totalSourceDuration / sliceCount;
+    const rateScale = getSoundPlaybackRateScale(track);
+    const pitchCorrection = canPitchShift
+      ? Math.max(-36, Math.min(36, edits.pitch - 12 * Math.log2(rateScale)))
+      : 0;
+    const attack = Math.max(0, Number.isFinite(noteOptions.attack) ? noteOptions.attack : 0);
+    for (let index = 0; index < sliceCount; index += 1) {
+      const segmentOffset = offset + index * sliceDuration;
+      const segmentSourceDuration = Math.min(sliceDuration, buffer.duration - segmentOffset);
+      const outputDuration = segmentSourceDuration / playbackRate;
+      if (outputDuration <= 0) continue;
+      const source = state.audioContext.createBufferSource();
+      registerArrangementPlaybackSource(source);
+      source.buffer = buffer;
+      const envelope = state.audioContext.createGain();
+      const fade = Math.min(outputDuration / 2, Math.max(
+        sliceCount > 1 ? edits.crossfade / 1000 : 0,
+        Math.min(0.02, outputDuration * 0.12),
+      ));
+      const segmentTime = time + index * (sliceCount > 1
+        ? Math.max(0, getStepDuration() - fade)
+        : getStepDuration());
+      source.playbackRate.setValueAtTime(playbackRate, segmentTime);
+      const noteAttack = Math.min(attack, outputDuration * 0.7, outputDuration - fade);
+      envelope.gain.setValueAtTime(0.0001, segmentTime);
+      envelope.gain.linearRampToValueAtTime(velocity, segmentTime + Math.max(fade, noteAttack));
+      envelope.gain.setValueAtTime(velocity, segmentTime + Math.max(fade, outputDuration - fade));
+      envelope.gain.linearRampToValueAtTime(0.0001, segmentTime + outputDuration);
+      let pitchNode = null;
+      if (Math.abs(pitchCorrection) >= 0.001) {
+        pitchNode = new window.AudioWorkletNode(state.audioContext, "dansbpm-master-pitch");
+        pitchNode.parameters.get("semitones").setValueAtTime(pitchCorrection, segmentTime);
+        source.connect(pitchNode);
+        pitchNode.connect(envelope);
+      } else {
+        source.connect(envelope);
+      }
+      envelope.connect(outputNode);
+      source.onended = () => {
+        source.disconnect();
+        envelope.disconnect();
+        pitchNode?.disconnect();
+      };
+      source.start(segmentTime, segmentOffset, segmentSourceDuration);
+    }
+  }
+
   function triggerTrack(track, time, step, variant = track.variant, noteDuration = getStepDuration(), outputTrack = track, outputNode = null, pitchOffset = 0) {
     const context = state.audioContext;
     const pitchRatio = Math.pow(2, ((track.pitch || 0) + pitchOffset) / 12);
     const soundDurationScale = getSoundDurationScale(track);
     ensureTrackAudio(outputTrack);
-    const output = outputNode || outputTrack.gainNode;
+    const output = getSoundProcessingInput(track, outputNode || outputTrack.gainNode);
     if (track.sample || track.sampleUrl || track.kind === "sample") {
       const sampleBuffer = getLibrarySamplePlaybackBuffer(track);
       if (!sampleBuffer) throw new Error(`The audio for ${track.name} is unavailable.`);
-      const source = context.createBufferSource();
-      registerArrangementPlaybackSource(source);
-      source.buffer = sampleBuffer;
-      const envelope = context.createGain();
-      const sampleDuration = source.buffer.duration * soundDurationScale;
-      source.playbackRate.setValueAtTime(pitchRatio, time);
-      envelope.gain.setValueAtTime(1, time);
-      const duration = Math.max(0.005, track.sampleOneShot
-        ? sampleDuration / pitchRatio
-        : Math.min(sampleDuration / pitchRatio, noteDuration));
-      const fade = Math.min(0.01, duration * 0.1);
-      envelope.gain.setValueAtTime(1, time + Math.max(0, duration - fade));
-      envelope.gain.linearRampToValueAtTime(0.0001, time + duration);
-      source.connect(envelope);
-      envelope.connect(output);
-      source.start(time, 0, Math.min(sampleDuration, duration * pitchRatio));
+      const range = getSamplePlaybackRange(track, sampleBuffer);
+      const rateScale = getSoundPlaybackRateScale(track);
+      const rate = pitchRatio * rateScale;
+      const sourceDuration = range.duration * soundDurationScale;
+      const maxOutputDuration = track.sampleOneShot
+        ? null
+        : noteDuration * getSoundProcessingEdits(track).arpeggiatorLength;
+      playProcessedSample(track, sampleBuffer, range.offset, sourceDuration, time, rate,
+        1, maxOutputDuration, output);
       return;
     }
     noteDuration *= soundDurationScale;
@@ -63,6 +157,7 @@
     if (!track.libraryOnly || !outputNode) ensureSequencerTrackAudio(track);
     ensureTrackAudio(outputTrack);
     outputNode ||= outputTrack.gainNode;
+    outputNode = getSoundProcessingInput(track, outputNode);
     const pan = Number.isFinite(noteOptions.pan) ? Math.max(-1, Math.min(1, noteOptions.pan)) : 0;
     if (pan !== 0) {
       const panner = state.audioContext.createStereoPanner();
@@ -77,26 +172,16 @@
     if (track.sample || track.sampleUrl || track.kind === "sample") {
       const sampleBuffer = getLibrarySamplePlaybackBuffer(track);
       if (!sampleBuffer) throw new Error(`The audio for ${track.name} is unavailable.`);
-      const context = state.audioContext;
-      const source = context.createBufferSource();
-      registerArrangementPlaybackSource(source);
-      const envelope = context.createGain();
       const detune = Number.isFinite(noteOptions.detune) ? noteOptions.detune : 0;
       const rootMidi = Number.isFinite(track.sampleRootMidi) ? track.sampleRootMidi : 60;
-      const rate = Math.pow(2, (midi - rootMidi + detune / 100) / 12);
-      source.buffer = sampleBuffer;
-      source.playbackRate.setValueAtTime(rate, time);
-      const bufferDuration = Math.min(source.buffer.duration * soundDurationScale, Math.max(0.01, duration) * rate);
-      const outputDuration = bufferDuration / rate;
-      const fade = Math.min(0.02, outputDuration * 0.12);
-      const attack = Math.min(Math.max(0, Number.isFinite(noteOptions.attack) ? noteOptions.attack : 0), outputDuration * 0.7);
-      envelope.gain.setValueAtTime(0.0001, time);
-      envelope.gain.linearRampToValueAtTime(velocity, time + attack);
-      envelope.gain.setValueAtTime(velocity, time + Math.max(attack, outputDuration - fade));
-      envelope.gain.linearRampToValueAtTime(0.0001, time + outputDuration);
-      source.connect(envelope);
-      envelope.connect(outputNode);
-      source.start(time, 0, bufferDuration);
+      const range = getSamplePlaybackRange(track, sampleBuffer);
+      const rateScale = getSoundPlaybackRateScale(track);
+      const rate = Math.pow(2, (midi - rootMidi + detune / 100) / 12) * rateScale;
+      const sourceDuration = range.duration * soundDurationScale;
+      const arpLength = getSoundProcessingEdits(track).arpeggiatorLength;
+      const maxOutputDuration = Math.max(0.01, duration) * arpLength;
+      playProcessedSample(track, sampleBuffer, range.offset, sourceDuration, time, rate,
+        velocity, maxOutputDuration, outputNode, noteOptions);
       return;
     }
     if (track.kind === "instrument") {
@@ -1234,6 +1319,8 @@
       pianoScaleLock: state.pianoScaleLock,
       soundDurationEdits: { ...state.soundDurationEdits },
       soundReverseEdits: { ...state.soundReverseEdits },
+      soundProcessingEdits: Object.fromEntries(Object.entries(state.soundProcessingEdits).map(([soundId, edits]) =>
+        [soundId, normalizeSoundProcessingEdits(edits)])),
       selectedPianoTrackId: savedMel?.instrumentId || state.selectedPianoTrackId,
       arrangementBars: state.arrangementBars,
       arrangementScale: state.arrangementScale,

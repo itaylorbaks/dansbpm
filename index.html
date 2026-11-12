@@ -699,24 +699,13 @@
             <p class="sound-library-attribution">Live recordings: <a href="https://wiki.laptop.org/go/Sound_samples" target="_blank" rel="noreferrer">OLPC Berklee Sound Library</a> (CC BY 3.0) and acoustic hi-hats from <a href="https://github.com/Gradigang-Solutions/kringel-samples" target="_blank" rel="noreferrer">kringel-samples</a> (<a href="https://creativecommons.org/publicdomain/zero/1.0/" target="_blank" rel="noreferrer">CC0 1.0</a>).</p>
           </aside>
         </dialog>
-        <div class="sound-duration-menu" id="sound-duration-menu" role="group" aria-label="Sound editing controls" hidden>
+        <div class="sound-duration-menu" id="sound-duration-menu" role="group" aria-label="Sound actions" hidden>
           <div class="sound-duration-heading">
-            <span id="sound-duration-title">Sound duration</span>
-            <button class="quiet-button" id="sound-duration-close" type="button" aria-label="Close sound duration menu">×</button>
+            <span id="sound-duration-title">Sound</span>
+            <button class="quiet-button" id="sound-duration-close" type="button" aria-label="Close sound actions">×</button>
           </div>
-          <label class="sound-duration-control" id="sound-duration-control">
-            <span>Duration <output id="sound-duration-value">100%</output></span>
-            <input id="sound-duration-slider" type="range" min="1" max="100" step="1" value="100" aria-label="Sound duration">
-          </label>
-          <label class="sound-reverse-control" id="sound-reverse-control" hidden>
-            <input id="sound-reverse-toggle" type="checkbox">
-            <span>Reverse sound</span>
-          </label>
           <button class="quiet-button sound-duration-favorite" id="sound-duration-favorite" type="button" aria-pressed="false">Add to favorites</button>
-          <div class="sound-duration-actions">
-            <button class="quiet-button" id="sound-duration-play" type="button">Play</button>
-            <button class="quiet-button" id="sound-duration-reset" type="button">Revert duration</button>
-          </div>
+          <button class="quiet-button" id="sound-duration-play" type="button">Play</button>
         </div>
         <dialog class="step-instrument-dialog" id="step-instrument-dialog" aria-labelledby="step-instrument-title">
           <div class="step-dialog-heading">
@@ -1036,6 +1025,6 @@
       </div>
     </section>
     <script src="assets/vendor/lame.min.js"></script>
-    <script src="app.js?v=8df71d144fc2"></script>
+    <script src="app.js?v=90e28a716bd4"></script>
   </body>
 </html>

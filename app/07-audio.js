@@ -1223,7 +1223,7 @@
     }
     effectOutput.connect(wet);
     wet.connect(output);
-    return { input, output, nodes, sources };
+    return { input, output, nodes, sources, dry, wet };
   }
 
   function snapArrangementBar(bar) {

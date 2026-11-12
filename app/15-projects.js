@@ -237,6 +237,9 @@
 
   function restoreState() {
     state.masterPitch = 0;
+    state.soundDurationEdits = {};
+    state.soundReverseEdits = {};
+    state.soundProcessingEdits = {};
     try {
       const saved = JSON.parse(window.localStorage.getItem(getProjectStorageKey(state.projectId)) || "null");
       if (!saved || typeof saved !== "object") return;
@@ -487,6 +490,13 @@
         state.soundReverseEdits = Object.fromEntries(Object.entries(saved.soundReverseEdits)
           .filter(([soundId, isReversed]) => typeof soundId === "string" && isReversed === true));
       }
+      if (saved.soundProcessingEdits && typeof saved.soundProcessingEdits === "object" &&
+        !Array.isArray(saved.soundProcessingEdits)) {
+        state.soundProcessingEdits = Object.fromEntries(Object.entries(saved.soundProcessingEdits)
+          .filter(([soundId, edits]) => typeof soundId === "string" && edits && typeof edits === "object" &&
+            !Array.isArray(edits))
+          .map(([soundId, edits]) => [soundId, normalizeSoundProcessingEdits(edits)]));
+      }
       if (Number.isInteger(saved.pianoNoteLength) && [1, 2, 4, 8].includes(saved.pianoNoteLength)) state.pianoNoteLength = saved.pianoNoteLength;
       if (typeof saved.selectedPianoTrackId === "string" && state.tracks.some((track) => track.id === saved.selectedPianoTrackId)) {
         state.selectedPianoTrackId = saved.selectedPianoTrackId;
@@ -713,6 +723,7 @@
 
     const previousContext = state.audioContext;
     const previousMaster = state.masterGain;
+    const previousMasterLimiter = state.masterLimiter;
     const previousMasterPitchNode = state.masterPitchNode;
     const previousMasterPitchSupported = state.masterPitchSupported;
     const previousNoise = state.noiseBuffer;
@@ -734,6 +745,7 @@
       state.audioContext = context;
       state.masterGain = context.createGain();
       state.masterGain.gain.value = 0.88;
+      state.masterLimiter = createMasterLimiter(context);
       await connectMasterPitchProcessor(context);
       state.noiseBuffer = createNoiseBuffer(context);
       const hasSolo = [...state.tracks, ...state.arrangementTracks].some((track) => track.solo);
@@ -858,6 +870,7 @@
     } finally {
       state.audioContext = previousContext;
       state.masterGain = previousMaster;
+      state.masterLimiter = previousMasterLimiter;
       state.masterPitchNode = previousMasterPitchNode;
       state.masterPitchSupported = previousMasterPitchSupported;
       state.noiseBuffer = previousNoise;
