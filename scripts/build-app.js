@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,15 +29,26 @@ const parts = [
 const body = (await Promise.all(parts.map((part) => readFile(join(root, "app", part), "utf8")))).join("");
 const output = `(() => {\n  "use strict";\n${body}})();\n`;
 const appPath = join(root, "app.js");
+const indexPath = join(root, "index.html");
+const index = await readFile(indexPath, "utf8");
+const appVersion = createHash("sha256").update(output).digest("hex").slice(0, 12);
+const appScriptPattern = /<script src="app\.js(?:\?v=[^"]*)?"><\/script>/g;
+const appScripts = index.match(appScriptPattern) || [];
+if (appScripts.length !== 1) {
+  throw new Error("Expected exactly one app.js script tag in index.html.");
+}
+const versionedIndex = index.replace(appScriptPattern, `<script src="app.js?v=${appVersion}"></script>`);
 
 if (process.argv.includes("--check")) {
-  if (await readFile(appPath, "utf8") !== output) {
-    console.error("app.js is out of date; run node scripts/build-app.js.");
+  const [currentApp, currentIndex] = await Promise.all([readFile(appPath, "utf8"), readFile(indexPath, "utf8")]);
+  if (currentApp !== output || currentIndex !== versionedIndex) {
+    console.error("app.js or its cache-busted script reference is out of date; run node scripts/build-app.js.");
     process.exitCode = 1;
   } else {
-    console.log("app.js matches app source files.");
+    console.log("app.js and its cache-busted script reference match app source files.");
   }
 } else {
   await writeFile(appPath, output);
+  await writeFile(indexPath, versionedIndex);
   console.log("Built app.js from app source files.");
 }
