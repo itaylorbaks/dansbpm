@@ -6550,8 +6550,9 @@ const DRIVE_SAMPLE_TRACKS = [
     mixerEffectDialogTrackId: null,
     clipboard: null,
     projectId: "default",
-    projectName: "Untitled session",
+    projectName: "New Proj 1",
     projects: [],
+    projectCreationCounts: {},
     users: [],
     currentUser: null,
     activeProjectIds: {},
@@ -22077,6 +22078,17 @@ const DRIVE_SAMPLE_TRACKS = [
     return state.projects.filter((project) => project.ownerId === state.currentUser);
   }
 
+  function getNextProjectNumber(ownerId = state.currentUser) {
+    if (!ownerId) return 1;
+    const existingCount = state.projects.filter((project) => project.ownerId === ownerId).length;
+    const createdCount = Number.isSafeInteger(state.projectCreationCounts[ownerId])
+      ? state.projectCreationCounts[ownerId]
+      : 0;
+    const nextNumber = Math.max(existingCount, createdCount) + 1;
+    state.projectCreationCounts[ownerId] = nextNumber;
+    return nextNumber;
+  }
+
   function getCurrentUserName() {
     return state.users.find((user) => user.id === state.currentUser)?.name || "";
   }
@@ -22187,6 +22199,7 @@ const DRIVE_SAMPLE_TRACKS = [
       activeProjectId: state.projectId,
       activeProjectIds,
       projects: state.projects,
+      projectCreationCounts: state.projectCreationCounts,
     }));
     state.activeProjectIds = activeProjectIds;
   }
@@ -22205,15 +22218,25 @@ const DRIVE_SAMPLE_TRACKS = [
         ...project,
         ownerId: state.users.some((user) => user.id === project.ownerId) ? project.ownerId : "taylor",
       }));
+      const savedCreationCounts = savedCatalog?.projectCreationCounts;
+      state.projectCreationCounts = Object.fromEntries(state.users.map((user) => [
+        user.id,
+        Math.max(
+          Number.isSafeInteger(savedCreationCounts?.[user.id]) ? savedCreationCounts[user.id] : 0,
+          projects.filter((project) => project.ownerId === user.id).length,
+        ),
+      ]));
       state.activeProjectIds = savedCatalog?.activeProjectIds && typeof savedCatalog.activeProjectIds === "object"
         ? { ...savedCatalog.activeProjectIds }
         : {};
 
       if (!projects.length) {
-        const name = window.localStorage.getItem(`${STORAGE_KEY}-name`)?.trim() || "Untitled session";
+        const savedName = window.localStorage.getItem(`${STORAGE_KEY}-name`)?.trim();
+        const name = !savedName || savedName === "Untitled session" ? "New Proj 1" : savedName;
         const oldSnapshot = window.localStorage.getItem(STORAGE_KEY);
-        if (oldSnapshot || name !== "Untitled session") {
+        if (oldSnapshot || name !== "New Proj 1") {
           projects = [{ id: "default", name, ownerId: "taylor", updatedAt: Date.now() }];
+          state.projectCreationCounts.taylor = Math.max(1, state.projectCreationCounts.taylor || 0);
           if (oldSnapshot) window.localStorage.setItem(getProjectStorageKey("default"), oldSnapshot);
         }
       }
@@ -22224,7 +22247,7 @@ const DRIVE_SAMPLE_TRACKS = [
         if (!userProjects.length) {
           const project = {
             id: makeId(),
-            name: "Untitled session",
+            name: `New Proj ${getNextProjectNumber(state.currentUser)}`,
             ownerId: state.currentUser,
             updatedAt: Date.now(),
           };
@@ -22244,17 +22267,17 @@ const DRIVE_SAMPLE_TRACKS = [
         state.projectId = "";
       }
       const activeProject = state.projects.find((project) => project.id === state.projectId);
-      state.projectName = activeProject?.name || "Untitled session";
+      state.projectName = activeProject?.name || "New Proj 1";
       updateProjectNameLabel();
     } catch (error) {
       state.projects = [{
         id: "default",
-        name: "Untitled session",
+        name: "New Proj 1",
         ownerId: state.currentUser || "taylor",
         updatedAt: 0,
       }];
       state.projectId = state.currentUser ? "default" : "";
-      state.projectName = "Untitled session";
+      state.projectName = "New Proj 1";
       updateProjectNameLabel();
       showToast(`Project storage is unavailable: ${error.message || "could not load projects"}`);
     }
@@ -23035,12 +23058,14 @@ const DRIVE_SAMPLE_TRACKS = [
     const previousProjectId = state.projectId;
     const previousProjectName = state.projectName;
     const previousActiveProjectIds = { ...state.activeProjectIds };
+    const previousProjectCreationCounts = { ...state.projectCreationCounts };
     const previousProjects = [...state.projects];
     try {
       collaboration.session = { serverUrl, roomCode, projectId, revision };
       collaboration.sharedSnapshot = snapshot;
       collaboration.sharedAssets = assets || [];
       if (!saveCollaborationSession()) throw new Error("session storage is unavailable");
+      getNextProjectNumber(state.currentUser);
       window.localStorage.setItem(getProjectStorageKey(projectId), JSON.stringify(snapshot));
       state.projects.unshift(project);
       state.projectId = projectId;
@@ -23059,6 +23084,7 @@ const DRIVE_SAMPLE_TRACKS = [
       state.projectId = previousProjectId;
       state.projectName = previousProjectName;
       state.activeProjectIds = previousActiveProjectIds;
+      state.projectCreationCounts = previousProjectCreationCounts;
       try {
         window.localStorage.removeItem(getProjectStorageKey(projectId));
         writeProjectCatalog();
@@ -23947,8 +23973,9 @@ const DRIVE_SAMPLE_TRACKS = [
     const djKey = `${snapshotKey}:dj`;
     const legacySnapshotKey = project.id === "default" ? STORAGE_KEY : null;
     const legacyNameKey = project.id === "default" ? `${STORAGE_KEY}-name` : null;
-    const previousProjects = state.projects;
+    const previousProjects = [...state.projects];
     const previousActiveProjectIds = { ...state.activeProjectIds };
+    const previousProjectCreationCounts = { ...state.projectCreationCounts };
     const previousProjectId = state.projectId;
     const previousProjectName = state.projectName;
     const previousSelectedProjectId = selectedProjectId;
@@ -23966,7 +23993,7 @@ const DRIVE_SAMPLE_TRACKS = [
         if (!replacement) {
           replacement = {
             id: makeId(),
-            name: "Untitled session",
+            name: `New Proj ${getNextProjectNumber(state.currentUser)}`,
             ownerId: state.currentUser,
             updatedAt: Date.now(),
           };
@@ -23999,6 +24026,7 @@ const DRIVE_SAMPLE_TRACKS = [
       state.projectId = previousProjectId;
       state.projectName = previousProjectName;
       state.activeProjectIds = previousActiveProjectIds;
+      state.projectCreationCounts = previousProjectCreationCounts;
       selectedProjectId = previousSelectedProjectId;
       updateProjectNameLabel();
       try {
@@ -24052,9 +24080,10 @@ const DRIVE_SAMPLE_TRACKS = [
       return;
     }
     stopAllWorkspacePlayers();
+    const previousProjectCreationCounts = { ...state.projectCreationCounts };
     const project = {
       id: makeId(),
-      name: `New Project ${getCurrentUserProjects().length + 1}`,
+      name: `New Proj ${getNextProjectNumber(state.currentUser)}`,
       ownerId: state.currentUser,
       updatedAt: 0,
     };
@@ -24067,6 +24096,7 @@ const DRIVE_SAMPLE_TRACKS = [
     } catch (error) {
       state.projects = state.projects.filter((item) => item.id !== project.id);
       state.projectId = previousProjectId;
+      state.projectCreationCounts = previousProjectCreationCounts;
       showToast(`Could not create project: ${error.message || "storage is unavailable"}`);
     }
   }
@@ -24258,11 +24288,13 @@ const DRIVE_SAMPLE_TRACKS = [
     const previousProjectId = state.projectId;
     const previousProjectName = state.projectName;
     const previousActiveProjectIds = { ...state.activeProjectIds };
+    const previousProjectCreationCounts = { ...state.projectCreationCounts };
     const projectId = makeId();
     const projectName = projectFile.project.name.trim().slice(0, 64) || "Imported project";
     const project = { id: projectId, name: projectName, ownerId: state.currentUser, updatedAt: Date.now() };
     let snapshotSaved = false;
     try {
+      getNextProjectNumber(state.currentUser);
       window.localStorage.setItem(getProjectStorageKey(projectId), JSON.stringify(snapshot));
       snapshotSaved = true;
       state.projects.unshift(project);
@@ -24277,6 +24309,7 @@ const DRIVE_SAMPLE_TRACKS = [
       state.projectId = previousProjectId;
       state.projectName = previousProjectName;
       state.activeProjectIds = previousActiveProjectIds;
+      state.projectCreationCounts = previousProjectCreationCounts;
       try {
         if (snapshotSaved) window.localStorage.removeItem(getProjectStorageKey(projectId));
         writeProjectCatalog();

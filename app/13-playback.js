@@ -155,7 +155,7 @@
     }
   }
 
-  function triggerTrack(track, time, step, variant = track.variant, noteDuration = getStepDuration(), outputTrack = track, outputNode = null, pitchOffset = 0) {
+  function triggerTrack(track, time, variant = track.variant, noteDuration = getStepDuration(), outputTrack = track, outputNode = null, pitchOffset = 0) {
     const context = state.audioContext;
     const pitchRatio = Math.pow(2, ((track.pitch || 0) + pitchOffset) / 12);
     ensureTrackAudio(outputTrack);
@@ -179,7 +179,7 @@
     noteDuration = trimmedNote.duration;
     const durationScale = noteDuration / getStepDuration();
     switch (track.kind) {
-      case "kick": playKick(context, output, time, step, variant, durationScale, pitchRatio); break;
+      case "kick": playKick(context, output, time, variant, durationScale, pitchRatio); break;
       case "snare": playSnare(context, output, time, variant, durationScale, pitchRatio); break;
       case "clap": playClap(context, output, time, variant, durationScale, pitchRatio); break;
       case "hat": playHat(context, output, time, false, variant, durationScale, pitchRatio); break;
@@ -245,7 +245,7 @@
         trimmedNote.attack ?? noteOptions.attack, trimmedNote.release);
       return;
     }
-    triggerTrack(track, time, 0, track.variant, duration, outputTrack, outputNode, midi - getDefaultStepMidi(track));
+    triggerTrack(track, time, track.variant, duration, outputTrack, outputNode, midi - getDefaultStepMidi(track));
   }
 
   function playPianoAudioSlice(audioSlice, time, midi, duration, velocity, outputNode, noteOptions) {
@@ -572,7 +572,7 @@
     oscillator.stop(time + duration + 0.02);
   }
 
-  function playKick(context, output, time, step, variant, durationScale, pitchRatio = 1) {
+  function playKick(context, output, time, variant, durationScale, pitchRatio = 1) {
     const osc = context.createOscillator();
     registerArrangementPlaybackSource(osc);
     const envelope = context.createGain();
@@ -587,7 +587,7 @@
       start: legacy[0], end: legacy[1], duration: legacy[2], wave: "sine",
     };
     const duration = settings.duration * durationScale;
-    const pitch = settings.start * (step % 8 === 0 ? 1 : 0.88) * pitchRatio;
+    const pitch = settings.start * pitchRatio;
     osc.type = settings.wave || "sine";
     osc.frequency.setValueAtTime(pitch, time);
     osc.frequency.exponentialRampToValueAtTime(settings.end * pitchRatio, time + duration * (settings.sweep || 0.38));
@@ -1056,6 +1056,17 @@
     return state.projects.filter((project) => project.ownerId === state.currentUser);
   }
 
+  function getNextProjectNumber(ownerId = state.currentUser) {
+    if (!ownerId) return 1;
+    const existingCount = state.projects.filter((project) => project.ownerId === ownerId).length;
+    const createdCount = Number.isSafeInteger(state.projectCreationCounts[ownerId])
+      ? state.projectCreationCounts[ownerId]
+      : 0;
+    const nextNumber = Math.max(existingCount, createdCount) + 1;
+    state.projectCreationCounts[ownerId] = nextNumber;
+    return nextNumber;
+  }
+
   function getCurrentUserName() {
     return state.users.find((user) => user.id === state.currentUser)?.name || "";
   }
@@ -1166,6 +1177,7 @@
       activeProjectId: state.projectId,
       activeProjectIds,
       projects: state.projects,
+      projectCreationCounts: state.projectCreationCounts,
     }));
     state.activeProjectIds = activeProjectIds;
   }
@@ -1184,15 +1196,25 @@
         ...project,
         ownerId: state.users.some((user) => user.id === project.ownerId) ? project.ownerId : "taylor",
       }));
+      const savedCreationCounts = savedCatalog?.projectCreationCounts;
+      state.projectCreationCounts = Object.fromEntries(state.users.map((user) => [
+        user.id,
+        Math.max(
+          Number.isSafeInteger(savedCreationCounts?.[user.id]) ? savedCreationCounts[user.id] : 0,
+          projects.filter((project) => project.ownerId === user.id).length,
+        ),
+      ]));
       state.activeProjectIds = savedCatalog?.activeProjectIds && typeof savedCatalog.activeProjectIds === "object"
         ? { ...savedCatalog.activeProjectIds }
         : {};
 
       if (!projects.length) {
-        const name = window.localStorage.getItem(`${STORAGE_KEY}-name`)?.trim() || "Untitled session";
+        const savedName = window.localStorage.getItem(`${STORAGE_KEY}-name`)?.trim();
+        const name = !savedName || savedName === "Untitled session" ? "New Proj 1" : savedName;
         const oldSnapshot = window.localStorage.getItem(STORAGE_KEY);
-        if (oldSnapshot || name !== "Untitled session") {
+        if (oldSnapshot || name !== "New Proj 1") {
           projects = [{ id: "default", name, ownerId: "taylor", updatedAt: Date.now() }];
+          state.projectCreationCounts.taylor = Math.max(1, state.projectCreationCounts.taylor || 0);
           if (oldSnapshot) window.localStorage.setItem(getProjectStorageKey("default"), oldSnapshot);
         }
       }
@@ -1203,7 +1225,7 @@
         if (!userProjects.length) {
           const project = {
             id: makeId(),
-            name: "Untitled session",
+            name: `New Proj ${getNextProjectNumber(state.currentUser)}`,
             ownerId: state.currentUser,
             updatedAt: Date.now(),
           };
@@ -1223,17 +1245,17 @@
         state.projectId = "";
       }
       const activeProject = state.projects.find((project) => project.id === state.projectId);
-      state.projectName = activeProject?.name || "Untitled session";
+      state.projectName = activeProject?.name || "New Proj 1";
       updateProjectNameLabel();
     } catch (error) {
       state.projects = [{
         id: "default",
-        name: "Untitled session",
+        name: "New Proj 1",
         ownerId: state.currentUser || "taylor",
         updatedAt: 0,
       }];
       state.projectId = state.currentUser ? "default" : "";
-      state.projectName = "Untitled session";
+      state.projectName = "New Proj 1";
       updateProjectNameLabel();
       showToast(`Project storage is unavailable: ${error.message || "could not load projects"}`);
     }

@@ -615,12 +615,14 @@
     const previousProjectId = state.projectId;
     const previousProjectName = state.projectName;
     const previousActiveProjectIds = { ...state.activeProjectIds };
+    const previousProjectCreationCounts = { ...state.projectCreationCounts };
     const previousProjects = [...state.projects];
     try {
       collaboration.session = { serverUrl, roomCode, projectId, revision };
       collaboration.sharedSnapshot = snapshot;
       collaboration.sharedAssets = assets || [];
       if (!saveCollaborationSession()) throw new Error("session storage is unavailable");
+      getNextProjectNumber(state.currentUser);
       window.localStorage.setItem(getProjectStorageKey(projectId), JSON.stringify(snapshot));
       state.projects.unshift(project);
       state.projectId = projectId;
@@ -639,6 +641,7 @@
       state.projectId = previousProjectId;
       state.projectName = previousProjectName;
       state.activeProjectIds = previousActiveProjectIds;
+      state.projectCreationCounts = previousProjectCreationCounts;
       try {
         window.localStorage.removeItem(getProjectStorageKey(projectId));
         writeProjectCatalog();
@@ -1527,8 +1530,9 @@
     const djKey = `${snapshotKey}:dj`;
     const legacySnapshotKey = project.id === "default" ? STORAGE_KEY : null;
     const legacyNameKey = project.id === "default" ? `${STORAGE_KEY}-name` : null;
-    const previousProjects = state.projects;
+    const previousProjects = [...state.projects];
     const previousActiveProjectIds = { ...state.activeProjectIds };
+    const previousProjectCreationCounts = { ...state.projectCreationCounts };
     const previousProjectId = state.projectId;
     const previousProjectName = state.projectName;
     const previousSelectedProjectId = selectedProjectId;
@@ -1546,7 +1550,7 @@
         if (!replacement) {
           replacement = {
             id: makeId(),
-            name: "Untitled session",
+            name: `New Proj ${getNextProjectNumber(state.currentUser)}`,
             ownerId: state.currentUser,
             updatedAt: Date.now(),
           };
@@ -1579,6 +1583,7 @@
       state.projectId = previousProjectId;
       state.projectName = previousProjectName;
       state.activeProjectIds = previousActiveProjectIds;
+      state.projectCreationCounts = previousProjectCreationCounts;
       selectedProjectId = previousSelectedProjectId;
       updateProjectNameLabel();
       try {
@@ -1632,9 +1637,10 @@
       return;
     }
     stopAllWorkspacePlayers();
+    const previousProjectCreationCounts = { ...state.projectCreationCounts };
     const project = {
       id: makeId(),
-      name: `New Project ${getCurrentUserProjects().length + 1}`,
+      name: `New Proj ${getNextProjectNumber(state.currentUser)}`,
       ownerId: state.currentUser,
       updatedAt: 0,
     };
@@ -1647,6 +1653,7 @@
     } catch (error) {
       state.projects = state.projects.filter((item) => item.id !== project.id);
       state.projectId = previousProjectId;
+      state.projectCreationCounts = previousProjectCreationCounts;
       showToast(`Could not create project: ${error.message || "storage is unavailable"}`);
     }
   }

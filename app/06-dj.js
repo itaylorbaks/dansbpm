@@ -2039,7 +2039,7 @@
           if (deck.songEvents.has(eventKey)) return;
           const trackTime = time + (getTrackStepTime(track, patternStep, pattern, time) - time) / deck.songRate;
           const volume = (patternTrack.volume ?? 1) * (track.volume ?? 1);
-          triggerTrack(track, trackTime, patternStep, pattern.variants?.[track.id] || track.variant,
+          triggerTrack(track, trackTime, pattern.variants?.[track.id] || track.variant,
             getNoteDuration(pattern) / deck.songRate, patternTrack,
             getDjSongGain(deck, `pattern:${clip.id}:${track.id}`, volume));
           deck.songEvents.add(eventKey);
@@ -2127,7 +2127,7 @@
               Array.isArray(pattern.stepPianoNotes?.[trackId])) return;
             const variant = pattern.variants?.[trackId] || "classic";
             triggerTrack(track, getTrackStepTime(track, eventStep, pattern, eventTime),
-              eventStep, variant, getNoteDuration(pattern) / getDjRate(deck), track, deck.eqLowNode);
+              variant, getNoteDuration(pattern) / getDjRate(deck), track, deck.eqLowNode);
           });
         });
         Object.entries(source.item.stepPianoNotes || {}).forEach(([trackId, notes]) => {
@@ -3032,7 +3032,7 @@
         const gridPattern = pattern || getPattern();
         const trackTime = getTrackStepTime(track, step, gridPattern, time);
         const outputNode = outputTrack && outputTrack !== track ? getPatternSourceGain(outputTrack, track) : null;
-        triggerTrack(track, trackTime, step, variant, getNoteDuration(gridPattern), outputTrack || track, outputNode);
+        triggerTrack(track, trackTime, variant, getNoteDuration(gridPattern), outputTrack || track, outputNode);
       }
     });
     if (!updatePlayhead && !highlightPlayer) return;

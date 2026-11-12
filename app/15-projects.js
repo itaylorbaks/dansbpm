@@ -185,11 +185,13 @@
     const previousProjectId = state.projectId;
     const previousProjectName = state.projectName;
     const previousActiveProjectIds = { ...state.activeProjectIds };
+    const previousProjectCreationCounts = { ...state.projectCreationCounts };
     const projectId = makeId();
     const projectName = projectFile.project.name.trim().slice(0, 64) || "Imported project";
     const project = { id: projectId, name: projectName, ownerId: state.currentUser, updatedAt: Date.now() };
     let snapshotSaved = false;
     try {
+      getNextProjectNumber(state.currentUser);
       window.localStorage.setItem(getProjectStorageKey(projectId), JSON.stringify(snapshot));
       snapshotSaved = true;
       state.projects.unshift(project);
@@ -204,6 +206,7 @@
       state.projectId = previousProjectId;
       state.projectName = previousProjectName;
       state.activeProjectIds = previousActiveProjectIds;
+      state.projectCreationCounts = previousProjectCreationCounts;
       try {
         if (snapshotSaved) window.localStorage.removeItem(getProjectStorageKey(projectId));
         writeProjectCatalog();
@@ -810,7 +813,7 @@
             if (pattern.cells[track.id]?.[patternStep] && !Array.isArray(pattern.stepPianoNotes?.[track.id]) &&
               !track.muted && (!hasSolo || track.solo)) {
               const trackTime = getTrackStepTime(track, patternStep, pattern, time);
-              triggerTrack(track, trackTime, patternStep, pattern.variants[track.id] || track.variant,
+              triggerTrack(track, trackTime, pattern.variants[track.id] || track.variant,
                 getNoteDuration(pattern), patternTrack, getPatternSourceGain(patternTrack, track));
             }
           });

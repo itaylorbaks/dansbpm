@@ -1986,7 +1986,7 @@
       if (track.kind === "instrument" || track.kind === "drumkit") {
         playPianoNote(track, time, midi, getStepDuration(), 0.85);
       } else {
-        triggerTrack(track, time, gridStep, pattern.variants[track.id] || track.variant, getNoteDuration());
+        triggerTrack(track, time, pattern.variants[track.id] || track.variant, getNoteDuration());
       }
     }
     renderTracks();
