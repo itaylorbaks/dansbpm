@@ -80,48 +80,6 @@ test("room creation, joining, and snapshot broadcasts work", async (t) => {
   joined.send(JSON.stringify({ type: "view", view: "sequencer" }));
   assert.equal((await viewUpdate).viewers[1].view, "sequencer");
 
-  const creatorUpdate = nextJson(creator);
-  const acknowledgement = nextJson(joined);
-  joined.send(JSON.stringify({ type: "update", baseRevision: 1, snapshot: { bpm: 132, patterns: [] } }));
-  const updatedSnapshot = await creatorUpdate;
-  assert.equal(updatedSnapshot.snapshot.bpm, 132);
-  assert.deepEqual(updatedSnapshot.activityLog.at(-1), {
-    action: "edit",
-    name: "Grace",
-    timestamp: updatedSnapshot.lastUpdatedAt,
-  });
-  const editAck = await acknowledgement;
-  assert.equal(editAck.revision, 2);
-  assert.equal(editAck.lastUpdatedBy, "Grace");
-
-  const creatorAssets = nextJson(creator);
-  const assetAcknowledgement = nextJson(joined);
-  joined.send(JSON.stringify({
-    type: "updateAssets",
-    baseRevision: 1,
-    snapshot: { bpm: 132, patterns: [] },
-    assets: [{ metadata: { trackId: "sample-1" }, dataUrl: "data:audio/wav;base64,AA==" }],
-    updateId: 7,
-  }));
-  const sharedAssets = await creatorAssets;
-  assert.equal(sharedAssets.type, "roomState");
-  assert.equal(sharedAssets.assets.length, 1);
-  const assetAck = await assetAcknowledgement;
-  assert.equal(assetAck.updateId, 7);
-  assert.equal(assetAck.revision, 3);
-
-  const creatorFollowup = nextJson(creator);
-  const followupAck = nextJson(joined);
-  joined.send(JSON.stringify({
-    type: "update",
-    baseRevision: 3,
-    snapshot: { bpm: 140, patterns: [] },
-    updateId: 8,
-  }));
-  assert.equal((await followupAck).revision, 4);
-  assert.equal((await creatorFollowup).snapshot.bpm, 140);
-  assert.equal(app.rooms.get(created.roomCode).snapshot.bpm, 140);
-
   const synchronizedPlay = nextJson(joined);
   creator.send(JSON.stringify({
     type: "transport",
@@ -149,7 +107,7 @@ test("connections from unlisted origins are rejected", async (t) => {
   await assert.rejects(once(socket, "open"));
 });
 
-test("stale snapshot and asset updates cannot overwrite a newer room revision", async (t) => {
+test("legacy whole-project updates cannot bypass workspace locks", async (t) => {
   const app = await openServer();
   t.after(() => app.close());
   const creator = await connect(app.url);
@@ -172,41 +130,149 @@ test("stale snapshot and asset updates cannot overwrite a newer room revision", 
   await joinedMessage;
   await nextJson(creator);
 
-  const creatorBroadcast = nextJson(creator);
-  const joinedAck = nextJson(joined);
+  const joinedError = nextJson(joined);
   joined.send(JSON.stringify({
     type: "update",
     baseRevision: 1,
     snapshot: { bpm: 132, patterns: [] },
-    updateId: 1,
   }));
-  assert.equal((await joinedAck).revision, 2);
-  await creatorBroadcast;
-
-  const snapshotConflict = nextJson(creator);
-  creator.send(JSON.stringify({
-    type: "update",
-    baseRevision: 1,
-    snapshot: { bpm: 90, patterns: [] },
-    updateId: 2,
-  }));
-  const conflict = await snapshotConflict;
-  assert.equal(conflict.type, "snapshotConflict");
-  assert.equal(conflict.revision, 2);
-  assert.equal(conflict.sender, "Grace");
-  assert.equal(conflict.snapshot.bpm, 132);
-  assert.deepEqual(conflict.assets, []);
-  assert.equal(app.rooms.get(created.roomCode).snapshot.bpm, 132);
-
-  const assetConflict = nextJson(creator);
-  creator.send(JSON.stringify({
-    type: "updateAssets",
-    baseRevision: 1,
-    snapshot: { bpm: 90, patterns: [] },
-    assets: [{ metadata: { trackId: "sample-1" }, dataUrl: "data:audio/wav;base64,AA==" }],
-    updateId: 3,
-  }));
-  assert.equal((await assetConflict).type, "snapshotConflict");
-  assert.equal(app.rooms.get(created.roomCode).snapshot.bpm, 132);
+  assert.equal((await joinedError).type, "error");
+  assert.equal(app.rooms.get(created.roomCode).snapshot.bpm, 128);
   assert.deepEqual(app.rooms.get(created.roomCode).assets, []);
+});
+
+test("workspace locks are exclusive and pushes merge only the locked workspace", async (t) => {
+  const app = await openServer();
+  t.after(() => app.close());
+  const creator = await connect(app.url);
+  const joined = await connect(app.url);
+  t.after(() => {
+    creator.close();
+    joined.close();
+  });
+
+  const pattern = (name, steps) => ({
+    id: "pattern-a",
+    name,
+    steps,
+    trackIds: ["drum-track"],
+    cells: {},
+    volume: 0.8,
+  });
+  const snapshot = {
+    bpm: 128,
+    patterns: [pattern("Pattern A", 16)],
+    tracks: [{ id: "drum-track", name: "Original kit", volume: 0.6, effects: ["reverb"] }],
+    arrangementTracks: [],
+    patternClips: [],
+    mels: [],
+    melTracks: [],
+    masterTrack: { volume: 1 },
+    effectTracks: [],
+    dj: { crossfader: 50 },
+  };
+  const createdMessage = nextJson(creator);
+  creator.send(JSON.stringify({ type: "create", name: "Ada", snapshot, assets: [] }));
+  const created = await createdMessage;
+  const joinedMessage = nextJson(joined);
+  joined.send(JSON.stringify({ type: "join", roomCode: created.roomCode, name: "Grace" }));
+  await joinedMessage;
+  await nextJson(creator);
+
+  const unreservedPush = nextJson(joined);
+  joined.send(JSON.stringify({
+    type: "pushWorkspace",
+    scope: "pattern:pattern-a",
+    snapshot,
+    assets: [],
+  }));
+  assert.equal((await unreservedPush).type, "error");
+  assert.equal(app.rooms.get(created.roomCode).revision, 1);
+
+  const creatorLockPresence = nextJson(creator);
+  const graceLock = nextJson(joined);
+  joined.send(JSON.stringify({ type: "lockWorkspace", scope: "pattern:pattern-a" }));
+  assert.equal((await graceLock).type, "workspaceLockGranted");
+  assert.equal((await creatorLockPresence).locks[0].name, "Grace");
+
+  const denied = nextJson(creator);
+  creator.send(JSON.stringify({ type: "lockWorkspace", scope: "pattern:pattern-a" }));
+  assert.equal((await denied).type, "workspaceLockDenied");
+
+  const creatorSnapshot = nextJson(creator);
+  const graceAck = nextJson(joined);
+  const incoming = {
+    ...snapshot,
+    bpm: 150,
+    patterns: [pattern("Renamed pattern", 32)],
+    tracks: [{ id: "drum-track", name: "Updated kit", volume: 0.2, effects: ["delay"] }],
+    dj: { crossfader: 20 },
+  };
+  joined.send(JSON.stringify({
+    type: "pushWorkspace",
+    scope: "pattern:pattern-a",
+    snapshot: incoming,
+    assets: [],
+  }));
+  const ack = await graceAck;
+  assert.equal(ack.type, "workspacePushAck");
+  assert.equal(ack.revision, 2);
+  assert.equal((await creatorSnapshot).type, "snapshot");
+  assert.equal(app.rooms.get(created.roomCode).snapshot.patterns[0].name, "Renamed pattern");
+  assert.equal(app.rooms.get(created.roomCode).snapshot.patterns[0].volume, 0.8);
+  assert.equal(app.rooms.get(created.roomCode).snapshot.tracks[0].name, "Updated kit");
+  assert.equal(app.rooms.get(created.roomCode).snapshot.tracks[0].volume, 0.6);
+  assert.deepEqual(app.rooms.get(created.roomCode).snapshot.tracks[0].effects, ["reverb"]);
+  assert.equal(app.rooms.get(created.roomCode).snapshot.bpm, 128);
+  assert.deepEqual(app.rooms.get(created.roomCode).snapshot.dj, { crossfader: 50 });
+  assert.deepEqual(app.rooms.get(created.roomCode).locks, new Map());
+});
+
+test("track-view pushes include referenced pattern and Mel dependencies", async (t) => {
+  const app = await openServer();
+  t.after(() => app.close());
+  const creator = await connect(app.url);
+  t.after(() => creator.close());
+  const initial = {
+    bpm: 124,
+    tracks: [],
+    patterns: [{ id: "pattern-a", name: "Pattern A", steps: 16, trackIds: [], cells: {} }],
+    arrangementTracks: [],
+    patternClips: [],
+    mels: [],
+    melTracks: [],
+  };
+  const createdMessage = nextJson(creator);
+  creator.send(JSON.stringify({ type: "create", name: "Ada", snapshot: initial, assets: [] }));
+  const created = await createdMessage;
+  const lockMessage = nextJson(creator);
+  creator.send(JSON.stringify({ type: "lockWorkspace", scope: "track-view" }));
+  assert.equal((await lockMessage).type, "workspaceLockGranted");
+
+  const pushed = nextJson(creator);
+  creator.send(JSON.stringify({
+    type: "pushWorkspace",
+    scope: "track-view",
+    assets: [],
+    snapshot: {
+      ...initial,
+      tracks: [{ id: "drum-b", name: "New drum dependency", volume: 0.4 }],
+      patterns: [
+        initial.patterns[0],
+        { id: "pattern-b", name: "Pattern B", steps: 16, trackIds: ["drum-b"], cells: {} },
+      ],
+      patternClips: [{ id: "clip-pattern", patternId: "pattern-b", trackId: "pattern-b" }],
+      mels: [{ id: "mel-a", name: "Mel A", notes: [{ id: "note-a", pitch: 60 }] }],
+      melTracks: [{
+        id: "mel-lane",
+        volume: 0.7,
+        clips: [{ id: "clip-mel", melId: "mel-a" }],
+      }],
+    },
+  }));
+  assert.equal((await pushed).type, "workspacePushAck");
+  const shared = app.rooms.get(created.roomCode).snapshot;
+  assert.equal(shared.patterns.find(({ id }) => id === "pattern-b").name, "Pattern B");
+  assert.equal(shared.tracks.find(({ id }) => id === "drum-b").name, "New drum dependency");
+  assert.equal(shared.mels.find(({ id }) => id === "mel-a").name, "Mel A");
 });

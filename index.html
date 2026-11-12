@@ -143,6 +143,10 @@
                   <div class="workspace-area-heading">
                     <span>WORKSPACE</span>
                     <div class="view-panel-actions">
+                      <span class="collaboration-lock-status" id="workspace-lock-status" hidden></span>
+                      <button class="quiet-button collaboration-workspace-action" data-collaboration-scope="workspace" data-collaboration-action="edit" type="button" hidden>Edit</button>
+                      <button class="quiet-button collaboration-workspace-action" data-collaboration-scope="workspace" data-collaboration-action="push" type="button" hidden>Push</button>
+                      <button class="quiet-button collaboration-workspace-action" data-collaboration-scope="workspace" data-collaboration-action="discard" type="button" hidden>Discard</button>
                       <button class="quiet-button" id="show-track-view-button" type="button" hidden>Show Track View</button>
                       <button class="quiet-button" id="workspace-fullscreen-button" type="button" aria-label="Expand workspace to fullscreen" aria-controls="workspace-area" aria-pressed="false">Expand</button>
                       <button class="quiet-button" id="hide-workspace-button" type="button">Hide</button>
@@ -601,6 +605,10 @@
                   <div class="track-view-heading">
                     <span>TRACK VIEW</span>
                     <div class="track-view-controls">
+                      <span class="collaboration-lock-status" id="track-view-lock-status" hidden></span>
+                      <button class="quiet-button collaboration-workspace-action" data-collaboration-scope="track-view" data-collaboration-action="edit" type="button" hidden>Edit</button>
+                      <button class="quiet-button collaboration-workspace-action" data-collaboration-scope="track-view" data-collaboration-action="push" type="button" hidden>Push</button>
+                      <button class="quiet-button collaboration-workspace-action" data-collaboration-scope="track-view" data-collaboration-action="discard" type="button" hidden>Discard</button>
                       <button class="quiet-button record-audio-button" id="record-audio-button" type="button" aria-pressed="false" title="Record input">
                         <span class="record-dot" aria-hidden="true"></span>
                         <span id="record-button-label" class="visually-hidden">Record input</span>
@@ -967,7 +975,7 @@
           </div>
           <button class="dialog-close" id="collaboration-dialog-close" type="button" aria-label="Close collaboration">×</button>
         </div>
-        <p class="collaboration-note">Creating or joining uploads a project copy and its audio to the configured server. Anyone with the room code can edit; overlapping edits are kept locally instead of overwriting newer room changes.</p>
+        <p class="collaboration-note">Workspace edits stay private until you reserve a workspace and push. A lock prevents other participants from editing the same workspace; Push publishes its changes, while Discard restores the shared version.</p>
         <label class="collaboration-field">
           <span>Collaboration server</span>
           <input id="collaboration-server-url" type="url" autocomplete="url" placeholder="wss://bpmcollab.onrender.com/collaboration" />

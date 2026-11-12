@@ -383,6 +383,7 @@
     renderPatternSelectors();
     updateArrangementLength();
     if (isSongWorkspace()) renderArrangement();
+    updateCollaborationLockUi();
     saveState();
   }
 

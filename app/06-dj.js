@@ -128,8 +128,13 @@
 
   function restoreDjState() {
     try {
-      const saved = JSON.parse(window.localStorage.getItem(getDjStorageKey()) || "null");
+      const projectSnapshot = JSON.parse(window.localStorage.getItem(getProjectStorageKey(state.projectId)) || "null");
+      const saved = projectSnapshot?.dj ||
+        JSON.parse(window.localStorage.getItem(getDjStorageKey()) || "null");
       if (!saved || typeof saved !== "object") return;
+      if (projectSnapshot?.dj) {
+        window.localStorage.setItem(getDjStorageKey(), JSON.stringify(projectSnapshot.dj));
+      }
       if (saved.activeDeck === "A" || saved.activeDeck === "B") djState.activeDeck = saved.activeDeck;
       if (Number.isFinite(saved.crossfader)) djState.crossfader = Math.max(0, Math.min(100, saved.crossfader));
       djState.masterMuted = saved.masterMuted === true;

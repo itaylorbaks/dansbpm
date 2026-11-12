@@ -117,6 +117,214 @@
     return true;
   }
 
+  function createCollaborationSnapshot() {
+    return { ...createStateSnapshot(), dj: getDjUndoSnapshot() };
+  }
+
+  function getWorkspaceCollaborationScope(target = "workspace") {
+    if (target === "track-view") return "track-view";
+    if (state.view === "sequencer") return state.selectedPatternId ? `pattern:${state.selectedPatternId}` : null;
+    if (state.view === "piano-roll") return state.selectedMelId ? `mel:${state.selectedMelId}` : null;
+    if (state.view === "mixer") return "mixer";
+    if (state.view === "dj") return "dj";
+    return null;
+  }
+
+  function collaborationScopesConflict(left, right) {
+    if (!left || !right) return false;
+    return left === right || left === "mixer" || right === "mixer" ||
+      left === "track-view" && right.startsWith("pattern:") ||
+      right === "track-view" && left.startsWith("pattern:");
+  }
+
+  function updateCollaborationLockUi() {
+    const workspaceScope = getWorkspaceCollaborationScope();
+    const trackScope = "track-view";
+    [
+      { target: "workspace", scope: workspaceScope, area: $("#workspace-area"), status: $("#workspace-lock-status") },
+      { target: "track-view", scope: trackScope, area: $("#track-view-area"), status: $("#track-view-lock-status") },
+    ].forEach(({ target, scope, area, status }) => {
+      const actionScope = target === "workspace" && collaboration.editScope !== "track-view"
+        ? collaboration.editScope || scope
+        : scope;
+      const owner = collaboration.locks.find((lock) => collaborationScopesConflict(lock.scope, actionScope));
+      const editing = target === "workspace"
+        ? Boolean(collaboration.editScope && collaboration.editScope !== "track-view")
+        : collaboration.editScope === actionScope;
+      const denied = owner && owner.ownerId !== collaboration.participantId;
+      const anotherEditScope = collaboration.editScope && collaboration.editScope !== scope;
+      if (area) area.inert = Boolean(collaboration.session && (denied || anotherEditScope));
+      if (status) {
+        status.hidden = !collaboration.session;
+        status.textContent = !scope ? "Select a pattern or Mel to edit" :
+          denied ? `Editing: ${owner.name}` :
+            editing ? `Editing: ${collaboration.editScope}` : "Private until pushed";
+      }
+      document.querySelectorAll(`.collaboration-workspace-action[data-collaboration-scope="${target}"]`)
+        .forEach((button) => {
+          button.hidden = !collaboration.session;
+          button.disabled = !actionScope || collaboration.pendingPush ||
+            (button.dataset.collaborationAction !== "edit" && !editing) ||
+            (button.dataset.collaborationAction === "edit" &&
+              (editing || Boolean(denied) || Boolean(collaboration.pendingScope) ||
+                Boolean(collaboration.editScope && collaboration.editScope !== actionScope)));
+        });
+    });
+  }
+
+  function copyCollaborationScope(target, source, scope) {
+    const [type, id] = scope.includes(":") ? scope.split(":", 2) : [scope, ""];
+    const mixerFields = [
+      "volume", "pan", "automation", "automationOpen", "muted", "solo",
+      "effects", "effectSettings", "effectChain",
+    ];
+    const copyItem = (key, itemId, preserveMixer = false) => {
+      const sourceItem = source[key].find((item) => item.id === itemId);
+      const index = target[key].findIndex((item) => item.id === itemId);
+      const existing = index < 0 ? null : target[key][index];
+      if (index >= 0) target[key].splice(index, 1);
+      if (!sourceItem) return null;
+      const result = { ...sourceItem };
+      if (preserveMixer && existing) mixerFields.forEach((field) => {
+        if (Object.hasOwn(existing, field)) result[field] = existing[field];
+        else delete result[field];
+      });
+      if (index >= 0) target[key].splice(index, 0, result);
+      else target[key].push(result);
+      return result;
+    };
+    const copyPatternDependencies = (patternIds) => {
+      const trackIds = new Set();
+      patternIds.forEach((patternId) => {
+        const pattern = copyItem("patterns", patternId, true);
+        pattern?.trackIds?.forEach((trackId) => trackIds.add(trackId));
+      });
+      trackIds.forEach((trackId) => { copyItem("tracks", trackId, true); });
+    };
+    if (type === "pattern" || type === "mel") {
+      const key = type === "pattern" ? "patterns" : "mels";
+      const item = copyItem(key, id, type === "pattern");
+      if (type === "pattern") copyPatternDependencies(item ? [id] : []);
+      return;
+    }
+    if (type === "track-view") {
+      [
+        "patternClips", "arrangementBars", "arrangementCursor", "arrangementLoopEnabled",
+        "arrangementLoopStartBar", "arrangementLoopEndBar", "arrangementSnap", "bpm", "swing",
+      ].forEach((key) => { target[key] = source[key]; });
+      const mixerFields = [
+        "volume", "pan", "automation", "automationOpen", "muted", "solo",
+        "effects", "effectSettings", "effectChain",
+      ];
+      ["arrangementTracks", "melTracks"].forEach((key) => {
+        const targetItems = new Map(target[key].map((item) => [item.id, item]));
+        target[key] = source[key].map((item) => {
+          const result = { ...item };
+          const existing = targetItems.get(item.id);
+          if (existing) mixerFields.forEach((field) => {
+            if (Object.hasOwn(existing, field)) result[field] = existing[field];
+            else delete result[field];
+          });
+          return result;
+        });
+      });
+      const patternIds = new Set(source.patternClips.flatMap((clip) =>
+        [clip.patternId, clip.trackId].filter((value) => typeof value === "string")));
+      copyPatternDependencies(patternIds);
+      const melIds = new Set(source.melTracks.flatMap((track) =>
+        (track.clips || []).map((clip) => clip.melId).filter((value) => typeof value === "string")));
+      melIds.forEach((melId) => { copyItem("mels", melId); });
+      return;
+    }
+    if (type === "mixer") {
+      ["masterTrack", "effectTracks"].forEach((key) => { target[key] = source[key]; });
+      const fields = [
+        "volume", "pan", "muted", "solo", "automation", "automationOpen",
+        "effects", "effectSettings", "effectChain",
+      ];
+      ["tracks", "patterns", "arrangementTracks", "melTracks"].forEach((key) => {
+        const sourceItems = new Map(source[key].map((item) => [item.id, item]));
+        target[key].forEach((item) => {
+          const sharedItem = sourceItems.get(item.id);
+          if (sharedItem) fields.forEach((field) => {
+            if (Object.hasOwn(sharedItem, field)) item[field] = sharedItem[field];
+            else delete item[field];
+          });
+        });
+      });
+      return;
+    }
+    if (type === "dj") target.dj = source.dj;
+  }
+
+  function beginWorkspaceCollaborationEdit(target) {
+    if (!collaboration.session) return;
+    const scope = getWorkspaceCollaborationScope(target);
+    if (!scope) {
+      showToast("Select a pattern or Mel before editing.");
+      return;
+    }
+    collaboration.pendingScope = scope;
+    updateCollaborationLockUi();
+    if (!sendCollaborationMessage({ type: "lockWorkspace", scope })) {
+      collaboration.pendingScope = null;
+      updateCollaborationLockUi();
+      renderCollaborationStatus("Connect to the collaboration server before reserving this workspace.");
+    }
+  }
+
+  async function pushWorkspaceCollaborationChanges(target) {
+    const scope = target === "workspace" && collaboration.editScope !== "track-view"
+      ? collaboration.editScope
+      : getWorkspaceCollaborationScope(target);
+    if (!scope || collaboration.editScope !== scope || collaboration.pendingPush) return;
+    try {
+      collaboration.pendingPush = true;
+      updateCollaborationLockUi();
+      const assets = await getCollaborationAssets();
+      const snapshot = createCollaborationSnapshot();
+      const updateId = (collaboration.lastUpdateId || 0) + 1;
+      collaboration.lastUpdateId = updateId;
+      if (!sendCollaborationMessage({
+        type: "pushWorkspace",
+        scope,
+        snapshot,
+        assets,
+        updateId,
+      })) {
+        throw new Error("the collaboration server is not connected");
+      }
+      collaboration.pendingPushScope = scope;
+      collaboration.sentUpdates.set(updateId, { snapshot, assets });
+      renderCollaborationStatus("Pushing workspace changes…");
+    } catch (error) {
+      collaboration.pendingPush = false;
+      updateCollaborationLockUi();
+      showToast(`Could not push workspace changes: ${error.message || "project data is unavailable"}`);
+    }
+  }
+
+  async function discardWorkspaceCollaborationChanges(target) {
+    const scope = target === "workspace" && collaboration.editScope !== "track-view"
+      ? collaboration.editScope
+      : getWorkspaceCollaborationScope(target);
+    if (!scope || collaboration.editScope !== scope || !collaboration.sharedSnapshot) return;
+    try {
+      const merged = JSON.parse(JSON.stringify(createStateSnapshot()));
+      copyCollaborationScope(merged, collaboration.sharedSnapshot, scope);
+      const localAssets = await getCollaborationAssets();
+      const applied = await applyCollaborationSnapshot(merged, localAssets, "The shared project");
+      if (!applied) return;
+      collaboration.localDirty = !collaborationValuesEqual(merged, collaboration.sharedSnapshot);
+      collaboration.editScope = null;
+      collaboration.session.localDirty = collaboration.localDirty;
+      sendCollaborationMessage({ type: "unlockWorkspace", scope });
+      updateCollaborationLockUi();
+    } catch (error) {
+      showToast(`Could not discard workspace changes: ${error.message || "project data is unavailable"}`);
+    }
+  }
+
   function sendCollaborationView() {
     if (!collaboration.session) return;
     collaboration.viewers = collaboration.viewers.map((viewer) =>
@@ -239,55 +447,16 @@
     return local;
   }
 
-  function sendCollaborationSnapshot(snapshot = createStateSnapshot()) {
-    if (!collaboration.session || collaboration.applyingRemote || collaboration.conflicted) return;
-    const updateId = (collaboration.lastUpdateId || 0) + 1;
-    collaboration.lastUpdateId = updateId;
-    const sent = sendCollaborationMessage({
-      type: "update",
-      snapshot,
-      updateId,
-      baseRevision: collaboration.revision,
-    });
-    if (sent) collaboration.sentUpdates.set(updateId, { snapshot });
+  function scheduleCollaborationAssetSync() {
+    if (!collaboration.session || collaboration.applyingRemote) return;
+    collaboration.assetsDirty = true;
     collaboration.localDirty = true;
+    collaboration.session.assetsDirty = true;
     collaboration.session.localDirty = true;
     saveCollaborationSession();
   }
 
-  async function sendCollaborationAssets() {
-    if (!collaboration.session || collaboration.applyingRemote || collaboration.conflicted) return;
-    try {
-      const assets = await getCollaborationAssets();
-      const updateId = (collaboration.lastUpdateId || 0) + 1;
-      collaboration.lastUpdateId = updateId;
-      const snapshot = createStateSnapshot();
-      const sent = sendCollaborationMessage({
-        type: "updateAssets",
-        snapshot,
-        assets,
-        updateId,
-        baseRevision: collaboration.revision,
-      });
-      if (sent) collaboration.sentUpdates.set(updateId, { snapshot, assets });
-      collaboration.localDirty = true;
-      collaboration.assetsDirty = !sent;
-      collaboration.session.localDirty = true;
-      collaboration.session.assetsDirty = !sent;
-      saveCollaborationSession();
-      if (!sent) renderCollaborationStatus("Offline — audio changes will sync when reconnected.");
-    } catch (error) {
-      showToast(`Could not share project audio: ${error.message || "audio storage is unavailable"}`);
-    }
-  }
-
-  function scheduleCollaborationAssetSync() {
-    if (!collaboration.session || collaboration.applyingRemote) return;
-    window.clearTimeout(collaboration.assetsTimer);
-    collaboration.assetsTimer = window.setTimeout(() => { void sendCollaborationAssets(); }, 500);
-  }
-
-  async function reconcileCollaborationSnapshot(snapshot, assets, revision, sender) {
+  async function reconcileCollaborationSnapshot(snapshot, assets, revision, sender, scope = "") {
     if (!collaboration.session || collaboration.conflicted || revision <= collaboration.revision) return;
     if (!isValidCollaborativeSnapshot(snapshot) || !collaboration.sharedSnapshot ||
       !Array.isArray(collaboration.sharedAssets)) {
@@ -318,12 +487,17 @@
       markCollaborationConflict(revision, sender);
       return;
     }
-    const localSnapshot = createStateSnapshot();
+    const localSnapshot = {
+      ...createStateSnapshot(),
+      ...(snapshot.dj ? { dj: getDjUndoSnapshot() } : {}),
+    };
     const remoteAssets = Array.isArray(assets) ? assets : collaboration.sharedAssets;
+    const localMergeSnapshot = JSON.parse(JSON.stringify(localSnapshot));
+    if (scope) copyCollaborationScope(localMergeSnapshot, collaboration.sharedSnapshot, scope);
     const conflicts = [];
     const mergedSnapshot = mergeCollaborationValues(
       collaboration.sharedSnapshot,
-      localSnapshot,
+      localMergeSnapshot,
       snapshot,
       "",
       conflicts,
@@ -361,11 +535,12 @@
     collaboration.session.assetsDirty = false;
     saveCollaborationSession();
 
-    if (!collaborationValuesEqual(mergedSnapshot, snapshot) ||
-      !collaborationValuesEqual(mergedAssets, remoteAssets)) {
-      if (!collaborationValuesEqual(mergedAssets, remoteAssets)) void sendCollaborationAssets();
-      else sendCollaborationSnapshot(mergedSnapshot);
-    }
+    collaboration.localDirty = !collaborationValuesEqual(mergedSnapshot, snapshot);
+    collaboration.assetsDirty = !collaborationValuesEqual(mergedAssets, remoteAssets);
+    collaboration.session.localDirty = collaboration.localDirty;
+    collaboration.session.assetsDirty = collaboration.assetsDirty;
+    saveCollaborationSession();
+    updateCollaborationLockUi();
     renderCollaborationStatus(`Connected to room ${collaboration.session.roomCode}.`);
   }
 
@@ -414,6 +589,11 @@
     socket.addEventListener("close", () => {
       if (collaboration.socket !== socket) return;
       collaboration.socket = null;
+      collaboration.editScope = null;
+      collaboration.pendingScope = null;
+      collaboration.pendingPush = false;
+      collaboration.locks = [];
+      updateCollaborationLockUi();
       if (collaboration.session && !collaboration.manualLeave) {
         renderCollaborationStatus("Connection lost — retrying…");
         collaboration.reconnectTimer = window.setTimeout(() => {
@@ -511,6 +691,7 @@
       state.pianoSelectionFromMarquee = false;
       state.arrangementSelectionFromMarquee = false;
       restoreState();
+      if (snapshot.dj) restoreDjUndoSnapshot({ dj: snapshot.dj });
       ensureMels();
       tempoValue.textContent = String(state.bpm);
       swingSlider.value = String(state.swing);
@@ -569,6 +750,10 @@
       return;
     }
     if (message.type === "error") {
+      collaboration.pendingScope = null;
+      collaboration.pendingPush = false;
+      collaboration.pendingPushScope = null;
+      updateCollaborationLockUi();
       collaboration.pendingCreate = null;
       collaboration.pendingJoin = null;
       if (!collaboration.session && collaboration.socket) {
@@ -577,6 +762,40 @@
         socket.close();
       }
       renderCollaborationStatus(message.message || "The collaboration server reported an error.");
+      return;
+    }
+    if (message.type === "workspaceLockGranted") {
+      collaboration.pendingScope = null;
+      collaboration.editScope = message.scope;
+      collaboration.locks = message.locks || collaboration.locks;
+      updateCollaborationLockUi();
+      renderCollaborationStatus("Workspace reserved. Changes remain private until pushed.");
+      return;
+    }
+    if (message.type === "workspaceLockDenied") {
+      collaboration.pendingScope = null;
+      collaboration.locks = message.locks || collaboration.locks;
+      updateCollaborationLockUi();
+      renderCollaborationStatus(message.reason || `Workspace is being edited by ${message.owner || "another collaborator"}.`);
+      return;
+    }
+    if (message.type === "workspacePushAck") {
+      collaboration.pendingPush = false;
+      collaboration.editScope = null;
+      collaboration.locks = message.locks || [];
+      collaboration.pendingScope = null;
+      collaboration.pendingPushScope = null;
+      collaboration.sentUpdates.delete(message.updateId);
+      collaboration.applyQueue = collaboration.applyQueue.then(async () => {
+        await reconcileCollaborationSnapshot(
+          message.snapshot,
+          message.assets,
+          message.revision,
+          "Your push",
+          message.scope,
+        );
+        updateCollaborationLockUi();
+      });
       return;
     }
     if (message.type === "roomCreated") {
@@ -593,6 +812,7 @@
       collaboration.participantNames = message.participants || [];
       collaboration.participantId = message.participantId || null;
       collaboration.viewers = message.viewers || [];
+      collaboration.locks = message.locks || [];
       collaboration.sharedSnapshot = pending.snapshot;
       collaboration.sharedAssets = pending.assets || [];
       renderCollaborationStatus("Room created. Preparing a shared project copy…");
@@ -607,6 +827,8 @@
       collaboration.participantNames = message.participants || collaboration.participantNames || [];
       collaboration.participantId = message.participantId || collaboration.participantId;
       collaboration.viewers = message.viewers || collaboration.viewers;
+      collaboration.locks = message.locks || collaboration.locks;
+      updateCollaborationLockUi();
       if (!collaboration.session) {
         const pending = collaboration.pendingJoin;
         if (!pending) return;
@@ -615,6 +837,7 @@
         collaboration.sharedAssets = message.assets || [];
         collaboration.participantId = message.participantId || null;
         collaboration.viewers = message.viewers || [];
+        collaboration.locks = message.locks || [];
         renderCollaborationStatus("Joined. Preparing a shared project copy…");
         await createLocalCollaborationProject({
           serverUrl: pending.serverUrl,
@@ -630,17 +853,11 @@
       if (collaboration.localDirty || collaboration.assetsDirty || saveState.timeout) {
         if (roomRevision > collaboration.revision) {
           collaboration.applyQueue = collaboration.applyQueue.then(() =>
-            reconcileCollaborationSnapshot(message.snapshot, message.assets, roomRevision, message.sender),
+            reconcileCollaborationSnapshot(message.snapshot, message.assets, roomRevision, message.sender, message.scope),
           );
-        } else if (!collaboration.sharedSnapshot) {
+        } else if (!collaboration.sharedSnapshot || roomRevision >= collaboration.revision) {
           collaboration.sharedSnapshot = message.snapshot;
           collaboration.sharedAssets = message.assets || [];
-          if (collaboration.assetsDirty) void sendCollaborationAssets();
-          else sendCollaborationSnapshot(createStateSnapshot());
-        } else if (collaboration.assetsDirty) {
-          void sendCollaborationAssets();
-        } else {
-          sendCollaborationSnapshot(createStateSnapshot());
         }
         return;
       }
@@ -653,6 +870,8 @@
     if (message.type === "presence") {
       collaboration.participantNames = message.participants || [];
       collaboration.viewers = message.viewers || [];
+      collaboration.locks = message.locks || [];
+      updateCollaborationLockUi();
       renderCollaborationStatus(`Connected to room ${collaboration.session?.roomCode || ""}.`);
     }
     if (message.type === "snapshotAck") {
@@ -702,6 +921,7 @@
               message.assets,
               revision,
               message.sender,
+              message.scope,
             );
             return;
           }
@@ -730,7 +950,7 @@
         serverUrl,
         projectId: state.projectId,
         projectName: state.projectName,
-        snapshot: createStateSnapshot(),
+        snapshot: createCollaborationSnapshot(),
         assets: [],
       };
       renderCollaborationStatus("Packing project audio…");
@@ -822,6 +1042,9 @@
     collaboration.revision = Number.isInteger(session.revision) ? session.revision : 0;
     collaboration.localDirty = session.localDirty === true;
     collaboration.assetsDirty = session.assetsDirty === true;
+    collaboration.editScope = null;
+    collaboration.pendingScope = null;
+    collaboration.locks = [];
     collaboration.conflicted = false;
     collaboration.conflictMessage = "";
     collaboration.manualLeave = false;
@@ -866,10 +1089,15 @@
     collaboration.conflictMessage = "";
     collaboration.participantId = null;
     collaboration.viewers = [];
+    collaboration.locks = [];
+    collaboration.editScope = null;
+    collaboration.pendingScope = null;
+    collaboration.pendingPush = false;
     collaboration.sharedSnapshot = null;
     collaboration.sharedAssets = null;
     collaboration.sentUpdates.clear();
     saveCollaborationSession();
+    updateCollaborationLockUi();
     renderCollaborationStatus("Room left. This project's local copy is saved.");
   }
 
@@ -902,7 +1130,9 @@
         showToast("Project saved, but its saved-project list could not be updated.");
       }
       if (collaboration.session && !collaboration.applyingRemote && projectId === state.projectId) {
-        sendCollaborationSnapshot(snapshot);
+        collaboration.localDirty = true;
+        collaboration.session.localDirty = true;
+        saveCollaborationSession();
       }
     }
     $("#save-state").textContent = "All changes saved";
@@ -999,6 +1229,7 @@
           syncRate: deck.syncRate,
           reverse: deck.reverse,
           startOffsetBars: deck.startOffsetBars,
+          loop: deck.loop ? { ...deck.loop } : null,
         }];
       })),
     };

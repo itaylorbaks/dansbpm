@@ -84,6 +84,7 @@
     renderMelOptions();
     renderPianoInstrumentOptions();
     renderPianoRoll();
+    updateCollaborationLockUi();
     saveState();
   }
 

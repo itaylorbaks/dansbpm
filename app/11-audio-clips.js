@@ -1032,6 +1032,7 @@
     }
     renderArrangement();
     renderViewLayout();
+    updateCollaborationLockUi();
     saveState();
   }
 

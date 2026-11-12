@@ -179,7 +179,10 @@
     $("#open-piano-roll-button").addEventListener("click", () => setWorkspaceView(state.view === "piano-roll" && !state.workspaceHidden ? "arrangement" : "piano-roll"));
     $("#step-keyboard-record-button").addEventListener("click", () => toggleKeyboardRecording("sequencer"));
     $("#piano-keyboard-record-button").addEventListener("click", () => toggleKeyboardRecording("piano-roll"));
-    $("#mel-select").addEventListener("change", (event) => selectMel(event.target.value));
+    $("#mel-select").addEventListener("change", (event) => {
+      selectMel(event.target.value);
+      updateCollaborationLockUi();
+    });
     $("#new-mel-button").addEventListener("click", createMel);
     $("#rename-mel-button").addEventListener("click", renameMel);
     $("#mel-drag-source").addEventListener("dragstart", (event) => {
@@ -353,7 +356,10 @@
     document.addEventListener("pointerdown", clearStepSelectionOnPointerDown, true);
     document.addEventListener("pointerdown", clearMarqueeSelectionOnOutsidePointer, true);
     document.addEventListener("click", finishArrangementMarqueeDeselect, true);
-    $("#sequencer-pattern-select").addEventListener("change", (event) => selectPattern(event.target.value));
+    $("#sequencer-pattern-select").addEventListener("change", (event) => {
+      selectPattern(event.target.value);
+      updateCollaborationLockUi();
+    });
     $("#rename-pattern-sequencer-button").addEventListener("click", renamePattern);
     $("#new-pattern-sequencer-button").addEventListener("click", () => createPattern());
     $("#grid-resolution-select").addEventListener("change", (event) => {
@@ -560,6 +566,14 @@
       }
     });
     $("#collaboration-leave-room").addEventListener("click", leaveCollaborationRoom);
+    document.querySelectorAll(".collaboration-workspace-action").forEach((button) => {
+      button.addEventListener("click", () => {
+        const target = button.dataset.collaborationScope;
+        if (button.dataset.collaborationAction === "edit") beginWorkspaceCollaborationEdit(target);
+        else if (button.dataset.collaborationAction === "push") void pushWorkspaceCollaborationChanges(target);
+        else if (button.dataset.collaborationAction === "discard") void discardWorkspaceCollaborationChanges(target);
+      });
+    });
     $("#login-options").addEventListener("click", (event) => {
       const option = event.target instanceof Element ? event.target.closest("[data-user-id]") : null;
       if (option instanceof HTMLButtonElement) selectUser(option.dataset.userId);

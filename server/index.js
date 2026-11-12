@@ -28,6 +28,22 @@ function isValidAssets(assets) {
   );
 }
 
+function mergeWorkspaceAssets(current, incoming) {
+  const assets = new Map(current.map((asset) => [
+    asset.metadata.id
+      ? `${asset.metadata.recordType || ""}:${asset.metadata.id}`
+      : `${asset.metadata.recordType || ""}:${asset.metadata.trackId}`,
+    asset,
+  ]));
+  incoming.forEach((asset) => {
+    const key = asset.metadata.id
+      ? `${asset.metadata.recordType || ""}:${asset.metadata.id}`
+      : `${asset.metadata.recordType || ""}:${asset.metadata.trackId}`;
+    assets.set(key, asset);
+  });
+  return [...assets.values()];
+}
+
 function safeName(value) {
   if (typeof value !== "string") return "Guest";
   const name = value.trim().replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 32);
@@ -41,6 +57,164 @@ function safeProjectName(value) {
 
 function safeView(value) {
   return COLLABORATION_VIEWS.has(value) ? value : "arrangement";
+}
+
+function validWorkspaceScope(scope) {
+  return scope === "track-view" || scope === "mixer" || scope === "dj" ||
+    /^(pattern|mel):[A-Za-z0-9_-]{1,128}$/.test(scope);
+}
+
+function workspaceScopesConflict(left, right) {
+  if (left === right || left === "mixer" || right === "mixer") return true;
+  return left === "track-view" && right.startsWith("pattern:") ||
+    right === "track-view" && left.startsWith("pattern:");
+}
+
+const WORKSPACE_MIXER_FIELDS = new Set([
+  "volume", "pan", "automation", "automationOpen", "muted", "solo",
+  "effects", "effectSettings", "effectChain",
+]);
+
+function mergePatternDependency(merged, incoming, id) {
+  const source = incoming.patterns.find((item) => item.id === id);
+  if (!source) return null;
+  const index = merged.patterns.findIndex((item) => item.id === id);
+  if (index < 0) merged.patterns.push(structuredClone(source));
+  else {
+    Object.entries(source).forEach(([key, value]) => {
+      if (!WORKSPACE_MIXER_FIELDS.has(key)) merged.patterns[index][key] = structuredClone(value);
+    });
+  }
+  return Array.isArray(source.trackIds) ? source.trackIds : [];
+}
+
+function mergeTrackDependencies(merged, current, incoming, trackIds) {
+  const sourceTracks = new Map(incoming.tracks.map((track) => [track.id, track]));
+  trackIds.forEach((id) => {
+    const source = sourceTracks.get(id);
+    if (!source) return;
+    const index = merged.tracks.findIndex((track) => track.id === id);
+    if (index < 0) {
+      merged.tracks.push(structuredClone(source));
+      return;
+    }
+    const result = structuredClone(source);
+    const existing = current.tracks.find((track) => track.id === id);
+    if (existing) WORKSPACE_MIXER_FIELDS.forEach((key) => {
+      if (Object.hasOwn(existing, key)) result[key] = structuredClone(existing[key]);
+      else delete result[key];
+    });
+    merged.tracks[index] = result;
+  });
+}
+
+function mergeWorkspaceSnapshot(current, incoming, scope) {
+  if (!isRecord(current) || !isRecord(incoming) ||
+    !["tracks", "patterns", "arrangementTracks", "patternClips", "mels", "melTracks"]
+      .every((key) => Array.isArray(current[key]) && Array.isArray(incoming[key]) &&
+        current[key].every((item) => isRecord(item) && typeof item.id === "string") &&
+        incoming[key].every((item) => isRecord(item) && typeof item.id === "string"))) {
+    return null;
+  }
+  const merged = structuredClone(current);
+  const [type, id] = scope.includes(":") ? scope.split(":", 2) : [scope, ""];
+  if (type === "pattern" || type === "mel") {
+    const collection = type === "pattern" ? "patterns" : "mels";
+    const source = incoming[collection].find((item) => item.id === id);
+    const index = merged[collection].findIndex((item) => item.id === id);
+    if (!source) {
+      if (index < 0 || merged[collection].length <= 1) return null;
+      merged[collection].splice(index, 1);
+      if (type === "pattern") {
+        merged.patternClips = merged.patternClips.filter((clip) =>
+          !isRecord(clip) || (clip.patternId !== id && clip.trackId !== id));
+        if (merged.selectedPatternId === id) merged.selectedPatternId = merged.patterns[0]?.id || null;
+      } else {
+        merged.melTracks.forEach((track) => {
+          if (Array.isArray(track.clips)) track.clips = track.clips.filter((clip) =>
+            !isRecord(clip) || clip.melId !== id);
+        });
+        if (merged.selectedMelId === id) merged.selectedMelId = merged.mels[0]?.id || null;
+      }
+      return merged;
+    }
+    if (type === "pattern") {
+      const dependencies = mergePatternDependency(merged, incoming, id) || [];
+      mergeTrackDependencies(merged, current, incoming, dependencies);
+      merged.selectedPatternId = id;
+    } else {
+      if (index < 0) merged.mels.push(structuredClone(source));
+      else merged.mels[index] = structuredClone(source);
+      merged.selectedMelId = id;
+    }
+    return merged;
+  }
+  if (type === "track-view") {
+    [
+      "arrangementTracks",
+      "patternClips",
+      "melTracks",
+      "arrangementBars",
+      "arrangementCursor",
+      "arrangementLoopEnabled",
+      "arrangementLoopStartBar",
+      "arrangementLoopEndBar",
+      "arrangementSnap",
+      "bpm",
+      "swing",
+    ].forEach((key) => { merged[key] = structuredClone(incoming[key]); });
+    ["arrangementTracks", "melTracks"].forEach((collection) => {
+      merged[collection] = incoming[collection].map((source) => {
+        const existing = current[collection].find((item) => item.id === source.id);
+        if (!existing) return structuredClone(source);
+        const result = structuredClone(source);
+        WORKSPACE_MIXER_FIELDS.forEach((key) => {
+          if (Object.hasOwn(existing, key)) result[key] = structuredClone(existing[key]);
+          else delete result[key];
+        });
+        return result;
+      });
+    });
+    const dependentPatternIds = new Set(incoming.patternClips.filter(isRecord).flatMap((clip) =>
+      [clip.patternId, clip.trackId].filter((value) => typeof value === "string")));
+    const dependentTrackIds = new Set();
+    dependentPatternIds.forEach((patternId) => {
+      const ids = mergePatternDependency(merged, incoming, patternId);
+      ids?.forEach((trackId) => dependentTrackIds.add(trackId));
+    });
+    mergeTrackDependencies(merged, current, incoming, dependentTrackIds);
+    const dependentMelIds = new Set(incoming.melTracks.flatMap((track) =>
+      (Array.isArray(track.clips) ? track.clips : [])
+        .filter(isRecord).map((clip) => clip.melId).filter((value) => typeof value === "string")));
+    dependentMelIds.forEach((melId) => {
+      const source = incoming.mels.find((mel) => mel.id === melId);
+      if (!source) return;
+      const index = merged.mels.findIndex((mel) => mel.id === melId);
+      if (index < 0) merged.mels.push(structuredClone(source));
+      else merged.mels[index] = structuredClone(source);
+    });
+    return merged;
+  }
+  if (type === "mixer") {
+    ["masterTrack", "effectTracks"].forEach((key) => { merged[key] = structuredClone(incoming[key]); });
+    const mixFields = [
+      "volume", "pan", "muted", "solo", "automation", "automationOpen",
+      "effects", "effectSettings", "effectChain",
+    ];
+    ["tracks", "patterns", "arrangementTracks", "melTracks"].forEach((collection) => {
+      const sourceItems = new Map(incoming[collection].map((item) => [item.id, item]));
+      merged[collection].forEach((item) => {
+        const source = sourceItems.get(item.id);
+        if (source) mixFields.forEach((key) => { item[key] = structuredClone(source[key]); });
+      });
+    });
+    return merged;
+  }
+  if (type === "dj" && incoming.dj) {
+    merged.dj = structuredClone(incoming.dj);
+    return merged;
+  }
+  return null;
 }
 
 function send(socket, value) {
@@ -71,6 +245,13 @@ export function createCollaborationServer({
     return [...room.clients.values()].map(({ name }) => name);
   }
 
+  function roomLocks(room) {
+    return [...room.locks.entries()].map(([scope, clientId]) => {
+      const client = room.clients.get(clientId);
+      return client ? { scope, ownerId: client.id, name: client.name } : null;
+    }).filter(Boolean);
+  }
+
   function viewers(room) {
     return [...room.clients.values()].map(({ id, name, view }) => ({ id, name, view }));
   }
@@ -97,7 +278,13 @@ export function createCollaborationServer({
   }
 
   function presence(room) {
-    return { type: "presence", participants: participants(room), viewers: viewers(room), ...roomMetadata(room) };
+    return {
+      type: "presence",
+      participants: participants(room),
+      viewers: viewers(room),
+      locks: roomLocks(room),
+      ...roomMetadata(room),
+    };
   }
 
   function totalRoomBytes() {
@@ -119,6 +306,9 @@ export function createCollaborationServer({
     const room = rooms.get(client.roomCode);
     if (!room) return;
     room.clients.delete(client.id);
+    room.locks.forEach((ownerId, scope) => {
+      if (ownerId === client.id) room.locks.delete(scope);
+    });
     room.lastActiveAt = Date.now();
     addRoomActivity(room, "left", client.name, room.lastActiveAt);
     if (room.clients.size === 0) room.expiresAt = Date.now() + roomTtlMs;
@@ -157,6 +347,7 @@ export function createCollaborationServer({
       projectName: room.projectName,
       participants: participants(room),
       viewers: viewers(room),
+      locks: roomLocks(room),
       ...roomMetadata(room),
     });
     broadcast(room, presence(room), socket);
@@ -219,6 +410,7 @@ export function createCollaborationServer({
         lastUpdatedAt: null,
         activityLog: [],
         clients: new Map(),
+        locks: new Map(),
         lastActiveAt: Date.now(),
         expiresAt: null,
       };
@@ -242,6 +434,7 @@ export function createCollaborationServer({
         revision: room.revision,
         participants: participants(room),
         viewers: viewers(room),
+        locks: roomLocks(room),
         ...roomMetadata(room),
       });
       return;
@@ -278,82 +471,90 @@ export function createCollaborationServer({
       sendError(socket, "This room has expired.");
       return;
     }
-    if (message.type === "update") {
-      if (!validateDocument(socket, message.snapshot, room.assets)) return;
-      if (!Number.isInteger(message.baseRevision) ||
-        (message.baseRevision !== room.revision && client.lastAcceptedRevision !== room.revision)) {
+    if (message.type === "update" || message.type === "updateAssets") {
+      sendError(socket, "Lock a workspace and push its changes to update the shared project.");
+      return;
+    }
+    if (message.type === "lockWorkspace") {
+      if (typeof message.scope !== "string" || !validWorkspaceScope(message.scope)) {
+        sendError(socket, "The workspace lock is invalid.");
+        return;
+      }
+      const conflict = [...room.locks.entries()].find(([scope, ownerId]) =>
+        ownerId !== client.id && workspaceScopesConflict(scope, message.scope));
+      const ownedScope = [...room.locks.entries()].find(([, ownerId]) => ownerId === client.id)?.[0];
+      if (conflict || (ownedScope && ownedScope !== message.scope)) {
+        const owner = conflict && room.clients.get(conflict[1]);
         send(socket, {
-          type: "snapshotConflict",
-          revision: room.revision,
-          snapshot: room.snapshot,
-          assets: room.assets,
-          sender: room.lastUpdatedBy,
-          updateId: message.updateId,
-          ...roomMetadata(room),
+          type: "workspaceLockDenied",
+          scope: message.scope,
+          owner: owner?.name || "another collaborator",
+          reason: ownedScope && ownedScope !== message.scope
+            ? "Push or discard your current workspace before editing another."
+            : "This workspace is being edited by another collaborator.",
+          locks: roomLocks(room),
         });
         return;
       }
-      const sizeBytes = measureRoom(message.snapshot, room.assets);
+      room.locks.set(message.scope, client.id);
+      send(socket, { type: "workspaceLockGranted", scope: message.scope, locks: roomLocks(room) });
+      broadcast(room, presence(room), socket);
+      return;
+    }
+    if (message.type === "unlockWorkspace") {
+      if (typeof message.scope === "string" && room.locks.get(message.scope) === client.id) {
+        room.locks.delete(message.scope);
+        broadcast(room, presence(room));
+      }
+      return;
+    }
+    if (message.type === "pushWorkspace") {
+      if (typeof message.scope !== "string" || !validWorkspaceScope(message.scope) ||
+        room.locks.get(message.scope) !== client.id) {
+        sendError(socket, "Lock this workspace before pushing its changes.");
+        return;
+      }
+      const incomingAssets = message.assets === undefined ? room.assets : message.assets;
+      if (!validateDocument(socket, message.snapshot, incomingAssets)) return;
+      const assets = mergeWorkspaceAssets(room.assets, incomingAssets);
+      const snapshot = mergeWorkspaceSnapshot(room.snapshot, message.snapshot, message.scope);
+      if (!snapshot) {
+        sendError(socket, "The selected workspace no longer exists in the project.");
+        return;
+      }
+      const sizeBytes = measureRoom(snapshot, assets);
       if (totalRoomBytes() - room.sizeBytes + sizeBytes > MAX_TOTAL_ROOM_BYTES) {
         sendError(socket, "The collaboration server has reached its shared-project storage limit.");
         return;
       }
-      room.snapshot = message.snapshot;
+      room.snapshot = snapshot;
+      room.assets = assets;
       room.sizeBytes = sizeBytes;
       room.revision += 1;
       client.lastAcceptedRevision = room.revision;
       room.lastActiveAt = now;
       addRoomActivity(room, "edit", client.name, now);
-      send(socket, { type: "snapshotAck", revision: room.revision, updateId: message.updateId, ...roomMetadata(room) });
+      room.locks.delete(message.scope);
+      send(socket, {
+        type: "workspacePushAck",
+        scope: message.scope,
+        revision: room.revision,
+        updateId: message.updateId,
+        snapshot: room.snapshot,
+        assets: room.assets,
+        locks: roomLocks(room),
+        ...roomMetadata(room),
+      });
       broadcast(room, {
         type: "snapshot",
         revision: room.revision,
         snapshot: room.snapshot,
-        sender: client.name,
-        ...roomMetadata(room),
-      }, socket);
-      return;
-    }
-    if (message.type === "updateAssets") {
-      if (!validateDocument(socket, message.snapshot, message.assets)) return;
-      if (!Number.isInteger(message.baseRevision) ||
-        (message.baseRevision !== room.revision && client.lastAcceptedRevision !== room.revision)) {
-        send(socket, {
-          type: "snapshotConflict",
-          revision: room.revision,
-          snapshot: room.snapshot,
-          assets: room.assets,
-          sender: room.lastUpdatedBy,
-          updateId: message.updateId,
-          ...roomMetadata(room),
-        });
-        return;
-      }
-      const sizeBytes = measureRoom(message.snapshot, message.assets);
-      if (totalRoomBytes() - room.sizeBytes + sizeBytes > MAX_TOTAL_ROOM_BYTES) {
-        sendError(socket, "The collaboration server has reached its shared-project storage limit.");
-        return;
-      }
-      room.snapshot = message.snapshot;
-      room.assets = message.assets;
-      room.sizeBytes = sizeBytes;
-      room.revision += 1;
-      client.lastAcceptedRevision = room.revision;
-      room.lastActiveAt = now;
-      addRoomActivity(room, "edit", client.name, now);
-      send(socket, { type: "snapshotAck", revision: room.revision, updateId: message.updateId, ...roomMetadata(room) });
-      broadcast(room, {
-        type: "roomState",
-        roomCode: room.code,
-        revision: room.revision,
-        snapshot: room.snapshot,
         assets: room.assets,
-        projectName: room.projectName,
-        participants: participants(room),
-        viewers: viewers(room),
         sender: client.name,
+        scope: message.scope,
         ...roomMetadata(room),
       }, socket);
+      broadcast(room, presence(room), socket);
       return;
     }
     if (message.type === "view") {
