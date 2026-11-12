@@ -753,10 +753,12 @@
       ...Object.fromEntries(EFFECT_NAMES.map(([id]) => [id, 0])),
     };
     if (!effects || typeof effects !== "object") return defaults;
-    Object.keys(defaults).forEach((id) => {
+    ["eqSub", "eqLow", "eqMid", "eqHigh", "eqAir"].forEach((id) => {
       if (Number.isFinite(effects[id])) defaults[id] = Math.max(-12, Math.min(12, effects[id]));
     });
-    EFFECT_NAMES.forEach(([id]) => { defaults[id] = Math.max(0, Math.min(100, defaults[id])); });
+    EFFECT_NAMES.forEach(([id]) => {
+      if (Number.isFinite(effects[id])) defaults[id] = Math.max(0, Math.min(100, effects[id]));
+    });
     return defaults;
   }
 
