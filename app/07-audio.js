@@ -845,7 +845,7 @@
       ["peaking", 1000, track.effects.eqMid],
       ["peaking", 5000, track.effects.eqHigh],
       ["highshelf", 12000, track.effects.eqAir],
-    ].map(([type, frequency, gain]) => {
+    ].filter(([, , gain]) => gain !== 0).map(([type, frequency, gain]) => {
       const filter = context.createBiquadFilter();
       filter.type = type;
       filter.frequency.value = frequency;

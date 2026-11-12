@@ -128,6 +128,7 @@
     currentStep: -1,
     audioContext: null,
     masterGain: null,
+    masterLimiter: null,
     masterPitchNode: null,
     masterPitchSupported: null,
     masterTrack: null,

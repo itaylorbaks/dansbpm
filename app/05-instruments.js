@@ -1244,7 +1244,7 @@
     }
     if (masterPitchDirectConnections.has(context)) return;
     state.masterGain.disconnect();
-    state.masterGain.connect(context.destination);
+    state.masterGain.connect(state.masterLimiter);
     masterPitchDirectConnections.add(context);
   }
 
@@ -1309,7 +1309,7 @@
       state.masterGain.disconnect();
       masterPitchDirectConnections.delete(context);
       state.masterGain.connect(node);
-      node.connect(context.destination);
+      node.connect(state.masterLimiter);
       state.masterPitchNode = node;
       return node;
     });
@@ -1330,6 +1330,13 @@
       state.audioContext = new AudioContext();
       state.masterGain = state.audioContext.createGain();
       state.masterGain.gain.value = 0.82;
+      state.masterLimiter = state.audioContext.createDynamicsCompressor();
+      state.masterLimiter.threshold.value = -3;
+      state.masterLimiter.knee.value = 0;
+      state.masterLimiter.ratio.value = 20;
+      state.masterLimiter.attack.value = 0.003;
+      state.masterLimiter.release.value = 0.12;
+      state.masterLimiter.connect(state.audioContext.destination);
       await connectMasterPitchProcessor(state.audioContext);
       ensureTrackAudio(state.masterTrack);
       state.effectTracks.forEach(ensureTrackAudio);

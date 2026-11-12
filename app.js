@@ -6565,6 +6565,7 @@ const DRIVE_SAMPLE_TRACKS = [
     currentStep: -1,
     audioContext: null,
     masterGain: null,
+    masterLimiter: null,
     masterPitchNode: null,
     masterPitchSupported: null,
     masterTrack: null,
@@ -10634,7 +10635,7 @@ const DRIVE_SAMPLE_TRACKS = [
     }
     if (masterPitchDirectConnections.has(context)) return;
     state.masterGain.disconnect();
-    state.masterGain.connect(context.destination);
+    state.masterGain.connect(state.masterLimiter);
     masterPitchDirectConnections.add(context);
   }
 
@@ -10699,7 +10700,7 @@ const DRIVE_SAMPLE_TRACKS = [
       state.masterGain.disconnect();
       masterPitchDirectConnections.delete(context);
       state.masterGain.connect(node);
-      node.connect(context.destination);
+      node.connect(state.masterLimiter);
       state.masterPitchNode = node;
       return node;
     });
@@ -10720,6 +10721,13 @@ const DRIVE_SAMPLE_TRACKS = [
       state.audioContext = new AudioContext();
       state.masterGain = state.audioContext.createGain();
       state.masterGain.gain.value = 0.82;
+      state.masterLimiter = state.audioContext.createDynamicsCompressor();
+      state.masterLimiter.threshold.value = -3;
+      state.masterLimiter.knee.value = 0;
+      state.masterLimiter.ratio.value = 20;
+      state.masterLimiter.attack.value = 0.003;
+      state.masterLimiter.release.value = 0.12;
+      state.masterLimiter.connect(state.audioContext.destination);
       await connectMasterPitchProcessor(state.audioContext);
       ensureTrackAudio(state.masterTrack);
       state.effectTracks.forEach(ensureTrackAudio);
@@ -15022,7 +15030,7 @@ const DRIVE_SAMPLE_TRACKS = [
       ["peaking", 1000, track.effects.eqMid],
       ["peaking", 5000, track.effects.eqHigh],
       ["highshelf", 12000, track.effects.eqAir],
-    ].map(([type, frequency, gain]) => {
+    ].filter(([, , gain]) => gain !== 0).map(([type, frequency, gain]) => {
       const filter = context.createBiquadFilter();
       filter.type = type;
       filter.frequency.value = frequency;
