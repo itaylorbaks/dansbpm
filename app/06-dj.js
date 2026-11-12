@@ -3069,6 +3069,13 @@
     if (arrangementPlayback && state.isPlaying) {
       const now = state.audioContext.currentTime;
       scheduleArrangementPatternClips(now, lookAhead);
+      const { endBar } = state.arrangementLoopEnabled
+        ? getArrangementLoopRange()
+        : { endBar: state.arrangementBars };
+      scheduleArrangementMetronomeRange(
+        state.arrangementLoopIteration, state.playbackStartTime, state.playbackStartBar,
+        endBar, now, lookAhead,
+      );
       if (state.arrangementLoopEnabled) scheduleUpcomingArrangementLoop(now, lookAhead);
     }
     while (
@@ -3076,12 +3083,7 @@
       (!arrangementPlayback || state.nextStepTime < state.playbackEndTime)
     ) {
       const clockStep = state.stepIndex;
-      const swingOffset = Math.floor(clockStep / 2) % 2 === 1 ? getStepDuration() * (state.swing / 100) : 0;
-      if (arrangementPlayback) {
-        scheduleArrangementMetronomeClick(
-          state.arrangementLoopIteration, clockStep, state.nextStepTime + swingOffset,
-        );
-      } else if (sequencerPlayback) {
+      if (sequencerPlayback) {
         const pattern = getPattern();
         const gridStepCount = getGridStepCount(pattern);
         const absoluteTick = Math.round((state.nextStepTime - state.playbackStartTime) / getSchedulerTickDuration());
@@ -3168,12 +3170,24 @@
     });
   }
 
-  function scheduleArrangementMetronomeClick(iteration, clockStep, time) {
-    if (!state.metronome || state.recordingMetronomeTimer !== null || clockStep % 8 !== 0) return;
+  function scheduleArrangementMetronomeClick(iteration, beat, time) {
+    if (!state.metronome || state.recordingMetronomeTimer !== null) return;
     const key = `${iteration}:${Math.round(time * state.audioContext.sampleRate)}`;
     if (state.scheduledArrangementClicks.has(key)) return;
-    scheduleArrangementVoice(() => triggerClick(time, clockStep % 32 === 0));
+    scheduleArrangementVoice(() => triggerClick(time, beat % 4 === 0));
     state.scheduledArrangementClicks.add(key);
+  }
+
+  function scheduleArrangementMetronomeRange(iteration, startTime, startBar, endBar, now, lookAhead) {
+    if (!state.metronome || state.recordingMetronomeTimer !== null) return;
+    const secondsPerBar = 240 / state.bpm;
+    const firstBeat = Math.ceil(startBar * 4 - 1e-9);
+    for (let beat = firstBeat; beat < endBar * 4 - 1e-9; beat += 1) {
+      const time = startTime + (beat / 4 - startBar) * secondsPerBar;
+      if (time >= now && time < now + lookAhead) {
+        scheduleArrangementMetronomeClick(iteration, beat, time);
+      }
+    }
   }
 
   function scheduleUpcomingArrangementLoop(now, lookAhead) {
@@ -3194,15 +3208,9 @@
       state.scheduledPianoNotes.clear();
       scheduleArrangementClips(nextStartTime, startBar);
       scheduleArrangementPatternClips(now, lookAhead, nextStartTime);
-
-      const ticksPerBar = Math.max(1, Math.round((240 / state.bpm) / getSchedulerTickDuration()));
-      const loopTicks = Math.ceil((endBar - startBar) * ticksPerBar);
-      for (let clockStep = 0; clockStep < loopTicks; clockStep += 8) {
-        const time = nextStartTime + clockStep * getSchedulerTickDuration();
-        if (time >= now && time < now + lookAhead) {
-          scheduleArrangementMetronomeClick(nextIteration, clockStep, time);
-        }
-      }
+      scheduleArrangementMetronomeRange(
+        nextIteration, nextStartTime, startBar, endBar, now, lookAhead,
+      );
       state.preScheduledArrangementIteration = nextIteration;
     } finally {
       state.playbackStartTime = previousStartTime;
