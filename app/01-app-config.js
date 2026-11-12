@@ -3,6 +3,7 @@
   const PROJECT_STORAGE_PREFIX = `${STORAGE_KEY}-project-`;
   const USERS_KEY = `${STORAGE_KEY}-users`;
   const EFFECT_PRESETS_STORAGE_PREFIX = `${STORAGE_KEY}-effect-presets-`;
+  const SOUND_FAVORITES_STORAGE_PREFIX = `${STORAGE_KEY}-sound-favorites-`;
   const ACTIVE_USER_KEY = `${STORAGE_KEY}-active-user`;
   const OPEN_PROJECTS_KEY = `${STORAGE_KEY}-open-projects`;
   const COLLABORATION_URL_KEY = `${STORAGE_KEY}-collaboration-url`;

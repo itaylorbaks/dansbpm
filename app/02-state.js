@@ -66,6 +66,7 @@
     pianoScaleLock: false,
     soundDurationEdits: {},
     soundReverseEdits: {},
+    favoriteSoundIds: [],
     selectedPianoTrackId: "piano-grand",
     selectedPianoNoteId: null,
     selectedPianoNoteIds: new Set(),

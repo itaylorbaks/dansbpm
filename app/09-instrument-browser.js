@@ -122,6 +122,38 @@
     });
   }
 
+  function makeInstrumentSourceRow(track) {
+    const row = document.createElement("div");
+    row.className = "instrument-source";
+    row.dataset.soundId = track.id;
+    row.tabIndex = 0;
+    row.draggable = true;
+    row.title = `Drag ${track.name} to Track View to create an instrument track`;
+    row.setAttribute("aria-label", `${track.name}, drag to Track View to create an instrument track`);
+    row.addEventListener("dragstart", (event) => {
+      if (!event.dataTransfer) return;
+      event.dataTransfer.setData("application/x-pulsegrid-instrument-source", JSON.stringify({
+        instrumentId: track.id,
+      }));
+      event.dataTransfer.effectAllowed = "copy";
+    });
+    const color = document.createElement("span");
+    color.className = "source-color";
+    color.style.background = track.color;
+    const name = document.createElement("button");
+    name.className = "instrument-source-name";
+    name.type = "button";
+    name.textContent = track.name;
+    name.title = track.sample?.name || track.subtitle;
+    name.setAttribute("aria-label", `Preview ${track.name}`);
+    name.addEventListener("click", () => previewInstrumentSound(track));
+    name.addEventListener("contextmenu", (event) => openSoundDurationMenu(track, event));
+    row.append(color, name);
+    const soundSelect = makeSoundSelect(track, true);
+    if (soundSelect) row.append(soundSelect);
+    return row;
+  }
+
   function renderInstrumentBrowser(query = "") {
     const browser = $("#instrument-browser");
     browser.replaceChildren();
@@ -134,6 +166,18 @@
       empty.textContent = `No sounds found for "${query}".`;
       browser.append(empty);
       return;
+    }
+    const favorites = instruments.filter(isFavoriteSound);
+    if (favorites.length) {
+      const familyGroup = document.createElement("section");
+      familyGroup.className = "instrument-family-group";
+      familyGroup.dataset.family = "Favorites";
+      const heading = document.createElement("h3");
+      heading.className = "instrument-family-heading";
+      heading.textContent = "Favorites";
+      familyGroup.append(heading);
+      favorites.forEach((track) => familyGroup.append(makeInstrumentSourceRow(track)));
+      browser.append(familyGroup);
     }
     const families = new Map();
     instruments.forEach((track) => {
@@ -169,36 +213,7 @@
         }
         container = subsection;
       }
-
-      const row = document.createElement("div");
-      row.className = "instrument-source";
-      row.dataset.soundId = track.id;
-      row.tabIndex = 0;
-      row.draggable = true;
-      row.title = `Drag ${track.name} to Track View to create an instrument track`;
-      row.setAttribute("aria-label", `${track.name}, drag to Track View to create an instrument track`);
-      row.addEventListener("dragstart", (event) => {
-        if (!event.dataTransfer) return;
-        event.dataTransfer.setData("application/x-pulsegrid-instrument-source", JSON.stringify({
-          instrumentId: track.id,
-        }));
-        event.dataTransfer.effectAllowed = "copy";
-      });
-      const color = document.createElement("span");
-      color.className = "source-color";
-      color.style.background = track.color;
-      const name = document.createElement("button");
-      name.className = "instrument-source-name";
-      name.type = "button";
-      name.textContent = track.name;
-      name.title = track.sample?.name || track.subtitle;
-      name.setAttribute("aria-label", `Preview ${track.name}`);
-      name.addEventListener("click", () => previewInstrumentSound(track));
-      name.addEventListener("contextmenu", (event) => openSoundDurationMenu(track, event));
-      row.append(color, name);
-      const soundSelect = makeSoundSelect(track, true);
-      if (soundSelect) row.append(soundSelect);
-      container.append(row);
+      container.append(makeInstrumentSourceRow(track));
     });
   }
 

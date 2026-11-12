@@ -437,6 +437,14 @@
     $("#sound-reverse-toggle").addEventListener("change", (event) => {
       setSoundReverseFromMenu(event.currentTarget.checked);
     });
+    $("#sound-duration-favorite").addEventListener("click", () => {
+      const track = state.tracks.find((item) => item.id === $("#sound-duration-menu").dataset.trackId);
+      if (!track) {
+        showToast("This sound is no longer available.");
+        return;
+      }
+      toggleSoundFavorite(track);
+    });
     $("#sound-duration-play").addEventListener("click", () => {
       const track = state.tracks.find((item) => item.id === $("#sound-duration-menu").dataset.trackId);
       if (!track) {
@@ -800,6 +808,7 @@
     initializeUsers();
     state.currentUser = getSessionUser();
     loadEffectPresets();
+    loadSoundFavorites();
     state.tracks = makeTracks();
     const initialPattern = makePatternSnapshot(makeId(), "Pattern 1");
     state.patterns = [initialPattern];

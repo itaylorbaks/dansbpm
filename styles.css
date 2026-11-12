@@ -643,6 +643,8 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .sound-duration-control > span { display: flex; justify-content: space-between; }
 .sound-duration-control output { color: #92949a; font-family: var(--mono); }
 .sound-duration-control input { width: 100%; margin: 0; accent-color: var(--accent); }
+.sound-duration-favorite { width: 100%; }
+.sound-duration-favorite[aria-pressed="true"] { border-color: #687641; color: var(--accent); }
 .sound-reverse-control { display: flex; align-items: center; gap: 7px; color: #c6c7cb; font-size: 10px; }
 .sound-reverse-control input { margin: 0; accent-color: var(--accent); }
 .sound-duration-actions { display: flex; justify-content: flex-end; gap: 6px; }

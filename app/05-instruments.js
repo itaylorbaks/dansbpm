@@ -42,60 +42,68 @@
   function renderStepInstrumentLibrary(query = "") {
     const library = $("#step-instrument-library");
     library.replaceChildren();
+    const instruments = getStepPickerInstruments()
+      .filter((track) => matchesInstrumentSearch(track, query));
     const groups = new Map();
-    getStepPickerInstruments()
-      .filter((track) => matchesInstrumentSearch(track, query))
-      .forEach((track) => {
-        const groupName = getStepInstrumentGroup(track);
-        if (!groups.has(groupName)) groups.set(groupName, []);
-        groups.get(groupName).push(track);
-      });
+    instruments.forEach((track) => {
+      const groupName = getStepInstrumentGroup(track);
+      if (!groups.has(groupName)) groups.set(groupName, []);
+      groups.get(groupName).push(track);
+    });
+    const addGroup = (groupName, groupInstruments) => {
+      const group = document.createElement("section");
+      group.className = "step-instrument-group";
+      group.dataset.instrumentGroup = groupName;
+      const heading = document.createElement("h3");
+      heading.textContent = groupName;
+      const choices = document.createElement("div");
+      choices.className = "step-instrument-choices";
+      groupInstruments
+        .sort((left, right) => left.name.localeCompare(right.name))
+        .forEach((instrument) => {
+          const choice = document.createElement("button");
+          choice.className = "step-instrument-choice";
+          choice.type = "button";
+          choice.dataset.soundId = instrument.id;
+          choice.style.setProperty("--instrument-color", instrument.color);
+          choice.textContent = instrument.name;
+          if (stepInstrumentPendingId === instrument.id) {
+            choice.classList.add("is-selected");
+            choice.setAttribute("aria-pressed", "true");
+          } else {
+            choice.setAttribute("aria-pressed", "false");
+          }
+          choice.addEventListener("contextmenu", (event) => openSoundDurationMenu(instrument, event));
+          choice.addEventListener("click", () => {
+            library.querySelectorAll(".step-instrument-choice.is-selected").forEach((selectedChoice) => {
+              selectedChoice.classList.remove("is-selected");
+              selectedChoice.setAttribute("aria-pressed", "false");
+            });
+            choice.classList.add("is-selected");
+            choice.setAttribute("aria-pressed", "true");
+            stepInstrumentPendingId = instrument.id;
+            const selectButton = $("#step-instrument-select");
+            selectButton.disabled = true;
+            loadLibrarySample(instrument).then(() => {
+              if (stepInstrumentPendingId !== instrument.id || !$("#step-instrument-dialog").open) return;
+              selectButton.disabled = false;
+              previewInstrumentSound(instrument);
+            }).catch((error) => {
+              if (stepInstrumentPendingId === instrument.id) {
+                showToast(error.message || `Could not load ${instrument.name}.`);
+              }
+            });
+          });
+          choices.append(choice);
+        });
+      group.append(heading, choices);
+      library.append(group);
+    };
+    const favorites = instruments.filter(isFavoriteSound);
+    if (favorites.length) addGroup("Favorites", favorites);
     Array.from(groups.entries())
       .sort(([left], [right]) => left.localeCompare(right))
-      .forEach(([groupName, instruments]) => {
-        const group = document.createElement("section");
-        group.className = "step-instrument-group";
-        group.dataset.instrumentGroup = groupName;
-        const heading = document.createElement("h3");
-        heading.textContent = groupName;
-        const choices = document.createElement("div");
-        choices.className = "step-instrument-choices";
-        instruments
-          .sort((left, right) => left.name.localeCompare(right.name))
-          .forEach((instrument) => {
-            const choice = document.createElement("button");
-            choice.className = "step-instrument-choice";
-            choice.type = "button";
-            choice.dataset.soundId = instrument.id;
-            choice.style.setProperty("--instrument-color", instrument.color);
-            choice.textContent = instrument.name;
-            choice.addEventListener("contextmenu", (event) => openSoundDurationMenu(instrument, event));
-            choice.addEventListener("click", () => {
-              library.querySelectorAll(".step-instrument-choice.is-selected").forEach((selectedChoice) => {
-                selectedChoice.classList.remove("is-selected");
-                selectedChoice.setAttribute("aria-pressed", "false");
-              });
-              choice.classList.add("is-selected");
-              choice.setAttribute("aria-pressed", "true");
-              stepInstrumentPendingId = instrument.id;
-              const selectButton = $("#step-instrument-select");
-              selectButton.disabled = true;
-              loadLibrarySample(instrument).then(() => {
-                if (stepInstrumentPendingId !== instrument.id || !$("#step-instrument-dialog").open) return;
-                selectButton.disabled = false;
-                previewInstrumentSound(instrument);
-              }).catch((error) => {
-                if (stepInstrumentPendingId === instrument.id) {
-                  showToast(error.message || `Could not load ${instrument.name}.`);
-                }
-              });
-            });
-            choice.setAttribute("aria-pressed", "false");
-            choices.append(choice);
-          });
-        group.append(heading, choices);
-        library.append(group);
-      });
+      .forEach(([groupName, groupInstruments]) => addGroup(groupName, groupInstruments));
     if (!library.childElementCount && query) {
       const empty = document.createElement("div");
       empty.className = "instrument-search-empty";
@@ -123,6 +131,54 @@
 
   function getSoundDurationKey(track) {
     return track.sourceId || track.id;
+  }
+
+  function isFavoriteSound(track) {
+    return state.favoriteSoundIds.includes(getSoundDurationKey(track));
+  }
+
+  function loadSoundFavorites() {
+    state.favoriteSoundIds = [];
+    if (!state.currentUser) return;
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(
+        `${SOUND_FAVORITES_STORAGE_PREFIX}${state.currentUser}`,
+      ) || "[]");
+      if (!Array.isArray(saved)) throw new Error("saved favorites are invalid");
+      state.favoriteSoundIds = [...new Set(saved.filter((id) =>
+        typeof id === "string" && id.length > 0 && id.length <= 128))];
+    } catch (error) {
+      showToast(`Could not load sound favorites: ${error.message || "browser storage is unavailable."}`);
+    }
+  }
+
+  function toggleSoundFavorite(track) {
+    if (!state.currentUser) {
+      showToast("Choose a profile before saving sound favorites.");
+      return;
+    }
+    const soundId = getSoundDurationKey(track);
+    const wasFavorite = isFavoriteSound(track);
+    const favorites = wasFavorite
+      ? state.favoriteSoundIds.filter((id) => id !== soundId)
+      : [...state.favoriteSoundIds, soundId];
+    try {
+      window.localStorage.setItem(
+        `${SOUND_FAVORITES_STORAGE_PREFIX}${state.currentUser}`,
+        JSON.stringify(favorites),
+      );
+    } catch (error) {
+      showToast(`Could not save sound favorites: ${error.message || "browser storage is unavailable."}`);
+      return;
+    }
+    state.favoriteSoundIds = favorites;
+    const favoriteButton = $("#sound-duration-favorite");
+    favoriteButton.textContent = wasFavorite ? "Add to favorites" : "Remove from favorites";
+    favoriteButton.setAttribute("aria-pressed", String(!wasFavorite));
+    renderInstrumentBrowser();
+    if ($("#step-instrument-dialog").open) {
+      renderStepInstrumentLibrary($("#sound-library-search-input").value);
+    }
   }
 
   function getSoundDurationScale(track) {
@@ -155,7 +211,6 @@
   }
 
   function openSoundDurationMenu(track, event) {
-    if (track.kind === "drumkit") return;
     event.preventDefault();
     const menu = $("#sound-duration-menu");
     const dialog = event.currentTarget.closest("dialog");
@@ -165,8 +220,13 @@
     slider.value = String(Math.round((state.soundDurationEdits[soundId] ?? 1) * 100));
     $("#sound-duration-title").textContent = track.name;
     $("#sound-duration-value").textContent = `${slider.value}%`;
+    $("#sound-duration-control").hidden = track.kind === "drumkit";
+    $("#sound-duration-reset").hidden = track.kind === "drumkit";
     $("#sound-reverse-control").hidden = track.kind !== "sample";
     $("#sound-reverse-toggle").checked = track.kind === "sample" && state.soundReverseEdits[soundId] === true;
+    const favoriteButton = $("#sound-duration-favorite");
+    favoriteButton.textContent = isFavoriteSound(track) ? "Remove from favorites" : "Add to favorites";
+    favoriteButton.setAttribute("aria-pressed", String(isFavoriteSound(track)));
     menu.dataset.soundId = soundId;
     menu.dataset.trackId = track.id;
     menu.hidden = false;
