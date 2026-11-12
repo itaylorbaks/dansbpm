@@ -451,7 +451,8 @@
           (value) => `${Number(value).toFixed(2)}×`),
         makeSoundProcessingRange(track, "time", "Time", 25, 400, 1, "%"),
       );
-      right.append(playbackGroup, editGroup, stretchGroup);
+      left.append(stretchGroup);
+      right.append(playbackGroup, editGroup);
     }
     const editButton = document.createElement("button");
     editButton.className = "quiet-button step-piano-edit-button";
