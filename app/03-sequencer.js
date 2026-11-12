@@ -271,13 +271,18 @@
     });
   }
 
-  function setArrangementScale(scale) {
+  function setArrangementScale(scale, anchorClientX = null) {
     const timeline = $("#timeline-scroll");
-    const barOffset = timeline.scrollLeft / BAR_WIDTH;
-    state.arrangementScale = Math.max(0.1, Math.min(4, scale));
+    const anchorOffsetX = anchorClientX === null
+      ? 0
+      : Math.max(0, Math.min(timeline.clientWidth, anchorClientX - timeline.getBoundingClientRect().left));
+    const barOffset = (timeline.scrollLeft + anchorOffsetX) / BAR_WIDTH;
+    const nextScale = Math.max(0.1, Math.min(4, scale));
+    if (nextScale === state.arrangementScale) return;
+    state.arrangementScale = nextScale;
     BAR_WIDTH = BASE_BAR_WIDTH * state.arrangementScale;
     renderArrangement();
-    timeline.scrollLeft = barOffset * BAR_WIDTH;
+    timeline.scrollLeft = barOffset * BAR_WIDTH - anchorOffsetX;
   }
 
   function setStepCellValue(track, step, cell, value) {

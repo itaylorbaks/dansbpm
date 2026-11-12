@@ -1085,13 +1085,18 @@
     });
   }
 
-  function setArrangementScale(scale) {
+  function setArrangementScale(scale, anchorClientX = null) {
     const timeline = $("#timeline-scroll");
-    const barOffset = timeline.scrollLeft / BAR_WIDTH;
-    state.arrangementScale = Math.max(0.1, Math.min(4, scale));
+    const anchorOffsetX = anchorClientX === null
+      ? 0
+      : Math.max(0, Math.min(timeline.clientWidth, anchorClientX - timeline.getBoundingClientRect().left));
+    const barOffset = (timeline.scrollLeft + anchorOffsetX) / BAR_WIDTH;
+    const nextScale = Math.max(0.1, Math.min(4, scale));
+    if (nextScale === state.arrangementScale) return;
+    state.arrangementScale = nextScale;
     BAR_WIDTH = BASE_BAR_WIDTH * state.arrangementScale;
     renderArrangement();
-    timeline.scrollLeft = barOffset * BAR_WIDTH;
+    timeline.scrollLeft = barOffset * BAR_WIDTH - anchorOffsetX;
   }
 
   function setStepCellValue(track, step, cell, value) {
@@ -18142,6 +18147,8 @@
   function formatCollaborationTimestamp(timestamp) {
     return new Date(timestamp).toLocaleString();
   }
+  let arrangementScaleSaveTimer = null;
+
   function bindEvents() {
     document.addEventListener("pointermove", paintStepAtPointer);
     document.addEventListener("pointermove", updateStepSelectionDrag);
@@ -18653,6 +18660,16 @@
       setArrangementScale(Number(event.target.value) / 100);
     });
     $("#arrangement-scale-slider").addEventListener("change", saveState);
+    $("#timeline-scroll").addEventListener("wheel", (event) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      setArrangementScale(state.arrangementScale * Math.exp(-event.deltaY * 0.002), event.clientX);
+      if (arrangementScaleSaveTimer !== null) window.clearTimeout(arrangementScaleSaveTimer);
+      arrangementScaleSaveTimer = window.setTimeout(() => {
+        arrangementScaleSaveTimer = null;
+        saveState();
+      }, 250);
+    }, { passive: false });
     $("#arrangement-slice-button").addEventListener("click", () => setArrangementSliceMode(!arrangementSliceMode));
     $("#record-audio-button").addEventListener("click", toggleAudioRecording);
     $("#project-name").addEventListener("click", () => {

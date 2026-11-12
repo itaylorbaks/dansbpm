@@ -1,3 +1,5 @@
+  let arrangementScaleSaveTimer = null;
+
   function bindEvents() {
     document.addEventListener("pointermove", paintStepAtPointer);
     document.addEventListener("pointermove", updateStepSelectionDrag);
@@ -509,6 +511,16 @@
       setArrangementScale(Number(event.target.value) / 100);
     });
     $("#arrangement-scale-slider").addEventListener("change", saveState);
+    $("#timeline-scroll").addEventListener("wheel", (event) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      setArrangementScale(state.arrangementScale * Math.exp(-event.deltaY * 0.002), event.clientX);
+      if (arrangementScaleSaveTimer !== null) window.clearTimeout(arrangementScaleSaveTimer);
+      arrangementScaleSaveTimer = window.setTimeout(() => {
+        arrangementScaleSaveTimer = null;
+        saveState();
+      }, 250);
+    }, { passive: false });
     $("#arrangement-slice-button").addEventListener("click", () => setArrangementSliceMode(!arrangementSliceMode));
     $("#record-audio-button").addEventListener("click", toggleAudioRecording);
     $("#project-name").addEventListener("click", () => {
