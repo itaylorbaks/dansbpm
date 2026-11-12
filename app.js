@@ -17605,6 +17605,7 @@
       ...state.effectTracks, state.masterTrack,
     ];
     const previousGains = allTracks.map((track) => track.gainNode);
+    const previousAutomationGains = allTracks.map((track) => track.automationGainNode);
     const previousPanners = allTracks.map((track) => track.panNode);
     const previousFxRuntimes = allTracks.map((track) => track.fxRuntime);
     const previousAnalysers = allTracks.map((track) => track.analyser);
@@ -17625,6 +17626,8 @@
       allTracks.forEach((track) => {
         ensureTrackMixerState(track);
         track.gainNode = context.createGain();
+        track.automationGainNode = context.createGain();
+        track.automationGainNode.gain.value = 1;
         track.panNode = context.createStereoPanner();
         track.panNode.pan.value = track.pan;
         const isBus = track.kind === "mixer-master" || track.kind === "mixer-effects";
@@ -17750,6 +17753,7 @@
           nodes.forEach((node) => node.disconnect());
         });
         track.gainNode = previousGains[index];
+        track.automationGainNode = previousAutomationGains[index];
         track.panNode?.disconnect();
         track.panNode = previousPanners[index];
         track.fxRuntime = previousFxRuntimes[index];
