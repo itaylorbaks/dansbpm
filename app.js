@@ -7670,7 +7670,7 @@
     ensureTrackAudio(patternTrack);
     patternTrack.sourceGains ||= new Map();
     let gain = patternTrack.sourceGains.get(sourceTrack.id);
-    if (!gain) {
+    if (gain?.context !== state.audioContext) {
       gain = state.audioContext.createGain();
       gain.connect(patternTrack.gainNode);
       patternTrack.sourceGains.set(sourceTrack.id, gain);
@@ -8845,6 +8845,7 @@
   function ensureTrackAudio(track) {
     ensureTrackMixerState(track);
     if (!state.audioContext) return;
+    const context = state.audioContext;
     if (track !== state.masterTrack) ensureTrackAudio(state.masterTrack);
     if (track.kind !== "mixer-master" && track.kind !== "mixer-effects") {
       state.effectTracks.forEach(ensureTrackAudio);
@@ -8853,20 +8854,22 @@
       const instrument = state.tracks.find((item) => item.id === track.instrumentId);
       if (instrument && instrument !== track) ensureTrackAudio(instrument);
     }
-    if (!track.panNode) {
-      track.panNode = state.audioContext.createStereoPanner();
+    if (track.panNode?.context !== context) {
+      track.panNode = context.createStereoPanner();
       track.panNode.pan.value = track.pan;
     }
-    if (!track.automationGainNode) {
-      track.automationGainNode = state.audioContext.createGain();
+    if (track.automationGainNode?.context !== context) {
+      track.automationGainNode = context.createGain();
       track.automationGainNode.gain.value = 1;
     }
-    if (!track.gainNode) {
-      track.gainNode = state.audioContext.createGain();
+    if (track.gainNode?.context !== context) {
+      track.gainNode = context.createGain();
       track.gainNode.gain.value = track.muted ? 0 : track.volume;
       updateTrackGains();
     }
-    if (!track.fxRuntime) rebuildTrackEffectChain(track);
+    const fxRuntimeMatchesContext = track.fxRuntime?.every(({ nodes, sources }) =>
+      nodes.every((node) => node.context === context) && sources.every((source) => source.context === context));
+    if (!fxRuntimeMatchesContext) rebuildTrackEffectChain(track);
   }
 
   function getTrackOutputNode(track) {
@@ -8888,11 +8891,15 @@
     track.analyser?.disconnect();
     track.analyser = null;
     ensureTrackMixerState(track);
-    if (!track.panNode) {
+    if (track.gainNode.context !== context) {
+      track.gainNode = context.createGain();
+      track.gainNode.gain.value = track.muted ? 0 : track.volume;
+    }
+    if (track.panNode?.context !== context) {
       track.panNode = context.createStereoPanner();
       track.panNode.pan.value = track.pan;
     }
-    if (!track.automationGainNode) {
+    if (track.automationGainNode?.context !== context) {
       track.automationGainNode = context.createGain();
       track.automationGainNode.gain.value = 1;
     }

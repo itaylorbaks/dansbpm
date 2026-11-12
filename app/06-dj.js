@@ -2990,7 +2990,7 @@
     ensureTrackAudio(patternTrack);
     patternTrack.sourceGains ||= new Map();
     let gain = patternTrack.sourceGains.get(sourceTrack.id);
-    if (!gain) {
+    if (gain?.context !== state.audioContext) {
       gain = state.audioContext.createGain();
       gain.connect(patternTrack.gainNode);
       patternTrack.sourceGains.set(sourceTrack.id, gain);
