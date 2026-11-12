@@ -1,4 +1,12 @@
   function registerArrangementPlaybackSource(source) {
+    const soundPreview = instrumentPreviewSourceCollector;
+    if (soundPreview) {
+      soundPreview.sources.add(source);
+      source.addEventListener("ended", () => {
+        soundPreview.sources.delete(source);
+        finishInstrumentSoundPreview(soundPreview);
+      }, { once: true });
+    }
     if (!state.isSchedulingArrangementVoice) return;
     state.arrangementSources.add(source);
     source.addEventListener("ended", () => state.arrangementSources.delete(source), { once: true });

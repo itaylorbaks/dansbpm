@@ -1,6 +1,9 @@
   const sampleWaveformPeakCache = new WeakMap();
   let stepMixPreview = null;
   let stepMixPreviewSequence = 0;
+  let activeInstrumentPreview = null;
+  let instrumentPreviewSequence = 0;
+  let instrumentPreviewSourceCollector = null;
 
   function addPatternInstrument(trackId) {
     const pattern = getPattern();
@@ -1559,34 +1562,88 @@
   }
 
   async function previewInstrumentSound(track) {
+    const soundId = getSoundDurationKey(track);
+    if (activeInstrumentPreview?.soundId === soundId &&
+      (activeInstrumentPreview.pending || activeInstrumentPreview.sources.size > 0)) {
+      stopInstrumentSoundPreview();
+      return;
+    }
+    stopInstrumentSoundPreview();
+    const request = ++instrumentPreviewSequence;
+    const preview = { soundId, track, pending: true, sources: new Set(), gain: null };
+    activeInstrumentPreview = preview;
     try {
       await ensureAudio();
       await loadLibrarySample(track);
+      if (request !== instrumentPreviewSequence || activeInstrumentPreview !== preview) return;
       if (track.kind === "sample" && !track.sample) {
         throw new Error("This sample is not ready to preview.");
       }
       const startTime = state.audioContext.currentTime + 0.015;
       const outputTrack = state.masterTrack;
-      const outputNode = outputTrack.gainNode || state.masterGain;
-      if (track.kind === "drumkit") {
-        [36, 42, 38, 42, 36, 46, 38, 42].forEach((midi, index) => {
-          playPianoNote(track, startTime + index * 0.18, midi, 0.15, 0.8, outputTrack, outputNode);
-        });
-        return;
+      ensureTrackAudio(outputTrack);
+      const outputNode = state.audioContext.createGain();
+      outputNode.gain.setValueAtTime(0.0001, state.audioContext.currentTime);
+      outputNode.gain.linearRampToValueAtTime(1, startTime + 0.02);
+      outputNode.connect(outputTrack.gainNode || state.masterGain);
+      preview.gain = outputNode;
+      instrumentPreviewSourceCollector = preview;
+      try {
+        if (track.kind === "drumkit") {
+          [36, 42, 38, 42, 36, 46, 38, 42].forEach((midi, index) => {
+            playPianoNote(track, startTime + index * 0.18, midi, 0.15, 0.8, outputTrack, outputNode);
+          });
+        } else {
+          const duration = track.sample?.buffer.duration || (track.kind === "instrument" ? 0.65 : getStepDuration());
+          playPianoNote(
+            track,
+            startTime,
+            getDefaultStepMidi(track),
+            duration,
+            0.8,
+            outputTrack,
+            outputNode,
+          );
+        }
+      } finally {
+        instrumentPreviewSourceCollector = null;
+        preview.pending = false;
+        finishInstrumentSoundPreview(preview);
       }
-      const duration = track.sample?.buffer.duration || (track.kind === "instrument" ? 0.65 : getStepDuration());
-      playPianoNote(
-        track,
-        startTime,
-        getDefaultStepMidi(track),
-        duration,
-        0.8,
-        outputTrack,
-        outputNode,
-      );
     } catch (error) {
-      showToast(error.message || `Could not preview ${track.name}.`);
+      if (activeInstrumentPreview === preview) {
+        stopInstrumentSoundPreview();
+        showToast(error.message || `Could not preview ${track.name}.`);
+      }
     }
+  }
+
+  function finishInstrumentSoundPreview(preview) {
+    if (activeInstrumentPreview !== preview || preview.pending || preview.sources.size > 0) return;
+    activeInstrumentPreview = null;
+    preview.gain?.disconnect();
+  }
+
+  function stopInstrumentSoundPreview() {
+    instrumentPreviewSequence += 1;
+    const preview = activeInstrumentPreview;
+    activeInstrumentPreview = null;
+    if (!preview) return;
+    const context = preview.gain?.context || state.audioContext;
+    const stopTime = (context?.currentTime || 0) + 0.02;
+    if (preview.gain && context) {
+      preview.gain.gain.cancelScheduledValues(context.currentTime);
+      preview.gain.gain.setValueAtTime(preview.gain.gain.value, context.currentTime);
+      preview.gain.gain.linearRampToValueAtTime(0.0001, stopTime);
+    }
+    preview.sources.forEach((source) => {
+      try {
+        source.stop(stopTime);
+      } catch (error) {
+        if (error.name !== "InvalidStateError") throw error;
+      }
+    });
+    if (preview.gain) window.setTimeout(() => preview.gain.disconnect(), 35);
   }
 
   function makeTrackButton(type, label, track) {
