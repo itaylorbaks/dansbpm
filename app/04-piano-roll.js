@@ -127,10 +127,15 @@
   function renderPianoInstrumentOptions() {
     const picker = $("#piano-instrument-select");
     const instruments = state.tracks.filter((track) => !track.sourceId);
-    if (!instruments.some((track) => track.id === state.selectedPianoTrackId)) {
+    const stepInstrument = state.stepPianoEditContext
+      ? getPianoTrack(state.stepPianoEditContext.trackId)
+      : null;
+    if (stepInstrument) {
+      state.selectedPianoTrackId = stepInstrument.id;
+    } else if (!instruments.some((track) => track.id === state.selectedPianoTrackId)) {
       state.selectedPianoTrackId = instruments.find((track) => track.id === "piano-grand")?.id || instruments[0]?.id || "";
     }
-    const selected = instruments.find((track) => track.id === state.selectedPianoTrackId);
+    const selected = stepInstrument || instruments.find((track) => track.id === state.selectedPianoTrackId);
     $("#piano-instrument-name").textContent = selected?.name || "Choose instrument";
     picker.disabled = !selected;
     picker.setAttribute("aria-label", selected ? `Piano roll instrument: ${selected.name}` : "Choose piano roll instrument");
@@ -1257,7 +1262,7 @@
       key.setAttribute("aria-label", `Preview ${midiNoteName(midi)}`);
       key.addEventListener("click", async () => {
         try {
-          const track = getPianoTrack();
+          const track = getPianoTrack(state.stepPianoEditContext?.trackId || state.selectedPianoTrackId);
           if (!track) throw new Error("Choose an instrument before previewing notes.");
           await ensureAudio();
           await loadLibrarySample(track);
@@ -1532,7 +1537,7 @@
       Math.floor((event.clientY - rect.top) / PIANO_ROW_HEIGHT)));
     return {
       id: makeId(),
-      trackId: state.selectedPianoTrackId,
+      trackId: state.stepPianoEditContext?.trackId || state.selectedPianoTrackId,
       midi: constrainPianoPitchToScale(PIANO_TOP_MIDI - row),
       startTick,
       durationTicks: Math.max(1, Math.min(state.pianoNoteLength, totalTicks - startTick)),

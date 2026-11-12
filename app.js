@@ -7586,10 +7586,15 @@ const DRIVE_SAMPLE_TRACKS = [
   function renderPianoInstrumentOptions() {
     const picker = $("#piano-instrument-select");
     const instruments = state.tracks.filter((track) => !track.sourceId);
-    if (!instruments.some((track) => track.id === state.selectedPianoTrackId)) {
+    const stepInstrument = state.stepPianoEditContext
+      ? getPianoTrack(state.stepPianoEditContext.trackId)
+      : null;
+    if (stepInstrument) {
+      state.selectedPianoTrackId = stepInstrument.id;
+    } else if (!instruments.some((track) => track.id === state.selectedPianoTrackId)) {
       state.selectedPianoTrackId = instruments.find((track) => track.id === "piano-grand")?.id || instruments[0]?.id || "";
     }
-    const selected = instruments.find((track) => track.id === state.selectedPianoTrackId);
+    const selected = stepInstrument || instruments.find((track) => track.id === state.selectedPianoTrackId);
     $("#piano-instrument-name").textContent = selected?.name || "Choose instrument";
     picker.disabled = !selected;
     picker.setAttribute("aria-label", selected ? `Piano roll instrument: ${selected.name}` : "Choose piano roll instrument");
@@ -8716,7 +8721,7 @@ const DRIVE_SAMPLE_TRACKS = [
       key.setAttribute("aria-label", `Preview ${midiNoteName(midi)}`);
       key.addEventListener("click", async () => {
         try {
-          const track = getPianoTrack();
+          const track = getPianoTrack(state.stepPianoEditContext?.trackId || state.selectedPianoTrackId);
           if (!track) throw new Error("Choose an instrument before previewing notes.");
           await ensureAudio();
           await loadLibrarySample(track);
@@ -8991,7 +8996,7 @@ const DRIVE_SAMPLE_TRACKS = [
       Math.floor((event.clientY - rect.top) / PIANO_ROW_HEIGHT)));
     return {
       id: makeId(),
-      trackId: state.selectedPianoTrackId,
+      trackId: state.stepPianoEditContext?.trackId || state.selectedPianoTrackId,
       midi: constrainPianoPitchToScale(PIANO_TOP_MIDI - row),
       startTick,
       durationTicks: Math.max(1, Math.min(state.pianoNoteLength, totalTicks - startTick)),
@@ -21228,6 +21233,8 @@ const DRIVE_SAMPLE_TRACKS = [
       playPianoAudioSlice(noteOptions.audioSlice, time, midi, duration, velocity, outputNode, noteOptions);
       return;
     }
+    const rowPitch = Number.isFinite(track.pitch) ? track.pitch : 0;
+    const playedMidi = midi + rowPitch;
     if (track.sample || track.sampleUrl || track.kind === "sample") {
       const sampleBuffer = getLibrarySamplePlaybackBuffer(track);
       if (!sampleBuffer) throw new Error(`The audio for ${track.name} is unavailable.`);
@@ -21235,7 +21242,7 @@ const DRIVE_SAMPLE_TRACKS = [
       const rootMidi = Number.isFinite(track.sampleRootMidi) ? track.sampleRootMidi : 60;
       const range = getSamplePlaybackRange(track, sampleBuffer);
       const rateScale = getSoundPlaybackRateScale(track);
-      const rate = Math.pow(2, (midi - rootMidi + detune / 100) / 12) * rateScale;
+      const rate = Math.pow(2, (playedMidi - rootMidi + detune / 100) / 12) * rateScale;
       const sourceDuration = range.duration;
       const arpLength = getSoundProcessingEdits(track).arpeggiatorLength;
       const maxOutputDuration = Math.max(0.01, duration) * arpLength;
@@ -21245,7 +21252,7 @@ const DRIVE_SAMPLE_TRACKS = [
     }
     const trimmedNote = getSoundTrimmedNote(track, time, duration);
     if (track.kind === "instrument") {
-      playInstrumentVoice(track, trimmedNote.time, midi, trimmedNote.duration, velocity, outputTrack, outputNode, {
+      playInstrumentVoice(track, trimmedNote.time, playedMidi, trimmedNote.duration, velocity, outputTrack, outputNode, {
         ...noteOptions,
         attack: trimmedNote.attack ?? noteOptions.attack,
         soundFadeOut: trimmedNote.release,
@@ -21254,7 +21261,7 @@ const DRIVE_SAMPLE_TRACKS = [
       return;
     }
     if (track.kind === "drumkit") {
-      playDrumKitNote(track, trimmedNote.time, midi, trimmedNote.duration, velocity, outputTrack, outputNode,
+      playDrumKitNote(track, trimmedNote.time, playedMidi, trimmedNote.duration, velocity, outputTrack, outputNode,
         trimmedNote.attack ?? noteOptions.attack, trimmedNote.release);
       return;
     }
