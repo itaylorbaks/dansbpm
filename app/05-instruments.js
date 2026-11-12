@@ -765,9 +765,11 @@
         throw new Error("This sample is not ready to preview.");
       }
       const startTime = state.audioContext.currentTime + 0.015;
+      const outputTrack = state.masterTrack;
+      const outputNode = outputTrack.gainNode || state.masterGain;
       if (track.kind === "drumkit") {
         [36, 42, 38, 42, 36, 46, 38, 42].forEach((midi, index) => {
-          playPianoNote(track, startTime + index * 0.18, midi, 0.15, 0.8, track, state.masterTrack.gainNode || state.masterGain);
+          playPianoNote(track, startTime + index * 0.18, midi, 0.15, 0.8, outputTrack, outputNode);
         });
         return;
       }
@@ -778,8 +780,8 @@
         getDefaultStepMidi(track),
         duration,
         0.8,
-        track,
-        state.masterTrack.gainNode || state.masterGain,
+        outputTrack,
+        outputNode,
       );
     } catch (error) {
       showToast(error.message || `Could not preview ${track.name}.`);
@@ -1233,28 +1235,68 @@
     `;
   }
 
+  function connectMasterGainDirectly(context) {
+    if (state.masterPitchNode?.context === context) {
+      state.masterGain.disconnect();
+      state.masterPitchNode.disconnect();
+      state.masterPitchNode = null;
+      masterPitchDirectConnections.delete(context);
+    }
+    if (masterPitchDirectConnections.has(context)) return;
+    state.masterGain.disconnect();
+    state.masterGain.connect(context.destination);
+    masterPitchDirectConnections.add(context);
+  }
+
+  async function loadMasterPitchProcessorModule(context) {
+    let setup = masterPitchProcessorModules.get(context);
+    if (!setup) {
+      setup = Promise.resolve().then(async () => {
+        const source = new Blob([getMasterPitchProcessorSource()], { type: "text/javascript" });
+        const moduleUrl = URL.createObjectURL(source);
+        try {
+          await context.audioWorklet.addModule(moduleUrl);
+        } finally {
+          URL.revokeObjectURL(moduleUrl);
+        }
+      });
+      masterPitchProcessorModules.set(context, setup);
+    }
+    try {
+      await setup;
+    } catch (error) {
+      if (masterPitchProcessorModules.get(context) === setup) {
+        masterPitchProcessorModules.delete(context);
+      }
+      throw error;
+    }
+  }
+
   async function connectMasterPitchProcessor(context) {
-    if (state.masterPitchNode?.context === context) return state.masterPitchNode;
+    if (state.masterPitch !== 0 && state.masterPitchNode?.context === context) return state.masterPitchNode;
     if (context === state.audioContext) await applySelectedAudioOutput(context);
-    if (state.masterPitchNode?.context === context) return state.masterPitchNode;
+    if (state.masterPitch !== 0 && state.masterPitchNode?.context === context) return state.masterPitchNode;
+    if (state.masterPitch === 0 && masterPitchDirectConnections.has(context)) return null;
+    if (!context.audioWorklet || typeof window.AudioWorkletNode !== "function") {
+      state.masterPitchSupported = false;
+      if (state.masterPitch !== 0) showToast("Master pitch shifting is not supported in this browser.");
+      connectMasterGainDirectly(context);
+      updateProjectKeyIndicator();
+      return null;
+    }
+    await loadMasterPitchProcessorModule(context);
+    state.masterPitchSupported = true;
+    if (state.masterPitch === 0) {
+      connectMasterGainDirectly(context);
+      updateProjectKeyIndicator();
+      return null;
+    }
     const pendingSetup = masterPitchProcessorSetups.get(context);
     if (pendingSetup) return pendingSetup;
-    const setup = Promise.resolve().then(async () => {
-      if (!context.audioWorklet || typeof window.AudioWorkletNode !== "function") {
-        state.masterPitchSupported = false;
-        if (state.masterPitch !== 0) showToast("Master pitch shifting is not supported in this browser.");
-        updateProjectKeyIndicator();
-        state.masterGain.connect(context.destination);
-        state.masterPitchNode = null;
+    const setup = Promise.resolve().then(() => {
+      if (state.masterPitch === 0) {
+        connectMasterGainDirectly(context);
         return null;
-      }
-      state.masterPitchSupported = true;
-      const source = new Blob([getMasterPitchProcessorSource()], { type: "text/javascript" });
-      const moduleUrl = URL.createObjectURL(source);
-      try {
-        await context.audioWorklet.addModule(moduleUrl);
-      } finally {
-        URL.revokeObjectURL(moduleUrl);
       }
       const node = new window.AudioWorkletNode(context, "dansbpm-master-pitch", {
         numberOfInputs: 1,
@@ -1264,6 +1306,8 @@
         channelCountMode: "explicit",
       });
       node.parameters.get("semitones").setValueAtTime(state.masterPitch, context.currentTime);
+      state.masterGain.disconnect();
+      masterPitchDirectConnections.delete(context);
       state.masterGain.connect(node);
       node.connect(context.destination);
       state.masterPitchNode = node;
@@ -1272,9 +1316,10 @@
     masterPitchProcessorSetups.set(context, setup);
     try {
       return await setup;
-    } catch (error) {
-      masterPitchProcessorSetups.delete(context);
-      throw error;
+    } finally {
+      if (masterPitchProcessorSetups.get(context) === setup) {
+        masterPitchProcessorSetups.delete(context);
+      }
     }
   }
 
@@ -1288,7 +1333,7 @@
       await connectMasterPitchProcessor(state.audioContext);
       ensureTrackAudio(state.masterTrack);
       state.effectTracks.forEach(ensureTrackAudio);
-      state.tracks.forEach(ensureSequencerTrackAudio);
+      state.tracks.filter((track) => !track.libraryOnly).forEach(ensureSequencerTrackAudio);
       state.noiseBuffer = createNoiseBuffer(state.audioContext);
     }
     await connectMasterPitchProcessor(state.audioContext);

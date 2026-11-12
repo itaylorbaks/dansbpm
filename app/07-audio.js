@@ -559,6 +559,15 @@
       return;
     }
     state.masterPitch = Math.max(-12, Math.min(12, Math.round(Number(value) || 0)));
+    if (state.audioContext) {
+      if (state.masterPitch === 0) {
+        connectMasterGainDirectly(state.audioContext);
+      } else {
+        connectMasterPitchProcessor(state.audioContext).catch((error) => {
+          showToast(`Could not apply master pitch: ${error.message || "audio setup failed."}`);
+        });
+      }
+    }
     updateProjectKeyIndicator();
     saveState();
   }

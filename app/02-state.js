@@ -206,7 +206,9 @@
   let stepInstrumentPickerMode = "step";
   let stepInstrumentPendingId = null;
   const librarySampleLoads = new Map();
+  const masterPitchProcessorModules = new WeakMap();
   const masterPitchProcessorSetups = new WeakMap();
+  const masterPitchDirectConnections = new WeakSet();
   const reversedLibrarySampleBuffers = new WeakMap();
 
   function makeTracks() {
@@ -219,7 +221,7 @@
         sample: null, gainNode: null, effects: makeDefaultEffects(),
       };
     });
-    tracks.forEach(ensureSequencerTrackAudio);
+    tracks.filter((track) => !track.libraryOnly).forEach(ensureSequencerTrackAudio);
     return tracks;
   }
 

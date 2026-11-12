@@ -60,7 +60,7 @@
     if (!track) return;
     velocity *= Math.max(0, Math.min(1, noteOptions.volume ?? 1));
     const soundDurationScale = getSoundDurationScale(track);
-    ensureSequencerTrackAudio(track);
+    if (!track.libraryOnly || !outputNode) ensureSequencerTrackAudio(track);
     ensureTrackAudio(outputTrack);
     outputNode ||= outputTrack.gainNode;
     const pan = Number.isFinite(noteOptions.pan) ? Math.max(-1, Math.min(1, noteOptions.pan)) : 0;
