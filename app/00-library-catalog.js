@@ -397,6 +397,7 @@
     ...EXTRA_KIT_TRACKS,
     ...EXTRA_VOICE_TRACKS,
     ...LIVE_SAMPLE_TRACKS,
+    ...DRIVE_SAMPLE_TRACKS,
   ].map((track) => ({ ...track, libraryOnly: true, subtitle: track.subtitle || track.family }));
 
   const PRESETS = [

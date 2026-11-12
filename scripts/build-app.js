@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const parts = [
+  "drive-sample-catalog.js",
   "00-library-catalog.js",
   "01-app-config.js",
   "02-state.js",

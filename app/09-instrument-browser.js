@@ -152,7 +152,7 @@
       }
 
       let container = familyGroup;
-      if (family === "Drums" || family === "Live Drums") {
+      if (track.sampleCategory || family === "Drums" || family === "Live Drums") {
         const kind = getInstrumentCategory(track) || "Other Drums";
         const subsectionKey = `drum-kind-${kind.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
         let subsection = familyGroup.querySelector(`[data-subsection="${subsectionKey}"]`);
