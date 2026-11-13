@@ -87,40 +87,43 @@
     return `${getProjectStorageKey(state.projectId)}:dj`;
   }
 
+  function getDjProjectSnapshot() {
+    return {
+      activeDeck: djState.activeDeck,
+      crossfader: djState.crossfader,
+      masterMuted: djState.masterMuted,
+      masterVolume: djState.masterVolume,
+      masterLow: djState.masterLow,
+      masterMid: djState.masterMid,
+      masterHigh: djState.masterHigh,
+      masterFilter: djState.masterFilter,
+      arrangementViewStartBar: djState.arrangementViewStartBar,
+      liveSlots: djState.liveSlots.map((slot) => slot ? { ...slot } : null),
+      decks: Object.fromEntries(DJ_DECK_IDS.map((deckId) => {
+        const deck = djState.decks[deckId];
+        return [deckId, {
+          sourceKey: deck.sourceKey,
+          volume: deck.volume,
+          muted: deck.muted,
+          filter: deck.filter,
+          eqLow: deck.eqLow,
+          eqMid: deck.eqMid,
+          eqHigh: deck.eqHigh,
+          quickIso: deck.quickIso,
+          pitch: deck.pitch,
+          syncRate: deck.syncRate,
+          reverse: deck.reverse,
+          startOffsetBars: deck.startOffsetBars,
+          loop: deck.loop ? { ...deck.loop } : null,
+        }];
+      })),
+    };
+  }
+
   function saveDjState() {
     if (!isApplyingUndo) recordUndoSnapshot("dj");
     try {
-      const saved = {
-        activeDeck: djState.activeDeck,
-        crossfader: djState.crossfader,
-        masterMuted: djState.masterMuted,
-        masterVolume: djState.masterVolume,
-        masterLow: djState.masterLow,
-        masterMid: djState.masterMid,
-        masterHigh: djState.masterHigh,
-        masterFilter: djState.masterFilter,
-        arrangementViewStartBar: djState.arrangementViewStartBar,
-        liveSlots: djState.liveSlots,
-        decks: Object.fromEntries(DJ_DECK_IDS.map((deckId) => {
-          const deck = djState.decks[deckId];
-          return [deckId, {
-            sourceKey: deck.sourceKey,
-            volume: deck.volume,
-            muted: deck.muted,
-            filter: deck.filter,
-            eqLow: deck.eqLow,
-            eqMid: deck.eqMid,
-            eqHigh: deck.eqHigh,
-            quickIso: deck.quickIso,
-            pitch: deck.pitch,
-            syncRate: deck.syncRate,
-            reverse: deck.reverse,
-            startOffsetBars: deck.startOffsetBars,
-            loop: deck.loop,
-          }];
-        })),
-      };
-      window.localStorage.setItem(getDjStorageKey(), JSON.stringify(saved));
+      window.localStorage.setItem(getDjStorageKey(), JSON.stringify(getDjProjectSnapshot()));
     } catch (error) {
       showToast(`Could not save DJ set: ${error.message || "browser storage is unavailable"}`);
     }

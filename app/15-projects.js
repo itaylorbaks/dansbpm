@@ -1136,10 +1136,7 @@
     const projectFile = await createProjectFile();
     const project = state.projects.find((item) => item.id === state.projectId);
     if (project) projectFile.project.name = project.name;
-    const savedDj = JSON.parse(window.localStorage.getItem(getDjStorageKey()) || "null");
-    if (savedDj && typeof savedDj === "object" && !Array.isArray(savedDj)) {
-      projectFile.project.snapshot.dj = savedDj;
-    }
+    projectFile.project.snapshot.dj = getDjProjectSnapshot();
     return projectFile;
   }
 

@@ -290,8 +290,35 @@ test("accounts authenticate and persist compressed project files", async (t) => 
     app: "DansBPM",
     format: "dansbpm-project",
     version: 1,
-    project: { name: "Cloud song", snapshot: { bpm: 128 } },
-    assets: [],
+    project: {
+      name: "Cloud song",
+      snapshot: {
+        bpm: 128,
+        tracks: [{ id: "drum-track", kind: "sample", cells: [true, false] }],
+        patterns: [{
+          id: "pattern-a",
+          name: "Pattern A",
+          steps: 16,
+          trackIds: ["drum-track"],
+          cells: { "drum-track": [true, false] },
+        }],
+        patternClips: [{ id: "pattern-clip", patternId: "pattern-a", startBar: 0 }],
+        arrangementTracks: [{ id: "audio-track", name: "Audio track" }],
+        mels: [{ id: "mel-a", name: "Mel A", notes: [{ id: "note-a", midi: 60 }] }],
+        melTracks: [{ id: "mel-track", clips: [{ id: "mel-clip", melId: "mel-a" }] }],
+        dj: {
+          liveSlots: [{ sourceKey: "pattern:pattern-a", name: "Pattern A" }],
+          decks: {
+            A: { sourceKey: "pattern:pattern-a", loop: { startBar: 0, endBar: 4 } },
+            B: { sourceKey: "mel:mel-a", loop: null },
+          },
+        },
+      },
+    },
+    assets: [{
+      metadata: { trackId: "audio-track", name: "recording.wav" },
+      dataUrl: "data:audio/wav;base64,AA==",
+    }],
   };
   const saved = await request(`/api/projects/${projectId}/file`, {
     method: "PUT",
@@ -303,6 +330,11 @@ test("accounts authenticate and persist compressed project files", async (t) => 
   });
   assert.equal(saved.status, 200);
   assert.equal((await saved.json()).project.revision, 1);
+  const initialDownload = await request(`/api/projects/${projectId}/file`, {
+    headers: { authorization: `Bearer ${account.token}` },
+  });
+  assert.equal(initialDownload.status, 200);
+  assert.deepEqual(await initialDownload.json(), bpmFile);
 
   const compressedPath = join(dataDirectory, "projects", account.account.id, `${projectId}.bpm.gz`);
   const compressed = await readFile(compressedPath);
@@ -310,7 +342,10 @@ test("accounts authenticate and persist compressed project files", async (t) => 
 
   const updatedFile = {
     ...bpmFile,
-    project: { ...bpmFile.project, snapshot: { bpm: 136 } },
+    project: {
+      ...bpmFile.project,
+      snapshot: { ...bpmFile.project.snapshot, bpm: 136 },
+    },
   };
   const updated = await request(`/api/projects/${projectId}/file`, {
     method: "PUT",
@@ -325,6 +360,10 @@ test("accounts authenticate and persist compressed project files", async (t) => 
     JSON.parse(gunzipSync(await readFile(compressedPath)).toString("utf8")),
     updatedFile,
   );
+  const updatedDownload = await request(`/api/projects/${projectId}/file`, {
+    headers: { authorization: `Bearer ${account.token}` },
+  });
+  assert.deepEqual(await updatedDownload.json(), updatedFile);
 
   const secondRegistration = await request("/api/register", {
     method: "POST",
