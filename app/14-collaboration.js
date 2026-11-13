@@ -1118,7 +1118,7 @@
       else window.localStorage.setItem(getProjectStorageKey(projectId), JSON.stringify(snapshot));
     } catch (error) {
       saveState.lastError = error?.name === "QuotaExceededError"
-        ? "browser storage is full."
+        ? "localStorage quota exceeded."
         : error?.message || "browser storage is unavailable.";
       $("#save-state").textContent = "Session-only changes";
       $(".save-dot").style.background = "#d3a34b";
@@ -1653,7 +1653,7 @@
       return;
     }
     if (!flushSaveState()) {
-      if (!getCloudToken() || saveState.lastError !== "browser storage is full.") {
+      if (!getCloudToken() || saveState.lastError !== "localStorage quota exceeded.") {
         showToast("Could not save this project; switching was cancelled.");
         return;
       }

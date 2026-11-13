@@ -20724,15 +20724,37 @@ const DRIVE_SAMPLE_TRACKS = [
     return `${size.toFixed(unitIndex > 0 && size < 10 ? 1 : 0)} ${units[unitIndex]}`;
   }
 
+  function estimateLocalStorageUsage() {
+    try {
+      let bytes = 0;
+      for (let index = 0; index < window.localStorage.length; index += 1) {
+        const key = window.localStorage.key(index);
+        if (key === null) continue;
+        bytes += (key.length + (window.localStorage.getItem(key) || "").length) * 2;
+      }
+      return bytes;
+    } catch {
+      return null;
+    }
+  }
+
   async function updateStorageIndicator() {
     const indicator = $("#storage-indicator");
     const value = $("#storage-usage");
     const fill = $("#storage-meter-fill");
     if (!indicator || !value || !fill) return;
 
+    const localStorageUsage = estimateLocalStorageUsage();
+    const localStorageLabel = localStorageUsage === null
+      ? "?"
+      : `~${formatStorageSize(localStorageUsage)}`;
     if (!navigator.storage?.estimate) {
-      value.textContent = "Storage unavailable";
-      indicator.title = "This browser does not provide storage estimates.";
+      value.textContent = `IDB unavailable · LS ${localStorageLabel}`;
+      fill.style.width = "0";
+      delete indicator.dataset.level;
+      indicator.title = localStorageUsage === null
+        ? "This browser does not provide storage estimates, and localStorage usage could not be estimated."
+        : `This browser does not provide IndexedDB storage estimates. LocalStorage uses approximately ${formatStorageSize(localStorageUsage)} and has a separate, browser-specific limit.`;
       indicator.setAttribute("aria-label", indicator.title);
       return;
     }
@@ -20748,18 +20770,27 @@ const DRIVE_SAMPLE_TRACKS = [
       }
 
       const percent = Math.min(100, Math.max(0, usage / quota * 100));
-      const usageLabel = `${hasIndexedDbUsage ? "IDB" : "Site"} ${formatStorageSize(usage)} / ${formatStorageSize(quota)}`;
+      const usageLabel = `${hasIndexedDbUsage ? "IDB" : "Site"} ${formatStorageSize(usage)} · LS ${localStorageLabel}`;
       value.textContent = usageLabel;
       fill.style.width = `${percent}%`;
       indicator.dataset.level = percent >= 90 ? "critical" : percent >= 70 ? "warning" : "normal";
-      indicator.title = hasIndexedDbUsage
-        ? `IndexedDB uses ${formatStorageSize(usage)} of an estimated ${formatStorageSize(quota)} browser storage quota.`
-        : `IndexedDB usage is not reported separately; showing total site storage (${formatStorageSize(usage)} of ${formatStorageSize(quota)} estimated).`;
+      const quotaDescription = hasIndexedDbUsage
+        ? `The meter shows IndexedDB usage (${formatStorageSize(usage)} of an estimated ${formatStorageSize(quota)} site quota).`
+        : `IndexedDB usage is not reported separately; the meter shows total site storage (${formatStorageSize(usage)} of ${formatStorageSize(quota)} estimated).`;
+      const localStorageDescription = localStorageUsage === null
+        ? " LocalStorage usage could not be estimated."
+        : ` LocalStorage uses approximately ${formatStorageSize(localStorageUsage)} and has a separate, browser-specific limit not reported by this meter.`;
+      indicator.title = `${quotaDescription}${localStorageDescription}`;
       indicator.setAttribute("aria-label", indicator.title);
     } catch (error) {
-      value.textContent = "Storage unavailable";
+      value.textContent = `IDB unavailable · LS ${localStorageLabel}`;
       fill.style.width = "0";
-      indicator.title = `Could not estimate browser storage: ${error.message || "unknown error"}`;
+      delete indicator.dataset.level;
+      indicator.title = `Could not estimate IndexedDB storage: ${error.message || "unknown error"}. ${
+        localStorageUsage === null
+          ? "LocalStorage usage could not be estimated."
+          : `LocalStorage uses approximately ${formatStorageSize(localStorageUsage)} and has a separate, browser-specific limit.`
+      }`;
       indicator.setAttribute("aria-label", indicator.title);
     }
   }
@@ -22117,7 +22148,7 @@ const DRIVE_SAMPLE_TRACKS = [
       }
     }
 
-    throw new DOMException("Browser storage is full.", "QuotaExceededError");
+    throw new DOMException("localStorage quota exceeded.", "QuotaExceededError");
   }
 
   function getCurrentUserProjects() {
@@ -23626,7 +23657,7 @@ const DRIVE_SAMPLE_TRACKS = [
       else window.localStorage.setItem(getProjectStorageKey(projectId), JSON.stringify(snapshot));
     } catch (error) {
       saveState.lastError = error?.name === "QuotaExceededError"
-        ? "browser storage is full."
+        ? "localStorage quota exceeded."
         : error?.message || "browser storage is unavailable.";
       $("#save-state").textContent = "Session-only changes";
       $(".save-dot").style.background = "#d3a34b";
@@ -24161,7 +24192,7 @@ const DRIVE_SAMPLE_TRACKS = [
       return;
     }
     if (!flushSaveState()) {
-      if (!getCloudToken() || saveState.lastError !== "browser storage is full.") {
+      if (!getCloudToken() || saveState.lastError !== "localStorage quota exceeded.") {
         showToast("Could not save this project; switching was cancelled.");
         return;
       }
@@ -24289,9 +24320,11 @@ const DRIVE_SAMPLE_TRACKS = [
 
   async function saveProjectNow() {
     const locallySaved = flushSaveState();
+    void updateStorageIndicator();
     const cloudToken = getCloudToken();
-    const browserStorageFull = !locallySaved && saveState.lastError === "browser storage is full.";
-    if (!locallySaved && !(cloudToken && browserStorageFull)) {
+    const localStorageQuotaExceeded = !locallySaved &&
+      saveState.lastError === "localStorage quota exceeded.";
+    if (!locallySaved && !(cloudToken && localStorageQuotaExceeded)) {
       showToast(`Could not save this project: ${saveState.lastError || "storage is unavailable."}`);
       return false;
     }
@@ -24323,7 +24356,7 @@ const DRIVE_SAMPLE_TRACKS = [
       $("#save-state").textContent = "Saved to cloud";
       $(".save-dot").style.background = "#7f9d43";
       showToast(!locallySaved
-        ? `${state.projectName} saved to the cloud; browser storage is full, so reopen it from the cloud if needed`
+        ? `${state.projectName} saved to the cloud, but this browser reached its localStorage limit; its cached copy may be stale until reopened from the cloud`
         : catalogSaved
           ? `${state.projectName} saved to the cloud`
           : `${state.projectName} saved to the cloud, but the browser project list could not be updated`);
@@ -24332,7 +24365,7 @@ const DRIVE_SAMPLE_TRACKS = [
       renderProjectList();
       showToast(locallySaved
         ? `${state.projectName} saved in this browser, but cloud save failed: ${error.message || "the server is unavailable"}`
-        : `Could not save ${state.projectName} to the cloud: ${error.message || "the server is unavailable"}; browser storage is full`);
+        : `Could not save ${state.projectName} to the cloud: ${error.message || "the server is unavailable"}. This browser also reached its localStorage limit, so its cached copy could not be updated.`);
       return false;
     }
   }

@@ -1091,7 +1091,7 @@
       }
     }
 
-    throw new DOMException("Browser storage is full.", "QuotaExceededError");
+    throw new DOMException("localStorage quota exceeded.", "QuotaExceededError");
   }
 
   function getCurrentUserProjects() {

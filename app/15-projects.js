@@ -53,9 +53,11 @@
 
   async function saveProjectNow() {
     const locallySaved = flushSaveState();
+    void updateStorageIndicator();
     const cloudToken = getCloudToken();
-    const browserStorageFull = !locallySaved && saveState.lastError === "browser storage is full.";
-    if (!locallySaved && !(cloudToken && browserStorageFull)) {
+    const localStorageQuotaExceeded = !locallySaved &&
+      saveState.lastError === "localStorage quota exceeded.";
+    if (!locallySaved && !(cloudToken && localStorageQuotaExceeded)) {
       showToast(`Could not save this project: ${saveState.lastError || "storage is unavailable."}`);
       return false;
     }
@@ -87,7 +89,7 @@
       $("#save-state").textContent = "Saved to cloud";
       $(".save-dot").style.background = "#7f9d43";
       showToast(!locallySaved
-        ? `${state.projectName} saved to the cloud; browser storage is full, so reopen it from the cloud if needed`
+        ? `${state.projectName} saved to the cloud, but this browser reached its localStorage limit; its cached copy may be stale until reopened from the cloud`
         : catalogSaved
           ? `${state.projectName} saved to the cloud`
           : `${state.projectName} saved to the cloud, but the browser project list could not be updated`);
@@ -96,7 +98,7 @@
       renderProjectList();
       showToast(locallySaved
         ? `${state.projectName} saved in this browser, but cloud save failed: ${error.message || "the server is unavailable"}`
-        : `Could not save ${state.projectName} to the cloud: ${error.message || "the server is unavailable"}; browser storage is full`);
+        : `Could not save ${state.projectName} to the cloud: ${error.message || "the server is unavailable"}. This browser also reached its localStorage limit, so its cached copy could not be updated.`);
       return false;
     }
   }
