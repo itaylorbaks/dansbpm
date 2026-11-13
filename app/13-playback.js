@@ -1052,6 +1052,48 @@
     return `${PROJECT_STORAGE_PREFIX}${projectId}`;
   }
 
+  function projectNeedsCloudDownload(project) {
+    if (!project?.cloudBacked || !project.cloudHasFile) return false;
+    if (project.localCloudRevision !== project.cloudRevision) return true;
+    try {
+      return window.localStorage.getItem(getProjectStorageKey(project.id)) === null;
+    } catch {
+      return true;
+    }
+  }
+
+  function saveCloudProjectSnapshot(projectId, snapshot) {
+    const snapshotKey = getProjectStorageKey(projectId);
+    const serialized = JSON.stringify(snapshot);
+    try {
+      window.localStorage.setItem(snapshotKey, serialized);
+      return;
+    } catch (error) {
+      if (error?.name !== "QuotaExceededError") throw error;
+    }
+
+    // Synced cloud snapshots can be downloaded again; unsynced local edits cannot.
+    for (const cachedProject of state.projects.filter((project) =>
+      project.id !== projectId &&
+      project.ownerId === state.currentUser &&
+      project.cloudBacked &&
+      project.cloudHasFile &&
+      project.localDirty !== true)) {
+      const cachedSnapshotKey = getProjectStorageKey(cachedProject.id);
+      window.localStorage.removeItem(cachedSnapshotKey);
+      window.localStorage.removeItem(`${cachedSnapshotKey}:dj`);
+      cachedProject.localCloudRevision = null;
+      try {
+        window.localStorage.setItem(snapshotKey, serialized);
+        return;
+      } catch (error) {
+        if (error?.name !== "QuotaExceededError") throw error;
+      }
+    }
+
+    throw new DOMException("Browser storage is full.", "QuotaExceededError");
+  }
+
   function getCurrentUserProjects() {
     return state.projects.filter((project) => project.ownerId === state.currentUser);
   }

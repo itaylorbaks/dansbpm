@@ -22075,6 +22075,48 @@ const DRIVE_SAMPLE_TRACKS = [
     return `${PROJECT_STORAGE_PREFIX}${projectId}`;
   }
 
+  function projectNeedsCloudDownload(project) {
+    if (!project?.cloudBacked || !project.cloudHasFile) return false;
+    if (project.localCloudRevision !== project.cloudRevision) return true;
+    try {
+      return window.localStorage.getItem(getProjectStorageKey(project.id)) === null;
+    } catch {
+      return true;
+    }
+  }
+
+  function saveCloudProjectSnapshot(projectId, snapshot) {
+    const snapshotKey = getProjectStorageKey(projectId);
+    const serialized = JSON.stringify(snapshot);
+    try {
+      window.localStorage.setItem(snapshotKey, serialized);
+      return;
+    } catch (error) {
+      if (error?.name !== "QuotaExceededError") throw error;
+    }
+
+    // Synced cloud snapshots can be downloaded again; unsynced local edits cannot.
+    for (const cachedProject of state.projects.filter((project) =>
+      project.id !== projectId &&
+      project.ownerId === state.currentUser &&
+      project.cloudBacked &&
+      project.cloudHasFile &&
+      project.localDirty !== true)) {
+      const cachedSnapshotKey = getProjectStorageKey(cachedProject.id);
+      window.localStorage.removeItem(cachedSnapshotKey);
+      window.localStorage.removeItem(`${cachedSnapshotKey}:dj`);
+      cachedProject.localCloudRevision = null;
+      try {
+        window.localStorage.setItem(snapshotKey, serialized);
+        return;
+      } catch (error) {
+        if (error?.name !== "QuotaExceededError") throw error;
+      }
+    }
+
+    throw new DOMException("Browser storage is full.", "QuotaExceededError");
+  }
+
   function getCurrentUserProjects() {
     return state.projects.filter((project) => project.ownerId === state.currentUser);
   }
@@ -23577,7 +23619,8 @@ const DRIVE_SAMPLE_TRACKS = [
       return false;
     }
     try {
-      window.localStorage.setItem(getProjectStorageKey(projectId), JSON.stringify(snapshot));
+      if (getCloudToken()) saveCloudProjectSnapshot(projectId, snapshot);
+      else window.localStorage.setItem(getProjectStorageKey(projectId), JSON.stringify(snapshot));
     } catch (error) {
       saveState.lastError = error?.name === "QuotaExceededError"
         ? "browser storage is full."
@@ -23967,8 +24010,7 @@ const DRIVE_SAMPLE_TRACKS = [
       list.append(button);
     });
     const selectedProject = projects.find((project) => project.id === selectedProjectId);
-    const cloudNeedsDownload = selectedProject?.cloudBacked && selectedProject.cloudHasFile &&
-      selectedProject.localCloudRevision !== selectedProject.cloudRevision;
+    const cloudNeedsDownload = projectNeedsCloudDownload(selectedProject);
     $("#enter-project-button").disabled = !selectedProject ||
       selectedProject.id === state.projectId && !cloudNeedsDownload;
     $("#delete-project-button").disabled = !selectedProject;
@@ -24086,8 +24128,7 @@ const DRIVE_SAMPLE_TRACKS = [
     const project = state.projects.find((item) =>
       item.id === projectId && item.ownerId === state.currentUser);
     if (!project) return;
-    const cloudNeedsDownload = project.cloudBacked && project.cloudHasFile &&
-      project.localCloudRevision !== project.cloudRevision;
+    const cloudNeedsDownload = projectNeedsCloudDownload(project);
     if (projectId === state.projectId && !cloudNeedsDownload) return;
     if (projectId === state.projectId && cloudNeedsDownload) {
       if (project.localDirty) {
@@ -24107,8 +24148,11 @@ const DRIVE_SAMPLE_TRACKS = [
       return;
     }
     if (!flushSaveState()) {
-      showToast("Could not save this project; switching was cancelled.");
-      return;
+      if (!getCloudToken() || saveState.lastError !== "browser storage is full.") {
+        showToast("Could not save this project; switching was cancelled.");
+        return;
+      }
+      if (!await saveProjectNow()) return;
     }
     if (cloudNeedsDownload) {
       if (project.localDirty) {
@@ -24231,15 +24275,18 @@ const DRIVE_SAMPLE_TRACKS = [
   }
 
   async function saveProjectNow() {
-    if (!flushSaveState()) {
+    const locallySaved = flushSaveState();
+    const cloudToken = getCloudToken();
+    const browserStorageFull = !locallySaved && saveState.lastError === "browser storage is full.";
+    if (!locallySaved && !(cloudToken && browserStorageFull)) {
       showToast(`Could not save this project: ${saveState.lastError || "storage is unavailable."}`);
-      return;
+      return false;
     }
     const project = state.projects.find((item) => item.id === state.projectId);
-    if (!project || !getCloudToken()) {
+    if (!project || !cloudToken) {
       renderProjectList();
       showToast(`${state.projectName} saved`);
-      return;
+      return locallySaved;
     }
     try {
       if (!project.cloudBacked) {
@@ -24250,17 +24297,30 @@ const DRIVE_SAMPLE_TRACKS = [
         cloudBacked: true,
         cloudHasFile: true,
         cloudRevision: remote.revision,
-        localCloudRevision: remote.revision,
+        localCloudRevision: locallySaved ? remote.revision : null,
         localDirty: false,
       });
-      writeProjectCatalog();
+      let catalogSaved = true;
+      try {
+        writeProjectCatalog();
+      } catch {
+        catalogSaved = false;
+      }
       renderProjectList();
       $("#save-state").textContent = "Saved to cloud";
       $(".save-dot").style.background = "#7f9d43";
-      showToast(`${state.projectName} saved to the cloud`);
+      showToast(!locallySaved
+        ? `${state.projectName} saved to the cloud; browser storage is full, so reopen it from the cloud if needed`
+        : catalogSaved
+          ? `${state.projectName} saved to the cloud`
+          : `${state.projectName} saved to the cloud, but the browser project list could not be updated`);
+      return true;
     } catch (error) {
       renderProjectList();
-      showToast(`${state.projectName} saved in this browser, but cloud save failed: ${error.message || "the server is unavailable"}`);
+      showToast(locallySaved
+        ? `${state.projectName} saved in this browser, but cloud save failed: ${error.message || "the server is unavailable"}`
+        : `Could not save ${state.projectName} to the cloud: ${error.message || "the server is unavailable"}; browser storage is full`);
+      return false;
     }
   }
 
@@ -24388,18 +24448,22 @@ const DRIVE_SAMPLE_TRACKS = [
     const storageKey = getProjectStorageKey(project.id);
     const previousSnapshot = window.localStorage.getItem(storageKey);
     try {
-      window.localStorage.setItem(storageKey, JSON.stringify(snapshot));
+      saveCloudProjectSnapshot(project.id, snapshot);
       await replaceProjectRecordingAssets(project.id, assets);
-      project.localCloudRevision = revision;
-      project.cloudRevision = revision;
-      project.cloudHasFile = true;
-      project.cloudBacked = true;
-      project.localDirty = false;
-      writeProjectCatalog();
     } catch (error) {
       if (previousSnapshot === null) window.localStorage.removeItem(storageKey);
       else window.localStorage.setItem(storageKey, previousSnapshot);
       throw error;
+    }
+    project.localCloudRevision = revision;
+    project.cloudRevision = revision;
+    project.cloudHasFile = true;
+    project.cloudBacked = true;
+    project.localDirty = false;
+    try {
+      writeProjectCatalog();
+    } catch {
+      showToast("Project downloaded, but its local project list could not be updated.");
     }
   }
 

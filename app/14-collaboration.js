@@ -1114,7 +1114,8 @@
       return false;
     }
     try {
-      window.localStorage.setItem(getProjectStorageKey(projectId), JSON.stringify(snapshot));
+      if (getCloudToken()) saveCloudProjectSnapshot(projectId, snapshot);
+      else window.localStorage.setItem(getProjectStorageKey(projectId), JSON.stringify(snapshot));
     } catch (error) {
       saveState.lastError = error?.name === "QuotaExceededError"
         ? "browser storage is full."
@@ -1504,8 +1505,7 @@
       list.append(button);
     });
     const selectedProject = projects.find((project) => project.id === selectedProjectId);
-    const cloudNeedsDownload = selectedProject?.cloudBacked && selectedProject.cloudHasFile &&
-      selectedProject.localCloudRevision !== selectedProject.cloudRevision;
+    const cloudNeedsDownload = projectNeedsCloudDownload(selectedProject);
     $("#enter-project-button").disabled = !selectedProject ||
       selectedProject.id === state.projectId && !cloudNeedsDownload;
     $("#delete-project-button").disabled = !selectedProject;
@@ -1623,8 +1623,7 @@
     const project = state.projects.find((item) =>
       item.id === projectId && item.ownerId === state.currentUser);
     if (!project) return;
-    const cloudNeedsDownload = project.cloudBacked && project.cloudHasFile &&
-      project.localCloudRevision !== project.cloudRevision;
+    const cloudNeedsDownload = projectNeedsCloudDownload(project);
     if (projectId === state.projectId && !cloudNeedsDownload) return;
     if (projectId === state.projectId && cloudNeedsDownload) {
       if (project.localDirty) {
@@ -1644,8 +1643,11 @@
       return;
     }
     if (!flushSaveState()) {
-      showToast("Could not save this project; switching was cancelled.");
-      return;
+      if (!getCloudToken() || saveState.lastError !== "browser storage is full.") {
+        showToast("Could not save this project; switching was cancelled.");
+        return;
+      }
+      if (!await saveProjectNow()) return;
     }
     if (cloudNeedsDownload) {
       if (project.localDirty) {

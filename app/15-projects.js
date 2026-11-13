@@ -52,15 +52,18 @@
   }
 
   async function saveProjectNow() {
-    if (!flushSaveState()) {
+    const locallySaved = flushSaveState();
+    const cloudToken = getCloudToken();
+    const browserStorageFull = !locallySaved && saveState.lastError === "browser storage is full.";
+    if (!locallySaved && !(cloudToken && browserStorageFull)) {
       showToast(`Could not save this project: ${saveState.lastError || "storage is unavailable."}`);
-      return;
+      return false;
     }
     const project = state.projects.find((item) => item.id === state.projectId);
-    if (!project || !getCloudToken()) {
+    if (!project || !cloudToken) {
       renderProjectList();
       showToast(`${state.projectName} saved`);
-      return;
+      return locallySaved;
     }
     try {
       if (!project.cloudBacked) {
@@ -71,17 +74,30 @@
         cloudBacked: true,
         cloudHasFile: true,
         cloudRevision: remote.revision,
-        localCloudRevision: remote.revision,
+        localCloudRevision: locallySaved ? remote.revision : null,
         localDirty: false,
       });
-      writeProjectCatalog();
+      let catalogSaved = true;
+      try {
+        writeProjectCatalog();
+      } catch {
+        catalogSaved = false;
+      }
       renderProjectList();
       $("#save-state").textContent = "Saved to cloud";
       $(".save-dot").style.background = "#7f9d43";
-      showToast(`${state.projectName} saved to the cloud`);
+      showToast(!locallySaved
+        ? `${state.projectName} saved to the cloud; browser storage is full, so reopen it from the cloud if needed`
+        : catalogSaved
+          ? `${state.projectName} saved to the cloud`
+          : `${state.projectName} saved to the cloud, but the browser project list could not be updated`);
+      return true;
     } catch (error) {
       renderProjectList();
-      showToast(`${state.projectName} saved in this browser, but cloud save failed: ${error.message || "the server is unavailable"}`);
+      showToast(locallySaved
+        ? `${state.projectName} saved in this browser, but cloud save failed: ${error.message || "the server is unavailable"}`
+        : `Could not save ${state.projectName} to the cloud: ${error.message || "the server is unavailable"}; browser storage is full`);
+      return false;
     }
   }
 
@@ -209,18 +225,22 @@
     const storageKey = getProjectStorageKey(project.id);
     const previousSnapshot = window.localStorage.getItem(storageKey);
     try {
-      window.localStorage.setItem(storageKey, JSON.stringify(snapshot));
+      saveCloudProjectSnapshot(project.id, snapshot);
       await replaceProjectRecordingAssets(project.id, assets);
-      project.localCloudRevision = revision;
-      project.cloudRevision = revision;
-      project.cloudHasFile = true;
-      project.cloudBacked = true;
-      project.localDirty = false;
-      writeProjectCatalog();
     } catch (error) {
       if (previousSnapshot === null) window.localStorage.removeItem(storageKey);
       else window.localStorage.setItem(storageKey, previousSnapshot);
       throw error;
+    }
+    project.localCloudRevision = revision;
+    project.cloudRevision = revision;
+    project.cloudHasFile = true;
+    project.cloudBacked = true;
+    project.localDirty = false;
+    try {
+      writeProjectCatalog();
+    } catch {
+      showToast("Project downloaded, but its local project list could not be updated.");
     }
   }
 
