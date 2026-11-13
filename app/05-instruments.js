@@ -2154,7 +2154,15 @@
       updateProjectKeyIndicator();
       return null;
     }
-    await loadMasterPitchProcessorModule(context);
+    try {
+      await loadMasterPitchProcessorModule(context);
+    } catch (error) {
+      state.masterPitchSupported = false;
+      connectMasterGainDirectly(context);
+      updateProjectKeyIndicator();
+      showToast(`Pitch shifting could not be initialized; playback will continue without it: ${error.message || "audio worklet setup failed"}`);
+      return null;
+    }
     state.masterPitchSupported = true;
     if (state.masterPitch === 0) {
       connectMasterGainDirectly(context);

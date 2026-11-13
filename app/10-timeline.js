@@ -473,18 +473,53 @@
       ? `Drag to repeat ${name}`
       : "Drag to trim or extend; extension after the source is silent";
 
+    const getResizeTargets = () => {
+      const selectedKey = arrangementSelectionKey(type, clip.id);
+      if (!state.selectedArrangementItems.has(selectedKey)) {
+        return [{ type, clip, track, initialDuration: getArrangementClipDuration(type, clip) }];
+      }
+      const targets = [];
+      state.patternClips.forEach((item) => {
+        if (state.selectedArrangementItems.has(arrangementSelectionKey("pattern", item.id))) {
+          targets.push({ type: "pattern", clip: item, track: null });
+        }
+      });
+      state.melTracks.forEach((itemTrack) => itemTrack.clips.forEach((item) => {
+        if (state.selectedArrangementItems.has(arrangementSelectionKey("mel", item.id))) {
+          targets.push({ type: "mel", clip: item, track: itemTrack });
+        }
+      }));
+      state.arrangementTracks.forEach((itemTrack) => itemTrack.clips.forEach((item) => {
+        if (state.selectedArrangementItems.has(arrangementSelectionKey("audio", item.id))) {
+          targets.push({ type: "audio", clip: item, track: itemTrack });
+        }
+      }));
+      if (!targets.some((item) => item.type === type && item.clip === clip)) {
+        targets.push({ type, clip, track });
+      }
+      return targets.map((item) => ({
+        ...item,
+        initialDuration: getArrangementClipDuration(item.type, item.clip),
+      }));
+    };
+
+    const setClipDuration = (target, durationBars) => {
+      if (target.type === "audio") {
+        target.clip.durationSeconds = durationBars * (240 / state.bpm) * getAudioClipTempoRatio(target.clip);
+      } else {
+        target.clip.durationBars = durationBars;
+      }
+      if (mode !== "repeat") return;
+      const repeatLength = getArrangementClipRepeatLength(target.type, target.clip);
+      const sourceOffset = target.type === "mel" ? target.clip.sourceOffsetBars || 0
+        : target.type === "audio" ? (target.clip.sourceOffsetSeconds || 0) /
+          ((240 / state.bpm) * getAudioClipTempoRatio(target.clip))
+          : target.clip.sourceOffsetBars || 0;
+      target.clip.repeatCount = Math.max(1, Math.ceil((sourceOffset + durationBars - 0.0001) / repeatLength));
+    };
+
     const updateDuration = (durationBars) => {
-      if (type === "audio") {
-        clip.durationSeconds = durationBars * (240 / state.bpm) * getAudioClipTempoRatio(clip);
-      }
-      else clip.durationBars = durationBars;
-      if (mode === "repeat") {
-        const repeatLength = getArrangementClipRepeatLength(type, clip);
-        const sourceOffset = type === "mel" ? clip.sourceOffsetBars || 0
-          : type === "audio" ? (clip.sourceOffsetSeconds || 0) /
-            ((240 / state.bpm) * getAudioClipTempoRatio(clip)) : clip.sourceOffsetBars || 0;
-        clip.repeatCount = Math.max(1, Math.ceil((sourceOffset + durationBars - 0.0001) / repeatLength));
-      }
+      setClipDuration({ type, clip }, durationBars);
       const duration = getArrangementClipDuration(type, clip);
       element.style.width = `${Math.max(12, duration * BAR_WIDTH - 8)}px`;
       if (type === "audio") {
@@ -506,15 +541,30 @@
       element.setAttribute("aria-label", `${name}, bar ${clip.startBar + 1}, ${duration.toFixed(2)} bars; drag to move or resize`);
     };
 
-    const finishResize = (changed) => {
+    const clampResizeDelta = (targets, requestedDelta) => {
+      let minimumDelta = -Infinity;
+      let maximumDelta = Infinity;
+      targets.forEach((target) => {
+        const maximumDuration = Math.max(0, MAX_ARRANGEMENT_BARS - target.clip.startBar);
+        const minimumDuration = Math.min(state.arrangementSnap ? 0.25 : 0.01, maximumDuration);
+        minimumDelta = Math.max(minimumDelta, minimumDuration - target.initialDuration);
+        maximumDelta = Math.min(maximumDelta, maximumDuration - target.initialDuration);
+      });
+      if (minimumDelta > maximumDelta) return 0;
+      return Math.max(minimumDelta, Math.min(maximumDelta, requestedDelta));
+    };
+
+    const finishResize = (targets, changed) => {
       if (!changed) return;
       updateArrangementLength();
       state.suppressArrangementClick = true;
       window.setTimeout(() => { state.suppressArrangementClick = false; }, 0);
       renderArrangement();
       saveState();
-      if (type === "audio" && track) {
-        persistClip(track, clip).catch(() => showToast("Clip resized, but browser storage could not be updated."));
+      const audioTargets = targets.filter((target) => target.type === "audio" && target.track);
+      if (audioTargets.length) {
+        void Promise.all(audioTargets.map((target) => persistClip(target.track, target.clip)))
+          .catch(() => showToast("Clip resized, but browser storage could not be updated."));
       }
     };
 
@@ -522,13 +572,15 @@
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
       event.preventDefault();
       event.stopPropagation();
+      const targets = getResizeTargets();
+      const initialDuration = getArrangementClipDuration(type, clip);
       const increment = event.key === "ArrowRight" ? 0.25 : -0.25;
-      const maxDuration = MAX_ARRANGEMENT_BARS - clip.startBar;
-      const minDuration = Math.min(state.arrangementSnap ? 0.25 : 0.01, maxDuration);
-      const next = Math.max(minDuration, Math.min(maxDuration,
-        snapArrangementBar(getArrangementClipDuration(type, clip) + increment)));
-      updateDuration(next);
-      finishResize(true);
+      const requestedDelta = snapArrangementBar(initialDuration + increment) - initialDuration;
+      const delta = clampResizeDelta(targets, requestedDelta);
+      if (Math.abs(delta) <= 0.0001) return;
+      targets.forEach((target) => setClipDuration(target, target.initialDuration + delta));
+      updateDuration(initialDuration + delta);
+      finishResize(targets, true);
     });
     handle.addEventListener("pointerdown", (event) => {
       if (event.button !== 0) return;
@@ -537,16 +589,18 @@
       if (state.isPlaying && state.playbackMode === "arrangement") stopPlayback();
       const startX = event.clientX;
       const initialDuration = getArrangementClipDuration(type, clip);
+      const targets = getResizeTargets();
       let changed = false;
       element.draggable = false;
       updateClipResizeIndicator(element, mode, clip, initialDuration, initialDuration);
       const onMove = (moveEvent) => {
-        const maxDuration = MAX_ARRANGEMENT_BARS - clip.startBar;
-        const minDuration = Math.min(state.arrangementSnap ? 0.25 : 0.01, maxDuration);
-        const next = Math.max(minDuration, Math.min(maxDuration,
-          snapArrangementBar(initialDuration + (moveEvent.clientX - startX) / BAR_WIDTH)));
-        changed ||= Math.abs(next - getArrangementClipDuration(type, clip)) > 0.0001;
-        updateDuration(next);
+        const requestedDelta = snapArrangementBar(
+          initialDuration + (moveEvent.clientX - startX) / BAR_WIDTH,
+        ) - initialDuration;
+        const delta = clampResizeDelta(targets, requestedDelta);
+        targets.forEach((target) => setClipDuration(target, target.initialDuration + delta));
+        changed = Math.abs(delta) > 0.0001;
+        updateDuration(initialDuration + delta);
         updateClipResizeIndicator(element, mode, clip, getArrangementClipDuration(type, clip), initialDuration);
       };
       const onEnd = () => {
@@ -555,7 +609,7 @@
         document.removeEventListener("pointercancel", onEnd);
         element.draggable = true;
         element.querySelector(".clip-resize-indicator")?.remove();
-        finishResize(changed);
+        finishResize(targets, changed);
       };
       document.addEventListener("pointermove", onMove);
       document.addEventListener("pointerup", onEnd);
