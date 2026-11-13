@@ -1490,13 +1490,23 @@
       name.textContent = project.name;
       const detail = document.createElement("span");
       detail.className = "project-list-detail";
+      const savedAt = project.updatedAt
+        ? new Date(project.updatedAt).toLocaleString(undefined, {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          hourCycle: "h23",
+        })
+        : "";
       detail.textContent = project.cloudBacked
         ? project.cloudHasFile
-          ? `CLOUD · SAVED ${new Date(project.updatedAt).toLocaleDateString()}`
+          ? `CLOUD · SAVED ${savedAt}`
           : "CLOUD · NOT SAVED YET"
         : project.id === state.projectId
           ? "CURRENT PROJECT"
-          : project.updatedAt ? `SAVED ${new Date(project.updatedAt).toLocaleDateString()}` : "NOT SAVED YET";
+          : savedAt ? `SAVED ${savedAt}` : "NOT SAVED YET";
       button.append(name, detail);
       button.addEventListener("click", () => {
         selectedProjectId = project.id;

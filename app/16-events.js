@@ -855,7 +855,6 @@
       showToast(`Could not open the project list: ${error.message || "session storage is unavailable"}`);
     }
     if (getCloudToken()) {
-      void refreshCloudProjectCatalog().catch((error) =>
-        showToast(`Could not refresh cloud projects: ${error.message || "the cloud server is unavailable"}`));
+      startCloudProjectUpdates();
     }
   }

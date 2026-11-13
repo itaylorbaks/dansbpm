@@ -1,3 +1,6 @@
+  let cloudProjectRefreshInProgress = false;
+  let cloudProjectRefreshFailed = false;
+
   function getCloudToken() {
     try {
       return window.sessionStorage.getItem(CLOUD_TOKEN_KEY) || "";
@@ -131,21 +134,64 @@
     window.location.reload();
   }
 
-  async function refreshCloudProjectCatalog() {
+  async function refreshCloudProjectCatalog(includeLocalCacheCheck = false) {
     if (!state.currentUser || !getCloudToken()) return;
-    const { payload } = await cloudRequest("/projects");
-    saveCloudProjectCatalog(state.currentUser, payload.projects);
-    const remoteIds = new Set(payload.projects.map((project) => project.id));
-    for (const project of [...state.projects.filter((item) =>
-      item.ownerId === state.currentUser && !remoteIds.has(item.id))]) {
-      const created = await createCloudProjectRecord(project);
-      saveCloudProjectCatalog(state.currentUser, [
-        ...payload.projects,
-        created,
-      ]);
-      remoteIds.add(project.id);
-      payload.projects.push(created);
+    if (cloudProjectRefreshInProgress) return;
+    cloudProjectRefreshInProgress = true;
+    const accountId = state.currentUser;
+    try {
+      const { payload } = await cloudRequest("/projects");
+      if (state.currentUser !== accountId || !getCloudToken()) return;
+      const previousRevisions = new Map(state.projects
+        .filter((project) => project.ownerId === accountId)
+        .map((project) => [project.id, project.cloudRevision || 0]));
+      saveCloudProjectCatalog(accountId, payload.projects);
+      const remoteIds = new Set(payload.projects.map((project) => project.id));
+      for (const project of [...state.projects.filter((item) =>
+        item.ownerId === accountId && !remoteIds.has(item.id))]) {
+        const created = await createCloudProjectRecord(project);
+        saveCloudProjectCatalog(accountId, [
+          ...payload.projects,
+          created,
+        ]);
+        remoteIds.add(project.id);
+        payload.projects.push(created);
+      }
+
+      const activeProject = state.projects.find((project) =>
+        project.id === state.projectId && project.ownerId === accountId);
+      const remoteActiveProject = payload.projects.find((project) =>
+        project.id === state.projectId);
+      const remoteRevisionAdvanced = remoteActiveProject &&
+        remoteActiveProject.revision > (previousRevisions.get(state.projectId) || 0);
+      if (activeProject && (remoteRevisionAdvanced ||
+          includeLocalCacheCheck && projectNeedsCloudDownload(activeProject))) {
+        await downloadProjectToBrowser(activeProject);
+        if (state.isPlaying) stopPlayback();
+        stopAllWorkspacePlayers();
+        window.location.reload();
+      }
+    } finally {
+      cloudProjectRefreshInProgress = false;
     }
+  }
+
+  function startCloudProjectUpdates() {
+    const refresh = (includeLocalCacheCheck = false) => {
+      void refreshCloudProjectCatalog(includeLocalCacheCheck).then(() => {
+        cloudProjectRefreshFailed = false;
+      }).catch((error) => {
+        if (cloudProjectRefreshFailed) return;
+        cloudProjectRefreshFailed = true;
+        showToast(`Could not refresh cloud projects: ${error.message || "the cloud server is unavailable"}`);
+      });
+    };
+    refresh(true);
+    window.setInterval(() => refresh(), 5000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) refresh();
+    });
   }
 
   async function createCloudProjectRecord(project) {
