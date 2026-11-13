@@ -76,6 +76,12 @@ function publicAccount(account) {
   return { id: account.id, name: account.name };
 }
 
+async function passwordMatches(account, password) {
+  if (typeof password !== "string") return false;
+  const suppliedHash = (await scryptAsync(password, account.salt, 64)).toString("hex");
+  return timingSafeEqual(Buffer.from(suppliedHash, "hex"), Buffer.from(account.passwordHash, "hex"));
+}
+
 function publicProject(project) {
   return {
     id: project.id,
@@ -196,8 +202,7 @@ export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
           sendJson(response, 401, { error: "Profile name or password is incorrect." });
           return true;
         }
-        const suppliedHash = (await scryptAsync(body.password, account.salt, 64)).toString("hex");
-        if (!timingSafeEqual(Buffer.from(suppliedHash, "hex"), Buffer.from(account.passwordHash, "hex"))) {
+        if (!(await passwordMatches(account, body.password))) {
           sendJson(response, 401, { error: "Profile name or password is incorrect." });
           return true;
         }
@@ -214,6 +219,117 @@ export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
       const account = authenticate(request);
       if (!account) {
         sendJson(response, 401, { error: "Sign in to access cloud projects." });
+        return true;
+      }
+
+      if (request.method === "PATCH" && url.pathname === "/api/account") {
+        const body = await readJsonBody(request);
+        const name = safeProfileName(body.name);
+        if (!name) {
+          sendJson(response, 400, { error: "Enter a valid profile name." });
+          return true;
+        }
+        if (!(await passwordMatches(account, body.currentPassword))) {
+          sendJson(response, 401, { error: "The current password is incorrect." });
+          return true;
+        }
+        const normalizedName = normalizeProfileName(name);
+        if (Object.values(accounts).some((item) =>
+          item.id !== account.id && item.normalizedName === normalizedName)) {
+          sendJson(response, 409, { error: "An account with that profile name already exists." });
+          return true;
+        }
+        const previousName = account.name;
+        const previousNormalizedName = account.normalizedName;
+        account.name = name;
+        account.normalizedName = normalizedName;
+        try {
+          await persistAccounts();
+        } catch (error) {
+          account.name = previousName;
+          account.normalizedName = previousNormalizedName;
+          throw error;
+        }
+        sendJson(response, 200, { account: publicAccount(account) });
+        return true;
+      }
+
+      if (request.method === "PUT" && url.pathname === "/api/account/password") {
+        const body = await readJsonBody(request);
+        if (typeof body.password !== "string" || body.password.length < 8 || body.password.length > 256) {
+          sendJson(response, 400, { error: "Choose a password between 8 and 256 characters." });
+          return true;
+        }
+        if (!(await passwordMatches(account, body.currentPassword))) {
+          sendJson(response, 401, { error: "The current password is incorrect." });
+          return true;
+        }
+        const previousSalt = account.salt;
+        const previousPasswordHash = account.passwordHash;
+        const salt = randomBytes(16).toString("hex");
+        const passwordHash = (await scryptAsync(body.password, salt, 64)).toString("hex");
+        account.salt = salt;
+        account.passwordHash = passwordHash;
+        try {
+          await persistAccounts();
+        } catch (error) {
+          account.salt = previousSalt;
+          account.passwordHash = previousPasswordHash;
+          throw error;
+        }
+        sendJson(response, 200, { account: publicAccount(account) });
+        return true;
+      }
+
+      if (request.method === "DELETE" && url.pathname === "/api/account") {
+        const body = await readJsonBody(request);
+        if (!(await passwordMatches(account, body.password))) {
+          sendJson(response, 401, { error: "The password is incorrect." });
+          return true;
+        }
+        const projectDirectory = join(dataDirectory, "projects", account.id);
+        const pendingDeleteDirectory = join(
+          dataDirectory,
+          "projects",
+          `.deleting-${account.id}-${randomUUID()}`,
+        );
+        const accountSessions = [...sessions.entries()]
+          .filter(([, sessionAccountId]) => sessionAccountId === account.id);
+        accountSessions.forEach(([token]) => sessions.delete(token));
+        const restoreSessions = () => {
+          accountSessions.forEach(([token, sessionAccountId]) => sessions.set(token, sessionAccountId));
+        };
+        let projectDirectoryMoved = false;
+        try {
+          await rename(projectDirectory, pendingDeleteDirectory);
+          projectDirectoryMoved = true;
+        } catch (error) {
+          if (error.code !== "ENOENT") {
+            restoreSessions();
+            throw error;
+          }
+        }
+        delete accounts[account.id];
+        try {
+          await persistAccounts();
+        } catch (error) {
+          accounts[account.id] = account;
+          if (projectDirectoryMoved) await rename(pendingDeleteDirectory, projectDirectory);
+          restoreSessions();
+          throw error;
+        }
+        try {
+          if (projectDirectoryMoved) {
+            await rm(pendingDeleteDirectory, { recursive: true, force: true });
+          }
+        } catch (error) {
+          accounts[account.id] = account;
+          await persistAccounts();
+          if (projectDirectoryMoved) await rename(pendingDeleteDirectory, projectDirectory);
+          restoreSessions();
+          throw error;
+        }
+        sendJson(response, 200, { deleted: true });
         return true;
       }
 

@@ -954,9 +954,41 @@
           <button class="quiet-button" id="new-project-button" type="button">＋ New project</button>
           <button class="quiet-button" id="import-project-button" type="button">Import project</button>
           <button class="quiet-button" id="collaborate-button" type="button">Collaborate</button>
+          <button class="quiet-button" id="account-button" type="button">Account</button>
           <button class="quiet-button" id="switch-user-button" type="button">Switch user</button>
         </div>
         <div class="project-list" id="project-list" aria-label="Saved projects"></div>
+      </dialog>
+      <dialog class="project-dialog" id="account-dialog" aria-label="Account settings">
+        <div class="project-dialog-heading">
+          <div>
+            <div class="eyebrow">CLOUD ACCOUNT</div>
+            <h2>Account settings</h2>
+          </div>
+          <button class="dialog-close" id="account-dialog-close" type="button" aria-label="Close account settings">×</button>
+        </div>
+        <form class="create-profile-form" id="account-username-form">
+          <label for="account-new-username">Change username</label>
+          <input id="account-new-username" type="text" maxlength="32" autocomplete="username" required />
+          <input id="account-username-password" type="password" aria-label="Current password" autocomplete="current-password" placeholder="Current password" required />
+          <button class="quiet-button" type="submit">Update username</button>
+        </form>
+        <form class="create-profile-form" id="account-password-form">
+          <label for="account-new-password">Change password</label>
+          <input id="account-current-password" type="password" aria-label="Current password" autocomplete="current-password" placeholder="Current password" required />
+          <input id="account-new-password" type="password" aria-label="New password" minlength="8" maxlength="256" autocomplete="new-password" placeholder="New password (at least 8 characters)" required />
+          <input id="account-confirm-password" type="password" aria-label="Confirm new password" minlength="8" maxlength="256" autocomplete="new-password" placeholder="Confirm new password" required />
+          <button class="quiet-button" type="submit">Update password</button>
+        </form>
+        <section class="settings-section">
+          <h3>Delete account</h3>
+          <p class="login-note">This permanently deletes the cloud account and all its cloud projects. Cached project copies on this browser will also be removed; other browsers may retain local copies.</p>
+          <form class="create-profile-form" id="account-delete-form">
+            <input id="account-delete-password" type="password" aria-label="Current password" autocomplete="current-password" placeholder="Current password" required />
+            <input id="account-delete-confirmation" type="text" aria-label="Type your username to confirm" autocomplete="off" placeholder="Type your username to confirm" required />
+            <button class="quiet-button" type="submit">Delete account and projects</button>
+          </form>
+        </section>
       </dialog>
       <dialog class="collaboration-dialog" id="collaboration-dialog" aria-label="Live collaboration">
         <div class="project-dialog-heading">
@@ -1033,6 +1065,6 @@
       </div>
     </section>
     <script src="assets/vendor/lame.min.js"></script>
-    <script src="app.js?v=5566b9868687"></script>
+    <script src="app.js?v=b611df674aba"></script>
   </body>
 </html>

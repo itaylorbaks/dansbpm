@@ -405,6 +405,128 @@ test("accounts authenticate and persist compressed project files", async (t) => 
   assert.deepEqual(await downloaded.json(), updatedFile);
 });
 
+test("cloud accounts can change credentials and be deleted with their projects", async (t) => {
+  const dataDirectory = await mkdtemp(join(tmpdir(), "dansbpm-account-test-"));
+  const app = await openServer({ dataDirectory });
+  t.after(async () => {
+    await app.close();
+    await rm(dataDirectory, { recursive: true, force: true });
+  });
+  const request = (path, options = {}) => fetch(`${app.httpUrl}${path}`, {
+    ...options,
+    headers: {
+      origin: "http://localhost",
+      ...(options.headers || {}),
+    },
+  });
+  const register = await request("/api/register", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Ada", password: "correct horse battery" }),
+  });
+  const originalSession = await register.json();
+  const headers = {
+    authorization: `Bearer ${originalSession.token}`,
+    "content-type": "application/json",
+  };
+  const projectId = "account-project";
+  assert.equal((await request("/api/projects", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ id: projectId, name: "Account project" }),
+  })).status, 201);
+  assert.equal((await request(`/api/projects/${projectId}/file`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({
+      app: "DansBPM",
+      format: "dansbpm-project",
+      version: 1,
+      project: { name: "Account project", snapshot: { bpm: 120 } },
+      assets: [],
+    }),
+  })).status, 200);
+  assert.equal((await request("/api/register", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Grace", password: "another strong password" }),
+  })).status, 201);
+
+  assert.equal((await request("/api/account", {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ name: "Ada Lovelace", currentPassword: "wrong password" }),
+  })).status, 401);
+  const renamed = await request("/api/account", {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ name: "Ada Lovelace", currentPassword: "correct horse battery" }),
+  });
+  assert.equal((await renamed.json()).account.name, "Ada Lovelace");
+  assert.equal((await request("/api/account", {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ name: "Grace", currentPassword: "correct horse battery" }),
+  })).status, 409);
+
+  assert.equal((await request("/api/account/password", {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({
+      currentPassword: "correct horse battery",
+      password: "a different strong password",
+    }),
+  })).status, 200);
+  assert.equal((await request("/api/account/password", {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({
+      currentPassword: "incorrect password",
+      password: "another different password",
+    }),
+  })).status, 401);
+  assert.equal((await request("/api/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "ada lovelace", password: "correct horse battery" }),
+  })).status, 401);
+  const newLogin = await request("/api/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "ada lovelace", password: "a different strong password" }),
+  });
+  assert.equal(newLogin.status, 200);
+  const newSession = await newLogin.json();
+  const newHeaders = {
+    authorization: `Bearer ${newSession.token}`,
+    "content-type": "application/json",
+  };
+
+  assert.equal((await request("/api/account", {
+    method: "DELETE",
+    headers: newHeaders,
+    body: JSON.stringify({ password: "incorrect password" }),
+  })).status, 401);
+  assert.equal((await request("/api/account", {
+    method: "DELETE",
+    headers: newHeaders,
+    body: JSON.stringify({ password: "a different strong password" }),
+  })).status, 200);
+  const compressedPath = join(dataDirectory, "projects", originalSession.account.id, `${projectId}.bpm.gz`);
+  await assert.rejects(readFile(compressedPath), { code: "ENOENT" });
+  assert.equal((await request("/api/projects", {
+    headers: { authorization: `Bearer ${newSession.token}` },
+  })).status, 401);
+  assert.equal((await request("/api/projects", {
+    headers: { authorization: `Bearer ${originalSession.token}` },
+  })).status, 401);
+  assert.equal((await request("/api/register", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Ada Lovelace", password: "new account password" }),
+  })).status, 201);
+});
+
 test("track-view pushes include referenced pattern and Mel dependencies", async (t) => {
   const app = await openServer();
   t.after(() => app.close());

@@ -558,6 +558,7 @@
       }
     });
     $("#switch-user-button").addEventListener("click", switchUser);
+    bindCloudAccountSettings();
     $("#collaborate-button").addEventListener("click", () => {
       $("#project-dialog").close();
       try {

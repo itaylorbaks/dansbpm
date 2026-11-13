@@ -26153,6 +26153,154 @@ const DRIVE_SAMPLE_TRACKS = [
     await activateCloudAccount(payload);
   }
 
+  async function updateCloudAccountName(name, currentPassword) {
+    const { payload } = await cloudRequest("/account", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, currentPassword }),
+    });
+    return payload.account;
+  }
+
+  async function updateCloudAccountPassword(currentPassword, password) {
+    await cloudRequest("/account/password", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ currentPassword, password }),
+    });
+  }
+
+  async function removeCloudAccount(password) {
+    await cloudRequest("/account", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+    const accountId = state.currentUser;
+    const accountProjects = state.projects.filter((project) => project.ownerId === accountId);
+    const cleanupErrors = [];
+    for (const project of accountProjects) {
+      const storageKey = getProjectStorageKey(project.id);
+      for (const cleanup of [
+        () => window.localStorage.removeItem(storageKey),
+        () => window.localStorage.removeItem(`${storageKey}:dj`),
+        () => deleteCachedProjectSnapshot(project.id),
+        () => replaceProjectRecordingAssets(project.id, []),
+      ]) {
+        try {
+          await cleanup();
+        } catch (error) {
+          cleanupErrors.push(error.message || "browser storage is unavailable");
+        }
+      }
+    }
+    state.projects = state.projects.filter((project) => project.ownerId !== accountId);
+    state.users = state.users.filter((user) => user.id !== accountId);
+    for (const cleanup of [
+      () => saveUsers(),
+      () => writeProjectCatalog(),
+      () => window.sessionStorage.removeItem(CLOUD_TOKEN_KEY),
+      () => window.sessionStorage.removeItem(ACTIVE_USER_KEY),
+      () => window.sessionStorage.removeItem(OPEN_PROJECTS_KEY),
+    ]) {
+      try {
+        await cleanup();
+      } catch (error) {
+        cleanupErrors.push(error.message || "browser storage is unavailable");
+      }
+    }
+    $("#account-dialog").close();
+    showToast(cleanupErrors.length
+      ? `Cloud account deleted, but some browser cache cleanup failed: ${cleanupErrors[0]}`
+      : "Cloud account and projects deleted");
+    window.setTimeout(() => window.location.reload(), 2000);
+  }
+
+  function bindCloudAccountSettings() {
+    $("#account-button").hidden = !getCloudToken();
+    $("#account-button").addEventListener("click", () => {
+      if (!getCloudToken()) {
+        showToast("Sign in to a cloud account to manage account settings.");
+        return;
+      }
+      $("#account-new-username").value = getCurrentUserName();
+      $("#project-dialog").close();
+      $("#account-dialog").showModal();
+    });
+    $("#account-dialog-close").addEventListener("click", () => $("#account-dialog").close());
+    $("#account-username-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const button = form.querySelector('button[type="submit"]');
+      button.disabled = true;
+      try {
+        const account = await updateCloudAccountName(
+          $("#account-new-username").value,
+          $("#account-username-password").value,
+        );
+        state.users = state.users.map((user) =>
+          user.id === state.currentUser ? { ...user, name: account.name } : user);
+        $("#active-user-label").textContent = account.name;
+        $("#account-new-username").value = account.name;
+        $("#account-username-password").value = "";
+        renderProjectList();
+        try {
+          saveUsers();
+        } catch (error) {
+          showToast(`Username updated in the cloud, but could not save it in this browser: ${error.message || "browser storage is unavailable"}`);
+          return;
+        }
+        showToast("Username updated");
+      } catch (error) {
+        showToast(`Could not update username: ${error.message || "the cloud server is unavailable"}`);
+      } finally {
+        button.disabled = false;
+      }
+    });
+    $("#account-password-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const button = form.querySelector('button[type="submit"]');
+      if ($("#account-new-password").value !== $("#account-confirm-password").value) {
+        showToast("The new passwords do not match.");
+        return;
+      }
+      button.disabled = true;
+      try {
+        await updateCloudAccountPassword(
+          $("#account-current-password").value,
+          $("#account-new-password").value,
+        );
+        $("#account-current-password").value = "";
+        $("#account-new-password").value = "";
+        $("#account-confirm-password").value = "";
+        showToast("Password updated");
+      } catch (error) {
+        showToast(`Could not update password: ${error.message || "the cloud server is unavailable"}`);
+      } finally {
+        button.disabled = false;
+      }
+    });
+    $("#account-delete-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if ($("#account-delete-confirmation").value.trim() !== getCurrentUserName()) {
+        showToast("Type your username exactly to confirm account deletion.");
+        return;
+      }
+      if (!window.confirm("Permanently delete this cloud account and all its cloud projects?")) return;
+      const form = event.currentTarget;
+      const button = form.querySelector('button[type="submit"]');
+      button.disabled = true;
+      try {
+        await removeCloudAccount($("#account-delete-password").value);
+      } catch (error) {
+        showToast(`Could not delete the cloud account: ${error.message || "the cloud server is unavailable"}`);
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
+
   async function activateCloudAccount(session) {
     const { account, token, projects } = session;
     const user = { id: account.id, name: account.name, cloudAccount: true };
@@ -26841,6 +26989,7 @@ const DRIVE_SAMPLE_TRACKS = [
       }
     });
     $("#switch-user-button").addEventListener("click", switchUser);
+    bindCloudAccountSettings();
     $("#collaborate-button").addEventListener("click", () => {
       $("#project-dialog").close();
       try {
