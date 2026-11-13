@@ -25835,13 +25835,30 @@ const DRIVE_SAMPLE_TRACKS = [
   function saveCloudProjectCatalog(accountId, cloudProjects) {
     const savedCatalog = JSON.parse(window.localStorage.getItem(PROJECTS_KEY) || "null");
     const projects = Array.isArray(savedCatalog?.projects) ? savedCatalog.projects : [];
-    const merged = projects.filter((project) =>
-      project.ownerId !== accountId || project.cloudBacked !== true);
+    const merged = [];
+    const accountProjectIndexes = new Map();
+    projects.forEach((project) => {
+      if (project.ownerId === accountId && project.cloudBacked === true) return;
+      if (project.ownerId === accountId) {
+        const existingIndex = accountProjectIndexes.get(project.id);
+        if (existingIndex !== undefined) {
+          merged[existingIndex] = { ...merged[existingIndex], ...project };
+          return;
+        }
+        accountProjectIndexes.set(project.id, merged.length);
+      }
+      merged.push(project);
+    });
+    const seenRemoteIds = new Set();
     cloudProjects.forEach((remote) => {
-      if (typeof remote?.id !== "string" || typeof remote.name !== "string") return;
-      const existing = projects.find((project) =>
-        project.id === remote.id && project.ownerId === accountId);
-      merged.push({
+      if (typeof remote?.id !== "string" || typeof remote.name !== "string" ||
+          seenRemoteIds.has(remote.id)) return;
+      seenRemoteIds.add(remote.id);
+      const existingIndex = accountProjectIndexes.get(remote.id);
+      const existing = existingIndex === undefined
+        ? projects.find((project) => project.id === remote.id && project.ownerId === accountId)
+        : merged[existingIndex];
+      const cloudProject = {
         ...existing,
         ...remote,
         ownerId: accountId,
@@ -25855,7 +25872,13 @@ const DRIVE_SAMPLE_TRACKS = [
         updatedAt: Number.isFinite(remote.updatedAt) && remote.updatedAt > 0
           ? remote.updatedAt
           : existing?.updatedAt || 0,
-      });
+      };
+      if (existingIndex === undefined) {
+        accountProjectIndexes.set(remote.id, merged.length);
+        merged.push(cloudProject);
+      } else {
+        merged[existingIndex] = cloudProject;
+      }
     });
     window.localStorage.setItem(PROJECTS_KEY, JSON.stringify({
       ...savedCatalog,
