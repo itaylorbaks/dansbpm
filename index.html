@@ -1011,20 +1011,28 @@
           <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
           <span>dans<span class="brand-light">bpm</span></span>
         </a>
-        <div class="eyebrow">LOCAL PROFILES</div>
-        <div class="login-options" id="login-options" aria-label="Choose a profile"></div>
+        <div class="eyebrow">YOUR DANSBPM ACCOUNT</div>
+        <form class="create-profile-form" id="login-profile-form">
+          <label for="login-profile-name">Sign in</label>
+          <input id="login-profile-name" name="profileName" type="text" maxlength="32" autocomplete="username" placeholder="Profile name" required />
+          <input id="login-profile-password" name="password" type="password" autocomplete="current-password" placeholder="Password" required />
+          <button class="quiet-button" type="submit">Sign in</button>
+        </form>
         <form class="create-profile-form" id="create-profile-form">
-          <label for="new-profile-name">Create a new profile</label>
-          <div class="create-profile-controls">
-            <input id="new-profile-name" name="profileName" type="text" maxlength="32" autocomplete="name" placeholder="Your name" required />
-            <button class="quiet-button" type="submit">Create</button>
-          </div>
+          <label for="new-profile-name">Create a profile and password</label>
+          <input id="new-profile-name" name="profileName" type="text" maxlength="32" autocomplete="name" placeholder="Profile name" required />
+          <input id="new-profile-password" name="password" type="password" minlength="8" maxlength="256" autocomplete="new-password" placeholder="Password (at least 8 characters)" required />
+          <button class="quiet-button" type="submit">Create account</button>
         </form>
         <p class="login-error" id="login-error" role="alert"></p>
-        <p class="login-note">Profiles are local to this browser and are not password-protected.</p>
+        <p class="login-note">Cloud projects are downloaded to this browser when you open them. Local profiles from earlier versions remain available only in this browser.</p>
+        <details class="legacy-profiles">
+          <summary>Open a legacy local profile</summary>
+          <div class="login-options" id="login-options" aria-label="Choose a local profile"></div>
+        </details>
       </div>
     </section>
     <script src="assets/vendor/lame.min.js"></script>
-    <script src="app.js?v=3d21505ff0b5"></script>
+    <script src="app.js?v=e3144c69fcb3"></script>
   </body>
 </html>

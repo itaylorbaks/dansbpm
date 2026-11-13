@@ -15,7 +15,7 @@
     };
   }
 
-  function renameProject() {
+  async function renameProject() {
     const project = state.projects.find((item) =>
       item.id === selectedProjectId && item.ownerId === state.currentUser);
     if (!project) return;
@@ -31,6 +31,10 @@
     }
     try {
       writeProjectCatalog();
+      if (project.cloudBacked) {
+        Object.assign(project, await renameCloudProject(project));
+        writeProjectCatalog();
+      }
       renderProjectList();
     } catch (error) {
       project.name = previousName;
@@ -38,16 +42,46 @@
         state.projectName = previousName;
         updateProjectNameLabel();
       }
+      try {
+        writeProjectCatalog();
+      } catch {
+        showToast("The project name could not be restored in this browser.");
+      }
       showToast(`Could not rename project: ${error.message || "storage is unavailable"}`);
     }
   }
 
-  function saveProjectNow() {
-    if (flushSaveState()) {
+  async function saveProjectNow() {
+    if (!flushSaveState()) {
+      showToast(`Could not save this project: ${saveState.lastError || "storage is unavailable."}`);
+      return;
+    }
+    const project = state.projects.find((item) => item.id === state.projectId);
+    if (!project || !getCloudToken()) {
       renderProjectList();
       showToast(`${state.projectName} saved`);
-    } else {
-      showToast(`Could not save this project: ${saveState.lastError || "storage is unavailable."}`);
+      return;
+    }
+    try {
+      if (!project.cloudBacked) {
+        Object.assign(project, await createCloudProjectRecord(project), { cloudBacked: true });
+      }
+      const remote = await uploadCloudProject(project.id, await createCloudProjectFile());
+      Object.assign(project, remote, {
+        cloudBacked: true,
+        cloudHasFile: true,
+        cloudRevision: remote.revision,
+        localCloudRevision: remote.revision,
+        localDirty: false,
+      });
+      writeProjectCatalog();
+      renderProjectList();
+      $("#save-state").textContent = "Saved to cloud";
+      $(".save-dot").style.background = "#7f9d43";
+      showToast(`${state.projectName} saved to the cloud`);
+    } catch (error) {
+      renderProjectList();
+      showToast(`${state.projectName} saved in this browser, but cloud save failed: ${error.message || "the server is unavailable"}`);
     }
   }
 
@@ -130,22 +164,12 @@
     }));
   }
 
-  async function importProjectFile(file) {
-    if (!file) return;
-    if (!state.currentUser) {
-      showToast("Choose a profile before importing a project.");
-      return;
-    }
-    if (state.mediaRecorder?.state === "recording") {
-      showToast("Stop microphone recording before importing a project.");
-      return;
-    }
-
+  function parseProjectFileContents(contents) {
     let projectFile;
     let snapshot;
     let assets;
     try {
-      projectFile = JSON.parse(await file.text());
+      projectFile = JSON.parse(contents);
       snapshot = projectFile?.project?.snapshot;
       if (projectFile?.app !== "DansBPM" || projectFile.format !== "dansbpm-project" ||
         projectFile.version !== 1 || typeof projectFile.project?.name !== "string" ||
@@ -173,6 +197,49 @@
         }
         return { metadata, blob: dataUrlToBlob(asset.dataUrl) };
       });
+    } catch (error) {
+      throw new Error(error.message || "the file is invalid");
+    }
+    return { projectFile, snapshot, assets };
+  }
+
+  async function downloadProjectToBrowser(project) {
+    const { projectFile, revision } = await downloadCloudProject(project.id);
+    const { snapshot, assets } = parseProjectFileContents(JSON.stringify(projectFile));
+    const storageKey = getProjectStorageKey(project.id);
+    const previousSnapshot = window.localStorage.getItem(storageKey);
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(snapshot));
+      await replaceProjectRecordingAssets(project.id, assets);
+      project.localCloudRevision = revision;
+      project.cloudRevision = revision;
+      project.cloudHasFile = true;
+      project.cloudBacked = true;
+      project.localDirty = false;
+      writeProjectCatalog();
+    } catch (error) {
+      if (previousSnapshot === null) window.localStorage.removeItem(storageKey);
+      else window.localStorage.setItem(storageKey, previousSnapshot);
+      throw error;
+    }
+  }
+
+  async function importProjectFile(file) {
+    if (!file) return;
+    if (!state.currentUser) {
+      showToast("Choose a profile before importing a project.");
+      return;
+    }
+    if (state.mediaRecorder?.state === "recording") {
+      showToast("Stop microphone recording before importing a project.");
+      return;
+    }
+
+    let projectFile;
+    let snapshot;
+    let assets;
+    try {
+      ({ projectFile, snapshot, assets } = parseProjectFileContents(await file.text()));
     } catch (error) {
       showToast(`Could not read the project: ${error.message || "the file is invalid"}`);
       return;
@@ -230,6 +297,7 @@
     if (state.isPlaying) stopPlayback();
     stopAllWorkspacePlayers();
     try {
+      if (getCloudToken()) endCloudSession();
       window.sessionStorage.removeItem(ACTIVE_USER_KEY);
       window.sessionStorage.removeItem(OPEN_PROJECTS_KEY);
       window.location.reload();
@@ -1022,6 +1090,39 @@
     });
   }
 
+  async function createProjectFile(snapshot = createStateSnapshot()) {
+    const recordings = window.indexedDB ? await getProjectRecordingRecords() : [];
+    const assets = await Promise.all(recordings.map(async (record) => {
+      if (!(record.blob instanceof Blob)) {
+        throw new Error(`Could not export ${record.name || record.trackName || "a project audio file"}.`);
+      }
+      const { blob, ...metadata } = record;
+      return { metadata, dataUrl: await blobToDataUrl(blob) };
+    }));
+    return {
+      app: "DansBPM",
+      format: "dansbpm-project",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      project: {
+        name: state.projectName,
+        snapshot,
+      },
+      assets,
+    };
+  }
+
+  async function createCloudProjectFile() {
+    const projectFile = await createProjectFile();
+    const project = state.projects.find((item) => item.id === state.projectId);
+    if (project) projectFile.project.name = project.name;
+    const savedDj = JSON.parse(window.localStorage.getItem(getDjStorageKey()) || "null");
+    if (savedDj && typeof savedDj === "object" && !Array.isArray(savedDj)) {
+      projectFile.project.snapshot.dj = savedDj;
+    }
+    return projectFile;
+  }
+
   async function exportProjectFile() {
     if (state.mediaRecorder?.state === "recording") {
       showToast("Stop microphone recording before exporting the project.");
@@ -1035,25 +1136,7 @@
     document.body.classList.add("is-exporting");
     showToast("Packing your project and audio…");
     try {
-      const recordings = window.indexedDB ? await getProjectRecordingRecords() : [];
-      const assets = await Promise.all(recordings.map(async (record) => {
-        if (!(record.blob instanceof Blob)) {
-          throw new Error(`Could not export ${record.name || record.trackName || "a project audio file"}.`);
-        }
-        const { blob, ...metadata } = record;
-        return { metadata, dataUrl: await blobToDataUrl(blob) };
-      }));
-      const projectFile = {
-        app: "DansBPM",
-        format: "dansbpm-project",
-        version: 1,
-        exportedAt: new Date().toISOString(),
-        project: {
-          name: state.projectName,
-          snapshot,
-        },
-        assets,
-      };
+      const projectFile = await createProjectFile(snapshot);
       const file = new Blob([JSON.stringify(projectFile)], { type: "application/vnd.dansbpm.project+json" });
       downloadBlob(file, `${sanitizeFilename(state.projectName)}.bpm`);
       showToast("Project exported as a BPM file");

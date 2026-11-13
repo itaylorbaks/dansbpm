@@ -2,6 +2,7 @@
   const PROJECTS_KEY = `${STORAGE_KEY}-projects`;
   const PROJECT_STORAGE_PREFIX = `${STORAGE_KEY}-project-`;
   const USERS_KEY = `${STORAGE_KEY}-users`;
+  const CLOUD_TOKEN_KEY = `${STORAGE_KEY}-cloud-token`;
   const EFFECT_PRESETS_STORAGE_PREFIX = `${STORAGE_KEY}-effect-presets-`;
   const SOUND_FAVORITES_STORAGE_PREFIX = `${STORAGE_KEY}-sound-favorites-`;
   const ACTIVE_USER_KEY = `${STORAGE_KEY}-active-user`;

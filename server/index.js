@@ -1,6 +1,9 @@
 import { createServer } from "node:http";
 import { randomBytes, randomUUID } from "node:crypto";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
+import { createAccountApi } from "./accounts.js";
 
 const COLLABORATION_PATH = "/collaboration";
 const MAX_ROOMS = 200;
@@ -225,10 +228,13 @@ export function createCollaborationServer({
   allowedOrigins = [],
   maxPayloadBytes = MAX_ROOM_BYTES + 1024 * 1024,
   roomTtlMs = 24 * 60 * 60 * 1000,
+  dataDirectory = process.env.DANSBPM_DATA_DIR ||
+    join(dirname(fileURLToPath(import.meta.url)), ".data"),
 } = {}) {
   const origins = new Set(allowedOrigins);
   const rooms = new Map();
   const clients = new Map();
+  const accountApi = createAccountApi({ allowedOrigins, dataDirectory });
 
   const server = createServer((request, response) => {
     if (request.url === "/healthz") {
@@ -236,8 +242,16 @@ export function createCollaborationServer({
       response.end(JSON.stringify({ status: "ok", rooms: rooms.size, clients: clients.size }));
       return;
     }
-    response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
-    response.end("Not found");
+    void accountApi.handle(request, response).then((handled) => {
+      if (handled) return;
+      response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+      response.end("Not found");
+    }).catch(() => {
+      if (!response.headersSent) {
+        response.writeHead(500, { "content-type": "application/json; charset=utf-8" });
+      }
+      response.end(JSON.stringify({ error: "The cloud request could not be completed." }));
+    });
   });
   const websocketServer = new WebSocketServer({ noServer: true, maxPayload: maxPayloadBytes });
 

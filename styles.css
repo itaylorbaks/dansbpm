@@ -403,11 +403,13 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .login-arrow { color: var(--faint); font-size: 16px; }
 .create-profile-form { display: grid; gap: 8px; margin-top: 20px; }
 .create-profile-form label { color: #a4a5aa; font-family: var(--mono); font-size: 9px; letter-spacing: .5px; text-transform: uppercase; }
-.create-profile-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
-.create-profile-controls input { min-width: 0; height: 36px; border: 1px solid #36373c; border-radius: 6px; background: #141518; padding: 0 10px; color: var(--text); font-size: 11px; }
-.create-profile-controls .quiet-button { min-height: 36px; }
+.create-profile-form input { min-width: 0; height: 36px; border: 1px solid #36373c; border-radius: 6px; background: #141518; padding: 0 10px; color: var(--text); font-size: 11px; }
+.create-profile-form .quiet-button { min-height: 36px; }
 .login-note { margin: 22px 0 0; font-size: 10px !important; }
 .login-card .login-error { min-height: 0; margin: 8px 0 0; color: #ff9178; font-size: 11px; }
+.legacy-profiles { margin-top: 14px; color: var(--muted); font-size: 10px; }
+.legacy-profiles summary { cursor: pointer; }
+.legacy-profiles .login-options { margin-top: 10px; }
 
 .arrangement-workspace { width: 100%; max-width: 1120px; margin: 0 auto; }
 .arrangement-workspace[hidden], .arrangement-editor[hidden] { display: none; }

@@ -6391,6 +6391,7 @@ const DRIVE_SAMPLE_TRACKS = [
   const PROJECTS_KEY = `${STORAGE_KEY}-projects`;
   const PROJECT_STORAGE_PREFIX = `${STORAGE_KEY}-project-`;
   const USERS_KEY = `${STORAGE_KEY}-users`;
+  const CLOUD_TOKEN_KEY = `${STORAGE_KEY}-cloud-token`;
   const EFFECT_PRESETS_STORAGE_PREFIX = `${STORAGE_KEY}-effect-presets-`;
   const SOUND_FAVORITES_STORAGE_PREFIX = `${STORAGE_KEY}-sound-favorites-`;
   const ACTIVE_USER_KEY = `${STORAGE_KEY}-active-user`;
@@ -11415,7 +11416,7 @@ const DRIVE_SAMPLE_TRACKS = [
       if (track.kind === "instrument" || track.kind === "drumkit") {
         playPianoNote(track, time, midi, getStepDuration(), 0.85);
       } else {
-        triggerTrack(track, time, gridStep, pattern.variants[track.id] || track.variant, getNoteDuration());
+        triggerTrack(track, time, pattern.variants[track.id] || track.variant, getNoteDuration());
       }
     }
     renderTracks();
@@ -13728,7 +13729,7 @@ const DRIVE_SAMPLE_TRACKS = [
           if (deck.songEvents.has(eventKey)) return;
           const trackTime = time + (getTrackStepTime(track, patternStep, pattern, time) - time) / deck.songRate;
           const volume = (patternTrack.volume ?? 1) * (track.volume ?? 1);
-          triggerTrack(track, trackTime, patternStep, pattern.variants?.[track.id] || track.variant,
+          triggerTrack(track, trackTime, pattern.variants?.[track.id] || track.variant,
             getNoteDuration(pattern) / deck.songRate, patternTrack,
             getDjSongGain(deck, `pattern:${clip.id}:${track.id}`, volume));
           deck.songEvents.add(eventKey);
@@ -13816,7 +13817,7 @@ const DRIVE_SAMPLE_TRACKS = [
               Array.isArray(pattern.stepPianoNotes?.[trackId])) return;
             const variant = pattern.variants?.[trackId] || "classic";
             triggerTrack(track, getTrackStepTime(track, eventStep, pattern, eventTime),
-              eventStep, variant, getNoteDuration(pattern) / getDjRate(deck), track, deck.eqLowNode);
+              variant, getNoteDuration(pattern) / getDjRate(deck), track, deck.eqLowNode);
           });
         });
         Object.entries(source.item.stepPianoNotes || {}).forEach(([trackId, notes]) => {
@@ -14721,7 +14722,7 @@ const DRIVE_SAMPLE_TRACKS = [
         const gridPattern = pattern || getPattern();
         const trackTime = getTrackStepTime(track, step, gridPattern, time);
         const outputNode = outputTrack && outputTrack !== track ? getPatternSourceGain(outputTrack, track) : null;
-        triggerTrack(track, trackTime, step, variant, getNoteDuration(gridPattern), outputTrack || track, outputNode);
+        triggerTrack(track, trackTime, variant, getNoteDuration(gridPattern), outputTrack || track, outputNode);
       }
     });
     if (!updatePlayhead && !highlightPlayer) return;
@@ -21177,7 +21178,7 @@ const DRIVE_SAMPLE_TRACKS = [
     }
   }
 
-  function triggerTrack(track, time, step, variant = track.variant, noteDuration = getStepDuration(), outputTrack = track, outputNode = null, pitchOffset = 0) {
+  function triggerTrack(track, time, variant = track.variant, noteDuration = getStepDuration(), outputTrack = track, outputNode = null, pitchOffset = 0) {
     const context = state.audioContext;
     const pitchRatio = Math.pow(2, ((track.pitch || 0) + pitchOffset) / 12);
     ensureTrackAudio(outputTrack);
@@ -21201,7 +21202,7 @@ const DRIVE_SAMPLE_TRACKS = [
     noteDuration = trimmedNote.duration;
     const durationScale = noteDuration / getStepDuration();
     switch (track.kind) {
-      case "kick": playKick(context, output, time, step, variant, durationScale, pitchRatio); break;
+      case "kick": playKick(context, output, time, variant, durationScale, pitchRatio); break;
       case "snare": playSnare(context, output, time, variant, durationScale, pitchRatio); break;
       case "clap": playClap(context, output, time, variant, durationScale, pitchRatio); break;
       case "hat": playHat(context, output, time, false, variant, durationScale, pitchRatio); break;
@@ -21267,7 +21268,7 @@ const DRIVE_SAMPLE_TRACKS = [
         trimmedNote.attack ?? noteOptions.attack, trimmedNote.release);
       return;
     }
-    triggerTrack(track, time, 0, track.variant, duration, outputTrack, outputNode, midi - getDefaultStepMidi(track));
+    triggerTrack(track, time, track.variant, duration, outputTrack, outputNode, midi - getDefaultStepMidi(track));
   }
 
   function playPianoAudioSlice(audioSlice, time, midi, duration, velocity, outputNode, noteOptions) {
@@ -21594,7 +21595,7 @@ const DRIVE_SAMPLE_TRACKS = [
     oscillator.stop(time + duration + 0.02);
   }
 
-  function playKick(context, output, time, step, variant, durationScale, pitchRatio = 1) {
+  function playKick(context, output, time, variant, durationScale, pitchRatio = 1) {
     const osc = context.createOscillator();
     registerArrangementPlaybackSource(osc);
     const envelope = context.createGain();
@@ -21609,7 +21610,7 @@ const DRIVE_SAMPLE_TRACKS = [
       start: legacy[0], end: legacy[1], duration: legacy[2], wave: "sine",
     };
     const duration = settings.duration * durationScale;
-    const pitch = settings.start * (step % 8 === 0 ? 1 : 0.88) * pitchRatio;
+    const pitch = settings.start * pitchRatio;
     osc.type = settings.wave || "sine";
     osc.frequency.setValueAtTime(pitch, time);
     osc.frequency.exponentialRampToValueAtTime(settings.end * pitchRatio, time + duration * (settings.sweep || 0.38));
@@ -22100,7 +22101,7 @@ const DRIVE_SAMPLE_TRACKS = [
   function renderLoginUsers() {
     const options = $("#login-options");
     options.replaceChildren();
-    state.users.forEach((user) => {
+    state.users.filter((user) => !user.cloudAccount).forEach((user) => {
       const button = document.createElement("button");
       button.className = "login-option";
       button.type = "button";
@@ -22112,7 +22113,7 @@ const DRIVE_SAMPLE_TRACKS = [
       const name = document.createElement("strong");
       name.textContent = user.name;
       const detail = document.createElement("small");
-      detail.textContent = `Open ${user.name}'s projects`;
+      detail.textContent = "Local profile · this browser only";
       text.append(name, detail);
       const arrow = document.createElement("span");
       arrow.className = "login-arrow";
@@ -22130,7 +22131,11 @@ const DRIVE_SAMPLE_TRACKS = [
       if (Array.isArray(savedUsers)) {
         users = savedUsers.filter((user) =>
           typeof user?.id === "string" && user.id && typeof user.name === "string" && user.name.trim())
-          .map((user) => ({ id: user.id, name: user.name.trim().slice(0, 32) }));
+          .map((user) => ({
+            id: user.id,
+            name: user.name.trim().slice(0, 32),
+            ...(user.cloudAccount === true ? { cloudAccount: true } : {}),
+          }));
       }
       DEFAULT_USERS.forEach((defaultUser) => {
         if (!users.some((user) => user.id === defaultUser.id)) users.push(defaultUser);
@@ -22147,14 +22152,16 @@ const DRIVE_SAMPLE_TRACKS = [
   function getSessionUser() {
     try {
       const userId = window.sessionStorage.getItem(ACTIVE_USER_KEY);
-      return state.users.some((user) => user.id === userId) ? userId : null;
+      const user = state.users.find((item) => item.id === userId);
+      if (user?.cloudAccount && !getCloudToken()) return null;
+      return user ? userId : null;
     } catch {
       return null;
     }
   }
 
   function selectUser(userId) {
-    if (!state.users.some((user) => user.id === userId)) return;
+    if (!state.users.some((user) => user.id === userId && !user.cloudAccount)) return;
     try {
       window.sessionStorage.setItem(ACTIVE_USER_KEY, userId);
       window.sessionStorage.setItem(OPEN_PROJECTS_KEY, "true");
@@ -22165,9 +22172,11 @@ const DRIVE_SAMPLE_TRACKS = [
     }
   }
 
-  function createUser() {
+  async function createUser() {
     const input = $("#new-profile-name");
     const name = input.value.trim().slice(0, 32);
+    const passwordInput = $("#new-profile-password");
+    const password = passwordInput.value;
     const error = $("#login-error");
     error.textContent = "";
     if (!name) {
@@ -22175,20 +22184,31 @@ const DRIVE_SAMPLE_TRACKS = [
       input.focus();
       return;
     }
-    if (state.users.some((user) => user.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
-      error.textContent = "A profile with that name already exists in this browser.";
-      input.focus();
+    if (password.length < 8) {
+      error.textContent = "Choose a password with at least 8 characters.";
+      passwordInput.focus();
       return;
     }
-    const user = { id: makeId(), name };
-    state.users.push(user);
     try {
-      saveUsers();
-      renderLoginUsers();
-      selectUser(user.id);
-    } catch (saveError) {
-      state.users = state.users.filter((item) => item.id !== user.id);
-      error.textContent = `Could not save this profile: ${saveError.message || "browser storage is unavailable"}`;
+      await registerCloudAccount(name, password);
+    } catch (createError) {
+      error.textContent = createError.message || "Could not create this account.";
+    }
+  }
+
+  async function loginUser() {
+    const name = $("#login-profile-name").value.trim();
+    const passwordInput = $("#login-profile-password");
+    const error = $("#login-error");
+    error.textContent = "";
+    if (!name || !passwordInput.value) {
+      error.textContent = "Enter your profile name and password.";
+      return;
+    }
+    try {
+      await loginCloudAccount(name, passwordInput.value);
+    } catch (loginError) {
+      error.textContent = loginError.message || "Could not sign in.";
     }
   }
 
@@ -23570,6 +23590,7 @@ const DRIVE_SAMPLE_TRACKS = [
     const project = state.projects.find((item) => item.id === projectId);
     if (project) {
       project.updatedAt = Date.now();
+      if (getCloudToken()) project.localDirty = true;
       try {
         writeProjectCatalog();
       } catch {
@@ -23581,8 +23602,9 @@ const DRIVE_SAMPLE_TRACKS = [
         saveCollaborationSession();
       }
     }
-    $("#save-state").textContent = "All changes saved";
-    $(".save-dot").style.background = "#7f9d43";
+    const cloudPending = Boolean(project && getCloudToken());
+    $("#save-state").textContent = cloudPending ? "Local save · click Save to sync" : "All changes saved";
+    $(".save-dot").style.background = cloudPending ? "#c8a95a" : "#7f9d43";
     return true;
   }
 
@@ -23930,9 +23952,13 @@ const DRIVE_SAMPLE_TRACKS = [
       name.textContent = project.name;
       const detail = document.createElement("span");
       detail.className = "project-list-detail";
-      detail.textContent = project.id === state.projectId
-        ? "CURRENT PROJECT"
-        : project.updatedAt ? `SAVED ${new Date(project.updatedAt).toLocaleDateString()}` : "NOT SAVED YET";
+      detail.textContent = project.cloudBacked
+        ? project.cloudHasFile
+          ? `CLOUD · SAVED ${new Date(project.updatedAt).toLocaleDateString()}`
+          : "CLOUD · NOT SAVED YET"
+        : project.id === state.projectId
+          ? "CURRENT PROJECT"
+          : project.updatedAt ? `SAVED ${new Date(project.updatedAt).toLocaleDateString()}` : "NOT SAVED YET";
       button.append(name, detail);
       button.addEventListener("click", () => {
         selectedProjectId = project.id;
@@ -23941,13 +23967,16 @@ const DRIVE_SAMPLE_TRACKS = [
       list.append(button);
     });
     const selectedProject = projects.find((project) => project.id === selectedProjectId);
-    $("#enter-project-button").disabled = !selectedProject || selectedProject.id === state.projectId;
+    const cloudNeedsDownload = selectedProject?.cloudBacked && selectedProject.cloudHasFile &&
+      selectedProject.localCloudRevision !== selectedProject.cloudRevision;
+    $("#enter-project-button").disabled = !selectedProject ||
+      selectedProject.id === state.projectId && !cloudNeedsDownload;
     $("#delete-project-button").disabled = !selectedProject;
     $("#delete-project-button").title = "Permanently delete the selected project and its saved audio.";
   }
 
   function enterSelectedProject() {
-    if (selectedProjectId) switchProject(selectedProjectId);
+    if (selectedProjectId) void switchProject(selectedProjectId);
   }
 
   async function deleteSelectedProject() {
@@ -23984,6 +24013,14 @@ const DRIVE_SAMPLE_TRACKS = [
     let legacySnapshot = null;
     let legacyName = null;
     try {
+      if (project.cloudBacked) {
+        await deleteCloudProject(project.id);
+        project.cloudBacked = false;
+        project.cloudHasFile = false;
+        project.cloudRevision = 0;
+        project.localCloudRevision = null;
+        project.localDirty = true;
+      }
       projectSnapshot = window.localStorage.getItem(snapshotKey);
       djSnapshot = window.localStorage.getItem(djKey);
       if (legacySnapshotKey) legacySnapshot = window.localStorage.getItem(legacySnapshotKey);
@@ -24045,9 +24082,26 @@ const DRIVE_SAMPLE_TRACKS = [
     }
   }
 
-  function switchProject(projectId) {
-    if (projectId === state.projectId || !state.projects.some((project) =>
-      project.id === projectId && project.ownerId === state.currentUser)) return;
+  async function switchProject(projectId) {
+    const project = state.projects.find((item) =>
+      item.id === projectId && item.ownerId === state.currentUser);
+    if (!project) return;
+    const cloudNeedsDownload = project.cloudBacked && project.cloudHasFile &&
+      project.localCloudRevision !== project.cloudRevision;
+    if (projectId === state.projectId && !cloudNeedsDownload) return;
+    if (projectId === state.projectId && cloudNeedsDownload) {
+      if (project.localDirty) {
+        showToast("Save this browser's changes to the cloud before opening the newer cloud copy.");
+        return;
+      }
+      try {
+        await downloadProjectToBrowser(project);
+        window.location.reload();
+      } catch (error) {
+        showToast(`Could not download ${project.name}: ${error.message || "the cloud server is unavailable"}`);
+      }
+      return;
+    }
     if (state.mediaRecorder?.state === "recording") {
       showToast("Stop audio recording before switching projects.");
       return;
@@ -24055,6 +24109,18 @@ const DRIVE_SAMPLE_TRACKS = [
     if (!flushSaveState()) {
       showToast("Could not save this project; switching was cancelled.");
       return;
+    }
+    if (cloudNeedsDownload) {
+      if (project.localDirty) {
+        showToast(`Save ${project.name}'s local changes to the cloud before opening it.`);
+        return;
+      }
+      try {
+        await downloadProjectToBrowser(project);
+      } catch (error) {
+        showToast(`Could not download ${project.name}: ${error.message || "the cloud server is unavailable"}`);
+        return;
+      }
     }
     if (state.isPlaying) stopPlayback();
     stopAllWorkspacePlayers();
@@ -24069,7 +24135,7 @@ const DRIVE_SAMPLE_TRACKS = [
     }
   }
 
-  function createProject() {
+  async function createProject() {
     if (!state.currentUser) return;
     if (state.mediaRecorder?.state === "recording") {
       showToast("Stop audio recording before creating a project.");
@@ -24092,6 +24158,16 @@ const DRIVE_SAMPLE_TRACKS = [
     state.projectId = project.id;
     try {
       writeProjectCatalog();
+      if (getCloudToken()) {
+        try {
+          Object.assign(project, await createCloudProjectRecord(project), { cloudBacked: true });
+          project.cloudHasFile = project.hasFile === true;
+          project.cloudRevision = project.revision || 0;
+          writeProjectCatalog();
+        } catch (error) {
+          showToast(`Project created locally, but cloud registration failed: ${error.message || "the server is unavailable"}`);
+        }
+      }
       window.location.reload();
     } catch (error) {
       state.projects = state.projects.filter((item) => item.id !== project.id);
@@ -24118,7 +24194,7 @@ const DRIVE_SAMPLE_TRACKS = [
     };
   }
 
-  function renameProject() {
+  async function renameProject() {
     const project = state.projects.find((item) =>
       item.id === selectedProjectId && item.ownerId === state.currentUser);
     if (!project) return;
@@ -24134,6 +24210,10 @@ const DRIVE_SAMPLE_TRACKS = [
     }
     try {
       writeProjectCatalog();
+      if (project.cloudBacked) {
+        Object.assign(project, await renameCloudProject(project));
+        writeProjectCatalog();
+      }
       renderProjectList();
     } catch (error) {
       project.name = previousName;
@@ -24141,16 +24221,46 @@ const DRIVE_SAMPLE_TRACKS = [
         state.projectName = previousName;
         updateProjectNameLabel();
       }
+      try {
+        writeProjectCatalog();
+      } catch {
+        showToast("The project name could not be restored in this browser.");
+      }
       showToast(`Could not rename project: ${error.message || "storage is unavailable"}`);
     }
   }
 
-  function saveProjectNow() {
-    if (flushSaveState()) {
+  async function saveProjectNow() {
+    if (!flushSaveState()) {
+      showToast(`Could not save this project: ${saveState.lastError || "storage is unavailable."}`);
+      return;
+    }
+    const project = state.projects.find((item) => item.id === state.projectId);
+    if (!project || !getCloudToken()) {
       renderProjectList();
       showToast(`${state.projectName} saved`);
-    } else {
-      showToast(`Could not save this project: ${saveState.lastError || "storage is unavailable."}`);
+      return;
+    }
+    try {
+      if (!project.cloudBacked) {
+        Object.assign(project, await createCloudProjectRecord(project), { cloudBacked: true });
+      }
+      const remote = await uploadCloudProject(project.id, await createCloudProjectFile());
+      Object.assign(project, remote, {
+        cloudBacked: true,
+        cloudHasFile: true,
+        cloudRevision: remote.revision,
+        localCloudRevision: remote.revision,
+        localDirty: false,
+      });
+      writeProjectCatalog();
+      renderProjectList();
+      $("#save-state").textContent = "Saved to cloud";
+      $(".save-dot").style.background = "#7f9d43";
+      showToast(`${state.projectName} saved to the cloud`);
+    } catch (error) {
+      renderProjectList();
+      showToast(`${state.projectName} saved in this browser, but cloud save failed: ${error.message || "the server is unavailable"}`);
     }
   }
 
@@ -24233,22 +24343,12 @@ const DRIVE_SAMPLE_TRACKS = [
     }));
   }
 
-  async function importProjectFile(file) {
-    if (!file) return;
-    if (!state.currentUser) {
-      showToast("Choose a profile before importing a project.");
-      return;
-    }
-    if (state.mediaRecorder?.state === "recording") {
-      showToast("Stop microphone recording before importing a project.");
-      return;
-    }
-
+  function parseProjectFileContents(contents) {
     let projectFile;
     let snapshot;
     let assets;
     try {
-      projectFile = JSON.parse(await file.text());
+      projectFile = JSON.parse(contents);
       snapshot = projectFile?.project?.snapshot;
       if (projectFile?.app !== "DansBPM" || projectFile.format !== "dansbpm-project" ||
         projectFile.version !== 1 || typeof projectFile.project?.name !== "string" ||
@@ -24276,6 +24376,49 @@ const DRIVE_SAMPLE_TRACKS = [
         }
         return { metadata, blob: dataUrlToBlob(asset.dataUrl) };
       });
+    } catch (error) {
+      throw new Error(error.message || "the file is invalid");
+    }
+    return { projectFile, snapshot, assets };
+  }
+
+  async function downloadProjectToBrowser(project) {
+    const { projectFile, revision } = await downloadCloudProject(project.id);
+    const { snapshot, assets } = parseProjectFileContents(JSON.stringify(projectFile));
+    const storageKey = getProjectStorageKey(project.id);
+    const previousSnapshot = window.localStorage.getItem(storageKey);
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(snapshot));
+      await replaceProjectRecordingAssets(project.id, assets);
+      project.localCloudRevision = revision;
+      project.cloudRevision = revision;
+      project.cloudHasFile = true;
+      project.cloudBacked = true;
+      project.localDirty = false;
+      writeProjectCatalog();
+    } catch (error) {
+      if (previousSnapshot === null) window.localStorage.removeItem(storageKey);
+      else window.localStorage.setItem(storageKey, previousSnapshot);
+      throw error;
+    }
+  }
+
+  async function importProjectFile(file) {
+    if (!file) return;
+    if (!state.currentUser) {
+      showToast("Choose a profile before importing a project.");
+      return;
+    }
+    if (state.mediaRecorder?.state === "recording") {
+      showToast("Stop microphone recording before importing a project.");
+      return;
+    }
+
+    let projectFile;
+    let snapshot;
+    let assets;
+    try {
+      ({ projectFile, snapshot, assets } = parseProjectFileContents(await file.text()));
     } catch (error) {
       showToast(`Could not read the project: ${error.message || "the file is invalid"}`);
       return;
@@ -24333,6 +24476,7 @@ const DRIVE_SAMPLE_TRACKS = [
     if (state.isPlaying) stopPlayback();
     stopAllWorkspacePlayers();
     try {
+      if (getCloudToken()) endCloudSession();
       window.sessionStorage.removeItem(ACTIVE_USER_KEY);
       window.sessionStorage.removeItem(OPEN_PROJECTS_KEY);
       window.location.reload();
@@ -24916,7 +25060,7 @@ const DRIVE_SAMPLE_TRACKS = [
             if (pattern.cells[track.id]?.[patternStep] && !Array.isArray(pattern.stepPianoNotes?.[track.id]) &&
               !track.muted && (!hasSolo || track.solo)) {
               const trackTime = getTrackStepTime(track, patternStep, pattern, time);
-              triggerTrack(track, trackTime, patternStep, pattern.variants[track.id] || track.variant,
+              triggerTrack(track, trackTime, pattern.variants[track.id] || track.variant,
                 getNoteDuration(pattern), patternTrack, getPatternSourceGain(patternTrack, track));
             }
           });
@@ -25125,6 +25269,39 @@ const DRIVE_SAMPLE_TRACKS = [
     });
   }
 
+  async function createProjectFile(snapshot = createStateSnapshot()) {
+    const recordings = window.indexedDB ? await getProjectRecordingRecords() : [];
+    const assets = await Promise.all(recordings.map(async (record) => {
+      if (!(record.blob instanceof Blob)) {
+        throw new Error(`Could not export ${record.name || record.trackName || "a project audio file"}.`);
+      }
+      const { blob, ...metadata } = record;
+      return { metadata, dataUrl: await blobToDataUrl(blob) };
+    }));
+    return {
+      app: "DansBPM",
+      format: "dansbpm-project",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      project: {
+        name: state.projectName,
+        snapshot,
+      },
+      assets,
+    };
+  }
+
+  async function createCloudProjectFile() {
+    const projectFile = await createProjectFile();
+    const project = state.projects.find((item) => item.id === state.projectId);
+    if (project) projectFile.project.name = project.name;
+    const savedDj = JSON.parse(window.localStorage.getItem(getDjStorageKey()) || "null");
+    if (savedDj && typeof savedDj === "object" && !Array.isArray(savedDj)) {
+      projectFile.project.snapshot.dj = savedDj;
+    }
+    return projectFile;
+  }
+
   async function exportProjectFile() {
     if (state.mediaRecorder?.state === "recording") {
       showToast("Stop microphone recording before exporting the project.");
@@ -25138,25 +25315,7 @@ const DRIVE_SAMPLE_TRACKS = [
     document.body.classList.add("is-exporting");
     showToast("Packing your project and audio…");
     try {
-      const recordings = window.indexedDB ? await getProjectRecordingRecords() : [];
-      const assets = await Promise.all(recordings.map(async (record) => {
-        if (!(record.blob instanceof Blob)) {
-          throw new Error(`Could not export ${record.name || record.trackName || "a project audio file"}.`);
-        }
-        const { blob, ...metadata } = record;
-        return { metadata, dataUrl: await blobToDataUrl(blob) };
-      }));
-      const projectFile = {
-        app: "DansBPM",
-        format: "dansbpm-project",
-        version: 1,
-        exportedAt: new Date().toISOString(),
-        project: {
-          name: state.projectName,
-          snapshot,
-        },
-        assets,
-      };
+      const projectFile = await createProjectFile(snapshot);
       const file = new Blob([JSON.stringify(projectFile)], { type: "application/vnd.dansbpm.project+json" });
       downloadBlob(file, `${sanitizeFilename(state.projectName)}.bpm`);
       showToast("Project exported as a BPM file");
@@ -25568,6 +25727,189 @@ const DRIVE_SAMPLE_TRACKS = [
 
   function formatCollaborationTimestamp(timestamp) {
     return new Date(timestamp).toLocaleString();
+  }
+  function getCloudToken() {
+    try {
+      return window.sessionStorage.getItem(CLOUD_TOKEN_KEY) || "";
+    } catch {
+      return "";
+    }
+  }
+
+  function getCloudApiBaseUrl() {
+    try {
+      const saved = window.localStorage.getItem(COLLABORATION_URL_KEY) || DEFAULT_COLLABORATION_SERVER_URL;
+      const url = new URL(saved);
+      if (url.protocol === "wss:") url.protocol = "https:";
+      else if (url.protocol === "ws:") url.protocol = "http:";
+      else if (url.protocol !== "https:" && url.protocol !== "http:") {
+        throw new Error("The cloud server URL is invalid.");
+      }
+      return `${url.origin}/api`;
+    } catch {
+      return "https://bpmcollab.onrender.com/api";
+    }
+  }
+
+  async function cloudRequest(path, options = {}) {
+    const headers = new Headers(options.headers || {});
+    const token = getCloudToken();
+    if (token) headers.set("authorization", `Bearer ${token}`);
+    const response = await fetch(`${getCloudApiBaseUrl()}${path}`, { ...options, headers });
+    let payload = null;
+    if (response.headers.get("content-type")?.includes("application/json")) {
+      payload = await response.json();
+    }
+    if (!response.ok) {
+      const error = new Error(payload?.error || `Cloud request failed (${response.status}).`);
+      error.status = response.status;
+      throw error;
+    }
+    return { response, payload };
+  }
+
+  function saveCloudProjectCatalog(accountId, cloudProjects) {
+    const savedCatalog = JSON.parse(window.localStorage.getItem(PROJECTS_KEY) || "null");
+    const projects = Array.isArray(savedCatalog?.projects) ? savedCatalog.projects : [];
+    const merged = projects.filter((project) =>
+      project.ownerId !== accountId || project.cloudBacked !== true);
+    cloudProjects.forEach((remote) => {
+      if (typeof remote?.id !== "string" || typeof remote.name !== "string") return;
+      const existing = projects.find((project) =>
+        project.id === remote.id && project.ownerId === accountId);
+      merged.push({
+        ...existing,
+        ...remote,
+        ownerId: accountId,
+        cloudBacked: true,
+        cloudHasFile: remote.hasFile === true,
+        cloudRevision: Number.isSafeInteger(remote.revision) ? remote.revision : 0,
+        localCloudRevision: Number.isSafeInteger(existing?.localCloudRevision)
+          ? existing.localCloudRevision
+          : null,
+        localDirty: existing?.localDirty === true,
+        updatedAt: Number.isFinite(remote.updatedAt) && remote.updatedAt > 0
+          ? remote.updatedAt
+          : existing?.updatedAt || 0,
+      });
+    });
+    window.localStorage.setItem(PROJECTS_KEY, JSON.stringify({
+      ...savedCatalog,
+      projects: merged,
+    }));
+    if (state.currentUser === accountId) {
+      state.projects = merged;
+      const activeProject = merged.find((project) => project.id === state.projectId);
+      if (activeProject) {
+        state.projectName = activeProject.name;
+        updateProjectNameLabel();
+      }
+      renderProjectList();
+    }
+  }
+
+  async function registerCloudAccount(name, password) {
+    const { payload } = await cloudRequest("/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, password }),
+    });
+    await activateCloudAccount(payload);
+  }
+
+  async function loginCloudAccount(name, password) {
+    const { payload } = await cloudRequest("/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, password }),
+    });
+    await activateCloudAccount(payload);
+  }
+
+  async function activateCloudAccount(session) {
+    const { account, token, projects } = session;
+    const user = { id: account.id, name: account.name, cloudAccount: true };
+    state.users = [...state.users.filter((item) => item.id !== user.id), user];
+    saveUsers();
+    window.sessionStorage.setItem(CLOUD_TOKEN_KEY, token);
+    window.sessionStorage.setItem(ACTIVE_USER_KEY, user.id);
+    window.sessionStorage.setItem(OPEN_PROJECTS_KEY, "true");
+    saveCloudProjectCatalog(user.id, projects);
+    window.location.reload();
+  }
+
+  async function refreshCloudProjectCatalog() {
+    if (!state.currentUser || !getCloudToken()) return;
+    const { payload } = await cloudRequest("/projects");
+    saveCloudProjectCatalog(state.currentUser, payload.projects);
+    const remoteIds = new Set(payload.projects.map((project) => project.id));
+    for (const project of [...state.projects.filter((item) =>
+      item.ownerId === state.currentUser && !remoteIds.has(item.id))]) {
+      const created = await createCloudProjectRecord(project);
+      saveCloudProjectCatalog(state.currentUser, [
+        ...payload.projects,
+        created,
+      ]);
+      remoteIds.add(project.id);
+      payload.projects.push(created);
+    }
+  }
+
+  async function createCloudProjectRecord(project) {
+    try {
+      const { payload } = await cloudRequest("/projects", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: project.id, name: project.name }),
+      });
+      return payload.project;
+    } catch (error) {
+      if (error.status !== 409) throw error;
+      const { payload } = await cloudRequest("/projects");
+      const existing = payload.projects.find((item) => item.id === project.id);
+      if (!existing) throw error;
+      return existing;
+    }
+  }
+
+  async function renameCloudProject(project) {
+    const { payload } = await cloudRequest(`/projects/${encodeURIComponent(project.id)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: project.name }),
+    });
+    return payload.project;
+  }
+
+  async function deleteCloudProject(projectId) {
+    await cloudRequest(`/projects/${encodeURIComponent(projectId)}`, { method: "DELETE" });
+  }
+
+  async function uploadCloudProject(projectId, projectFile) {
+    const { payload } = await cloudRequest(`/projects/${encodeURIComponent(projectId)}/file`, {
+      method: "PUT",
+      headers: { "content-type": "application/vnd.dansbpm.project+json" },
+      body: JSON.stringify(projectFile),
+    });
+    return payload.project;
+  }
+
+  async function downloadCloudProject(projectId) {
+    const { response, payload } = await cloudRequest(
+      `/projects/${encodeURIComponent(projectId)}/file`,
+    );
+    return {
+      projectFile: payload,
+      revision: Number(response.headers.get("x-project-revision")) || 0,
+    };
+  }
+
+  function endCloudSession() {
+    try {
+      window.sessionStorage.removeItem(CLOUD_TOKEN_KEY);
+    } catch (error) {
+      throw new Error(`Could not end the cloud session: ${error.message || "session storage is unavailable"}`);
+    }
   }
   let scaleSaveTimer = null;
 
@@ -26113,12 +26455,12 @@ const DRIVE_SAMPLE_TRACKS = [
       $("#project-dialog").showModal();
     });
     $("#project-dialog-close").addEventListener("click", () => $("#project-dialog").close());
-    $("#save-project-button").addEventListener("click", saveProjectNow);
+    $("#save-project-button").addEventListener("click", () => { void saveProjectNow(); });
     $("#enter-project-button").addEventListener("click", enterSelectedProject);
     $("#delete-project-button").addEventListener("click", () => { void deleteSelectedProject(); });
-    $("#top-save-project-button").addEventListener("click", saveProjectNow);
-    $("#rename-project-button").addEventListener("click", renameProject);
-    $("#new-project-button").addEventListener("click", createProject);
+    $("#top-save-project-button").addEventListener("click", () => { void saveProjectNow(); });
+    $("#rename-project-button").addEventListener("click", () => { void renameProject(); });
+    $("#new-project-button").addEventListener("click", () => { void createProject(); });
     $("#import-project-button").addEventListener("click", () => $("#project-import-input").click());
     $("#project-import-input").addEventListener("change", async (event) => {
       const input = event.currentTarget;
@@ -26175,9 +26517,13 @@ const DRIVE_SAMPLE_TRACKS = [
       const option = event.target instanceof Element ? event.target.closest("[data-user-id]") : null;
       if (option instanceof HTMLButtonElement) selectUser(option.dataset.userId);
     });
+    $("#login-profile-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      void loginUser();
+    });
     $("#create-profile-form").addEventListener("submit", (event) => {
       event.preventDefault();
-      createUser();
+      void createUser();
     });
     sampleInput.addEventListener("change", () => loadSample(sampleInput.files?.[0]));
     $("#import-drum-sounds-button").addEventListener("click", () => drumSamplesInput.click());
@@ -26420,6 +26766,10 @@ const DRIVE_SAMPLE_TRACKS = [
       }
     } catch (error) {
       showToast(`Could not open the project list: ${error.message || "session storage is unavailable"}`);
+    }
+    if (getCloudToken()) {
+      void refreshCloudProjectCatalog().catch((error) =>
+        showToast(`Could not refresh cloud projects: ${error.message || "the cloud server is unavailable"}`));
     }
   }
   function readMidiVariableLength(bytes, cursor) {

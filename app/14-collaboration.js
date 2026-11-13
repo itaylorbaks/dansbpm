@@ -1127,6 +1127,7 @@
     const project = state.projects.find((item) => item.id === projectId);
     if (project) {
       project.updatedAt = Date.now();
+      if (getCloudToken()) project.localDirty = true;
       try {
         writeProjectCatalog();
       } catch {
@@ -1138,8 +1139,9 @@
         saveCollaborationSession();
       }
     }
-    $("#save-state").textContent = "All changes saved";
-    $(".save-dot").style.background = "#7f9d43";
+    const cloudPending = Boolean(project && getCloudToken());
+    $("#save-state").textContent = cloudPending ? "Local save · click Save to sync" : "All changes saved";
+    $(".save-dot").style.background = cloudPending ? "#c8a95a" : "#7f9d43";
     return true;
   }
 
@@ -1487,9 +1489,13 @@
       name.textContent = project.name;
       const detail = document.createElement("span");
       detail.className = "project-list-detail";
-      detail.textContent = project.id === state.projectId
-        ? "CURRENT PROJECT"
-        : project.updatedAt ? `SAVED ${new Date(project.updatedAt).toLocaleDateString()}` : "NOT SAVED YET";
+      detail.textContent = project.cloudBacked
+        ? project.cloudHasFile
+          ? `CLOUD · SAVED ${new Date(project.updatedAt).toLocaleDateString()}`
+          : "CLOUD · NOT SAVED YET"
+        : project.id === state.projectId
+          ? "CURRENT PROJECT"
+          : project.updatedAt ? `SAVED ${new Date(project.updatedAt).toLocaleDateString()}` : "NOT SAVED YET";
       button.append(name, detail);
       button.addEventListener("click", () => {
         selectedProjectId = project.id;
@@ -1498,13 +1504,16 @@
       list.append(button);
     });
     const selectedProject = projects.find((project) => project.id === selectedProjectId);
-    $("#enter-project-button").disabled = !selectedProject || selectedProject.id === state.projectId;
+    const cloudNeedsDownload = selectedProject?.cloudBacked && selectedProject.cloudHasFile &&
+      selectedProject.localCloudRevision !== selectedProject.cloudRevision;
+    $("#enter-project-button").disabled = !selectedProject ||
+      selectedProject.id === state.projectId && !cloudNeedsDownload;
     $("#delete-project-button").disabled = !selectedProject;
     $("#delete-project-button").title = "Permanently delete the selected project and its saved audio.";
   }
 
   function enterSelectedProject() {
-    if (selectedProjectId) switchProject(selectedProjectId);
+    if (selectedProjectId) void switchProject(selectedProjectId);
   }
 
   async function deleteSelectedProject() {
@@ -1541,6 +1550,14 @@
     let legacySnapshot = null;
     let legacyName = null;
     try {
+      if (project.cloudBacked) {
+        await deleteCloudProject(project.id);
+        project.cloudBacked = false;
+        project.cloudHasFile = false;
+        project.cloudRevision = 0;
+        project.localCloudRevision = null;
+        project.localDirty = true;
+      }
       projectSnapshot = window.localStorage.getItem(snapshotKey);
       djSnapshot = window.localStorage.getItem(djKey);
       if (legacySnapshotKey) legacySnapshot = window.localStorage.getItem(legacySnapshotKey);
@@ -1602,9 +1619,26 @@
     }
   }
 
-  function switchProject(projectId) {
-    if (projectId === state.projectId || !state.projects.some((project) =>
-      project.id === projectId && project.ownerId === state.currentUser)) return;
+  async function switchProject(projectId) {
+    const project = state.projects.find((item) =>
+      item.id === projectId && item.ownerId === state.currentUser);
+    if (!project) return;
+    const cloudNeedsDownload = project.cloudBacked && project.cloudHasFile &&
+      project.localCloudRevision !== project.cloudRevision;
+    if (projectId === state.projectId && !cloudNeedsDownload) return;
+    if (projectId === state.projectId && cloudNeedsDownload) {
+      if (project.localDirty) {
+        showToast("Save this browser's changes to the cloud before opening the newer cloud copy.");
+        return;
+      }
+      try {
+        await downloadProjectToBrowser(project);
+        window.location.reload();
+      } catch (error) {
+        showToast(`Could not download ${project.name}: ${error.message || "the cloud server is unavailable"}`);
+      }
+      return;
+    }
     if (state.mediaRecorder?.state === "recording") {
       showToast("Stop audio recording before switching projects.");
       return;
@@ -1612,6 +1646,18 @@
     if (!flushSaveState()) {
       showToast("Could not save this project; switching was cancelled.");
       return;
+    }
+    if (cloudNeedsDownload) {
+      if (project.localDirty) {
+        showToast(`Save ${project.name}'s local changes to the cloud before opening it.`);
+        return;
+      }
+      try {
+        await downloadProjectToBrowser(project);
+      } catch (error) {
+        showToast(`Could not download ${project.name}: ${error.message || "the cloud server is unavailable"}`);
+        return;
+      }
     }
     if (state.isPlaying) stopPlayback();
     stopAllWorkspacePlayers();
@@ -1626,7 +1672,7 @@
     }
   }
 
-  function createProject() {
+  async function createProject() {
     if (!state.currentUser) return;
     if (state.mediaRecorder?.state === "recording") {
       showToast("Stop audio recording before creating a project.");
@@ -1649,6 +1695,16 @@
     state.projectId = project.id;
     try {
       writeProjectCatalog();
+      if (getCloudToken()) {
+        try {
+          Object.assign(project, await createCloudProjectRecord(project), { cloudBacked: true });
+          project.cloudHasFile = project.hasFile === true;
+          project.cloudRevision = project.revision || 0;
+          writeProjectCatalog();
+        } catch (error) {
+          showToast(`Project created locally, but cloud registration failed: ${error.message || "the server is unavailable"}`);
+        }
+      }
       window.location.reload();
     } catch (error) {
       state.projects = state.projects.filter((item) => item.id !== project.id);

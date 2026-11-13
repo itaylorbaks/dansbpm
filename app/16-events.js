@@ -542,12 +542,12 @@
       $("#project-dialog").showModal();
     });
     $("#project-dialog-close").addEventListener("click", () => $("#project-dialog").close());
-    $("#save-project-button").addEventListener("click", saveProjectNow);
+    $("#save-project-button").addEventListener("click", () => { void saveProjectNow(); });
     $("#enter-project-button").addEventListener("click", enterSelectedProject);
     $("#delete-project-button").addEventListener("click", () => { void deleteSelectedProject(); });
-    $("#top-save-project-button").addEventListener("click", saveProjectNow);
-    $("#rename-project-button").addEventListener("click", renameProject);
-    $("#new-project-button").addEventListener("click", createProject);
+    $("#top-save-project-button").addEventListener("click", () => { void saveProjectNow(); });
+    $("#rename-project-button").addEventListener("click", () => { void renameProject(); });
+    $("#new-project-button").addEventListener("click", () => { void createProject(); });
     $("#import-project-button").addEventListener("click", () => $("#project-import-input").click());
     $("#project-import-input").addEventListener("change", async (event) => {
       const input = event.currentTarget;
@@ -604,9 +604,13 @@
       const option = event.target instanceof Element ? event.target.closest("[data-user-id]") : null;
       if (option instanceof HTMLButtonElement) selectUser(option.dataset.userId);
     });
+    $("#login-profile-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      void loginUser();
+    });
     $("#create-profile-form").addEventListener("submit", (event) => {
       event.preventDefault();
-      createUser();
+      void createUser();
     });
     sampleInput.addEventListener("change", () => loadSample(sampleInput.files?.[0]));
     $("#import-drum-sounds-button").addEventListener("click", () => drumSamplesInput.click());
@@ -849,5 +853,9 @@
       }
     } catch (error) {
       showToast(`Could not open the project list: ${error.message || "session storage is unavailable"}`);
+    }
+    if (getCloudToken()) {
+      void refreshCloudProjectCatalog().catch((error) =>
+        showToast(`Could not refresh cloud projects: ${error.message || "the cloud server is unavailable"}`));
     }
   }

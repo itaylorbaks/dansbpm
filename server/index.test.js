@@ -1,17 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { gunzipSync } from "node:zlib";
 import { WebSocket } from "ws";
 import { createCollaborationServer } from "./index.js";
 
-async function openServer() {
-  const app = createCollaborationServer({ allowedOrigins: ["http://localhost"] });
+async function openServer({ dataDirectory } = {}) {
+  const app = createCollaborationServer({ allowedOrigins: ["http://localhost"], dataDirectory });
   app.server.listen(0, "127.0.0.1");
   await once(app.server, "listening");
   const address = app.server.address();
   return {
     ...app,
     url: `ws://127.0.0.1:${address.port}/collaboration`,
+    httpUrl: `http://127.0.0.1:${address.port}`,
   };
 }
 
@@ -226,6 +231,121 @@ test("workspace locks are exclusive and pushes merge only the locked workspace",
   assert.equal(app.rooms.get(created.roomCode).snapshot.bpm, 128);
   assert.deepEqual(app.rooms.get(created.roomCode).snapshot.dj, { crossfader: 50 });
   assert.deepEqual(app.rooms.get(created.roomCode).locks, new Map());
+});
+
+test("accounts authenticate and persist compressed project files", async (t) => {
+  const dataDirectory = await mkdtemp(join(tmpdir(), "dansbpm-cloud-test-"));
+  let app = await openServer({ dataDirectory });
+  t.after(async () => {
+    await app.close();
+    await rm(dataDirectory, { recursive: true, force: true });
+  });
+  const request = (path, options = {}) => fetch(`${app.httpUrl}${path}`, {
+    ...options,
+    headers: {
+      origin: "http://localhost",
+      ...(options.headers || {}),
+    },
+  });
+
+  const registration = await request("/api/register", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Ada", password: "correct horse battery" }),
+  });
+  assert.equal(registration.status, 201);
+  const account = await registration.json();
+  assert.equal(account.account.name, "Ada");
+
+  const projectId = "cloud-project-1";
+  const project = await request("/api/projects", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${account.token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ id: projectId, name: "Cloud song" }),
+  });
+  assert.equal(project.status, 201);
+
+  const bpmFile = {
+    app: "DansBPM",
+    format: "dansbpm-project",
+    version: 1,
+    project: { name: "Cloud song", snapshot: { bpm: 128 } },
+    assets: [],
+  };
+  const saved = await request(`/api/projects/${projectId}/file`, {
+    method: "PUT",
+    headers: {
+      authorization: `Bearer ${account.token}`,
+      "content-type": "application/vnd.dansbpm.project+json",
+    },
+    body: JSON.stringify(bpmFile),
+  });
+  assert.equal(saved.status, 200);
+  assert.equal((await saved.json()).project.revision, 1);
+
+  const compressedPath = join(dataDirectory, "projects", account.account.id, `${projectId}.bpm.gz`);
+  const compressed = await readFile(compressedPath);
+  assert.deepEqual(JSON.parse(gunzipSync(compressed).toString("utf8")), bpmFile);
+
+  const updatedFile = {
+    ...bpmFile,
+    project: { ...bpmFile.project, snapshot: { bpm: 136 } },
+  };
+  const updated = await request(`/api/projects/${projectId}/file`, {
+    method: "PUT",
+    headers: {
+      authorization: `Bearer ${account.token}`,
+      "content-type": "application/vnd.dansbpm.project+json",
+    },
+    body: JSON.stringify(updatedFile),
+  });
+  assert.equal((await updated.json()).project.revision, 2);
+  assert.deepEqual(
+    JSON.parse(gunzipSync(await readFile(compressedPath)).toString("utf8")),
+    updatedFile,
+  );
+
+  const secondRegistration = await request("/api/register", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Grace", password: "another strong password" }),
+  });
+  const secondAccount = await secondRegistration.json();
+  const otherAccountProjects = await request("/api/projects", {
+    headers: { authorization: `Bearer ${secondAccount.token}` },
+  });
+  assert.deepEqual((await otherAccountProjects.json()).projects, []);
+  const inaccessibleProject = await request(`/api/projects/${projectId}/file`, {
+    headers: { authorization: `Bearer ${secondAccount.token}` },
+  });
+  assert.equal(inaccessibleProject.status, 404);
+
+  const wrongPassword = await request("/api/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Ada", password: "not the password" }),
+  });
+  assert.equal(wrongPassword.status, 401);
+
+  await app.close();
+  app = await openServer({ dataDirectory });
+  const login = await request("/api/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "ada", password: "correct horse battery" }),
+  });
+  assert.equal(login.status, 200);
+  const session = await login.json();
+  assert.equal(session.projects[0].hasFile, true);
+  assert.equal(session.projects[0].revision, 2);
+  const downloaded = await request(`/api/projects/${projectId}/file`, {
+    headers: { authorization: `Bearer ${session.token}` },
+  });
+  assert.equal(downloaded.status, 200);
+  assert.deepEqual(await downloaded.json(), updatedFile);
 });
 
 test("track-view pushes include referenced pattern and Mel dependencies", async (t) => {

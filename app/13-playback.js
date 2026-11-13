@@ -1078,7 +1078,7 @@
   function renderLoginUsers() {
     const options = $("#login-options");
     options.replaceChildren();
-    state.users.forEach((user) => {
+    state.users.filter((user) => !user.cloudAccount).forEach((user) => {
       const button = document.createElement("button");
       button.className = "login-option";
       button.type = "button";
@@ -1090,7 +1090,7 @@
       const name = document.createElement("strong");
       name.textContent = user.name;
       const detail = document.createElement("small");
-      detail.textContent = `Open ${user.name}'s projects`;
+      detail.textContent = "Local profile · this browser only";
       text.append(name, detail);
       const arrow = document.createElement("span");
       arrow.className = "login-arrow";
@@ -1108,7 +1108,11 @@
       if (Array.isArray(savedUsers)) {
         users = savedUsers.filter((user) =>
           typeof user?.id === "string" && user.id && typeof user.name === "string" && user.name.trim())
-          .map((user) => ({ id: user.id, name: user.name.trim().slice(0, 32) }));
+          .map((user) => ({
+            id: user.id,
+            name: user.name.trim().slice(0, 32),
+            ...(user.cloudAccount === true ? { cloudAccount: true } : {}),
+          }));
       }
       DEFAULT_USERS.forEach((defaultUser) => {
         if (!users.some((user) => user.id === defaultUser.id)) users.push(defaultUser);
@@ -1125,14 +1129,16 @@
   function getSessionUser() {
     try {
       const userId = window.sessionStorage.getItem(ACTIVE_USER_KEY);
-      return state.users.some((user) => user.id === userId) ? userId : null;
+      const user = state.users.find((item) => item.id === userId);
+      if (user?.cloudAccount && !getCloudToken()) return null;
+      return user ? userId : null;
     } catch {
       return null;
     }
   }
 
   function selectUser(userId) {
-    if (!state.users.some((user) => user.id === userId)) return;
+    if (!state.users.some((user) => user.id === userId && !user.cloudAccount)) return;
     try {
       window.sessionStorage.setItem(ACTIVE_USER_KEY, userId);
       window.sessionStorage.setItem(OPEN_PROJECTS_KEY, "true");
@@ -1143,9 +1149,11 @@
     }
   }
 
-  function createUser() {
+  async function createUser() {
     const input = $("#new-profile-name");
     const name = input.value.trim().slice(0, 32);
+    const passwordInput = $("#new-profile-password");
+    const password = passwordInput.value;
     const error = $("#login-error");
     error.textContent = "";
     if (!name) {
@@ -1153,20 +1161,31 @@
       input.focus();
       return;
     }
-    if (state.users.some((user) => user.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
-      error.textContent = "A profile with that name already exists in this browser.";
-      input.focus();
+    if (password.length < 8) {
+      error.textContent = "Choose a password with at least 8 characters.";
+      passwordInput.focus();
       return;
     }
-    const user = { id: makeId(), name };
-    state.users.push(user);
     try {
-      saveUsers();
-      renderLoginUsers();
-      selectUser(user.id);
-    } catch (saveError) {
-      state.users = state.users.filter((item) => item.id !== user.id);
-      error.textContent = `Could not save this profile: ${saveError.message || "browser storage is unavailable"}`;
+      await registerCloudAccount(name, password);
+    } catch (createError) {
+      error.textContent = createError.message || "Could not create this account.";
+    }
+  }
+
+  async function loginUser() {
+    const name = $("#login-profile-name").value.trim();
+    const passwordInput = $("#login-profile-password");
+    const error = $("#login-error");
+    error.textContent = "";
+    if (!name || !passwordInput.value) {
+      error.textContent = "Enter your profile name and password.";
+      return;
+    }
+    try {
+      await loginCloudAccount(name, passwordInput.value);
+    } catch (loginError) {
+      error.textContent = loginError.message || "Could not sign in.";
     }
   }
 
