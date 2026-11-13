@@ -1179,6 +1179,7 @@
   }
 
   function getUndoScope() {
+    if (getLastInteractedViewArea() === "track-view") return "track-view";
     if (state.view === "piano-roll") return "piano-roll";
     if (state.view === "sequencer") return "step-grid";
     if (state.view === "dj") return "dj";

@@ -125,6 +125,7 @@
     workspaceRatio: 50,
     workspaceHidden: false,
     trackViewHidden: false,
+    lastInteractedViewArea: "track-view",
     scheduledPianoNotes: new Set(),
     scheduledArrangementSteps: new Set(),
     scheduledArrangementClicks: new Set(),

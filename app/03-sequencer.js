@@ -450,6 +450,13 @@
     updatePianoRulerViewport();
   }
 
+  function getLastInteractedViewArea() {
+    if (state.workspaceHidden) return "track-view";
+    if (state.trackViewHidden) return "workspace";
+    if (state.view === "arrangement") return "track-view";
+    return state.lastInteractedViewArea === "track-view" ? "track-view" : "workspace";
+  }
+
   function updateWorkspaceFullscreenButton() {
     const button = $("#workspace-fullscreen-button");
     const isFullscreen = document.fullscreenElement === $("#workspace-area");
@@ -510,6 +517,10 @@
   function setViewVisibility(workspaceHidden, trackViewHidden, focusTarget = null) {
     state.workspaceHidden = workspaceHidden;
     state.trackViewHidden = trackViewHidden;
+    if (workspaceHidden) state.lastInteractedViewArea = "track-view";
+    else if (trackViewHidden) state.lastInteractedViewArea = "workspace";
+    else if (focusTarget?.includes("workspace")) state.lastInteractedViewArea = "workspace";
+    else if (focusTarget?.includes("track-view")) state.lastInteractedViewArea = "track-view";
     renderViewLayout();
     saveState();
     if (focusTarget) $(`#${focusTarget}`).focus();

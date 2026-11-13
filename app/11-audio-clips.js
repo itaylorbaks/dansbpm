@@ -1128,6 +1128,7 @@
     }
     state.view = view;
     state.workspaceHidden = false;
+    state.lastInteractedViewArea = view === "arrangement" ? "track-view" : "workspace";
     sendCollaborationView();
     const showSequencer = view === "sequencer";
     const showPianoRoll = view === "piano-roll";

@@ -9,6 +9,20 @@
   }
 
   function bindEvents() {
+    const workspaceArea = $("#workspace-area");
+    const trackViewArea = $("#track-view-area");
+    workspaceArea.addEventListener("pointerdown", () => {
+      state.lastInteractedViewArea = "workspace";
+    }, true);
+    workspaceArea.addEventListener("focusin", () => {
+      state.lastInteractedViewArea = "workspace";
+    }, true);
+    trackViewArea.addEventListener("pointerdown", () => {
+      state.lastInteractedViewArea = "track-view";
+    }, true);
+    trackViewArea.addEventListener("focusin", () => {
+      state.lastInteractedViewArea = "track-view";
+    }, true);
     document.addEventListener("pointermove", paintStepAtPointer);
     document.addEventListener("pointermove", updateStepSelectionDrag);
     document.addEventListener("pointerup", finishStepPaint);
@@ -694,6 +708,25 @@
         !event.shiftKey && event.key.toLowerCase() === "z") {
         event.preventDefault();
         if (!event.repeat) undoCurrentView();
+        return;
+      }
+      if (!isTyping && !dialogOpen && !event.repeat && !event.ctrlKey && !event.metaKey &&
+        !event.altKey && !event.shiftKey && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        const area = getLastInteractedViewArea();
+        if (document.fullscreenElement === $("#track-view-area")) {
+          void toggleTrackViewFullscreen();
+        } else if (document.fullscreenElement === $("#workspace-area")) {
+          void toggleWorkspaceFullscreen();
+        } else if (state.view === "dj" && djViewExpanded) {
+          setDjViewExpanded(false);
+        } else if (area === "track-view") {
+          void toggleTrackViewFullscreen();
+        } else if (state.view === "dj") {
+          setDjViewExpanded(!djViewExpanded);
+        } else {
+          void toggleWorkspaceFullscreen();
+        }
         return;
       }
       const djControlFocused = state.view === "dj" && djViewExpanded &&

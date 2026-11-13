@@ -6563,6 +6563,7 @@ const DRIVE_SAMPLE_TRACKS = [
     workspaceRatio: 50,
     workspaceHidden: false,
     trackViewHidden: false,
+    lastInteractedViewArea: "track-view",
     scheduledPianoNotes: new Set(),
     scheduledArrangementSteps: new Set(),
     scheduledArrangementClicks: new Set(),
@@ -7274,6 +7275,13 @@ const DRIVE_SAMPLE_TRACKS = [
     updatePianoRulerViewport();
   }
 
+  function getLastInteractedViewArea() {
+    if (state.workspaceHidden) return "track-view";
+    if (state.trackViewHidden) return "workspace";
+    if (state.view === "arrangement") return "track-view";
+    return state.lastInteractedViewArea === "track-view" ? "track-view" : "workspace";
+  }
+
   function updateWorkspaceFullscreenButton() {
     const button = $("#workspace-fullscreen-button");
     const isFullscreen = document.fullscreenElement === $("#workspace-area");
@@ -7334,6 +7342,10 @@ const DRIVE_SAMPLE_TRACKS = [
   function setViewVisibility(workspaceHidden, trackViewHidden, focusTarget = null) {
     state.workspaceHidden = workspaceHidden;
     state.trackViewHidden = trackViewHidden;
+    if (workspaceHidden) state.lastInteractedViewArea = "track-view";
+    else if (trackViewHidden) state.lastInteractedViewArea = "workspace";
+    else if (focusTarget?.includes("workspace")) state.lastInteractedViewArea = "workspace";
+    else if (focusTarget?.includes("track-view")) state.lastInteractedViewArea = "track-view";
     renderViewLayout();
     saveState();
     if (focusTarget) $(`#${focusTarget}`).focus();
@@ -11700,7 +11712,7 @@ const DRIVE_SAMPLE_TRACKS = [
   const DJ_ARRANGEMENT_BARS = 8;
   const DJ_MAX_OFFSET_BARS = MAX_ARRANGEMENT_BARS - DJ_ARRANGEMENT_BARS;
   const DJ_MAX_CENTERED_OFFSET_BARS = MAX_ARRANGEMENT_BARS - DJ_ARRANGEMENT_BARS / 2;
-  const DJ_PAD_KEYS = ["KeyQ", "KeyW", "KeyE", "KeyR", "KeyA", "KeyS", "KeyD", "KeyF",
+  const DJ_PAD_KEYS = ["KeyQ", "KeyW", "KeyE", "KeyR", "KeyA", "KeyS", "KeyD", "KeyG",
     "KeyZ", "KeyX", "KeyC", "KeyV", "Digit1", "Digit2", "Digit3", "Digit4"];
   const DJ_KNOB_KEYS = {
     KeyU: "filter",
@@ -20279,6 +20291,7 @@ const DRIVE_SAMPLE_TRACKS = [
     }
     state.view = view;
     state.workspaceHidden = false;
+    state.lastInteractedViewArea = view === "arrangement" ? "track-view" : "workspace";
     sendCollaborationView();
     const showSequencer = view === "sequencer";
     const showPianoRoll = view === "piano-roll";
@@ -23877,6 +23890,7 @@ const DRIVE_SAMPLE_TRACKS = [
   }
 
   function getUndoScope() {
+    if (getLastInteractedViewArea() === "track-view") return "track-view";
     if (state.view === "piano-roll") return "piano-roll";
     if (state.view === "sequencer") return "step-grid";
     if (state.view === "dj") return "dj";
@@ -26505,6 +26519,20 @@ const DRIVE_SAMPLE_TRACKS = [
   }
 
   function bindEvents() {
+    const workspaceArea = $("#workspace-area");
+    const trackViewArea = $("#track-view-area");
+    workspaceArea.addEventListener("pointerdown", () => {
+      state.lastInteractedViewArea = "workspace";
+    }, true);
+    workspaceArea.addEventListener("focusin", () => {
+      state.lastInteractedViewArea = "workspace";
+    }, true);
+    trackViewArea.addEventListener("pointerdown", () => {
+      state.lastInteractedViewArea = "track-view";
+    }, true);
+    trackViewArea.addEventListener("focusin", () => {
+      state.lastInteractedViewArea = "track-view";
+    }, true);
     document.addEventListener("pointermove", paintStepAtPointer);
     document.addEventListener("pointermove", updateStepSelectionDrag);
     document.addEventListener("pointerup", finishStepPaint);
@@ -27190,6 +27218,25 @@ const DRIVE_SAMPLE_TRACKS = [
         !event.shiftKey && event.key.toLowerCase() === "z") {
         event.preventDefault();
         if (!event.repeat) undoCurrentView();
+        return;
+      }
+      if (!isTyping && !dialogOpen && !event.repeat && !event.ctrlKey && !event.metaKey &&
+        !event.altKey && !event.shiftKey && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        const area = getLastInteractedViewArea();
+        if (document.fullscreenElement === $("#track-view-area")) {
+          void toggleTrackViewFullscreen();
+        } else if (document.fullscreenElement === $("#workspace-area")) {
+          void toggleWorkspaceFullscreen();
+        } else if (state.view === "dj" && djViewExpanded) {
+          setDjViewExpanded(false);
+        } else if (area === "track-view") {
+          void toggleTrackViewFullscreen();
+        } else if (state.view === "dj") {
+          setDjViewExpanded(!djViewExpanded);
+        } else {
+          void toggleWorkspaceFullscreen();
+        }
         return;
       }
       const djControlFocused = state.view === "dj" && djViewExpanded &&
