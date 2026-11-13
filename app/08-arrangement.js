@@ -1,4 +1,7 @@
   function renderArrangement() {
+    syncStepPianoEdit();
+    captureCurrentPattern();
+    captureCurrentMel();
     BAR_WIDTH = BASE_BAR_WIDTH * state.arrangementScale;
     $("#arrangement-empty").hidden = state.view !== "arrangement";
     $("#arrangement-scale-slider").value = String(Math.round(state.arrangementScale * 100));

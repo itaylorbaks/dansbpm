@@ -1230,6 +1230,7 @@
     updateTrackGains();
     renderTracks();
     renderPatternSelectors();
+    renderArrangement();
     saveState();
     showToast(`${track.name} removed from ${pattern.name}`);
   }
@@ -1247,7 +1248,7 @@
     renderPresets();
     renderPatternSelectors();
     updateArrangementLength();
-    if (isSongWorkspace()) renderArrangement();
+    renderArrangement();
     updateCollaborationLockUi();
     saveState();
   }
@@ -1292,7 +1293,7 @@
     renderPresets();
     renderPatternSelectors();
     updateArrangementLength();
-    if (isSongWorkspace()) renderArrangement();
+    renderArrangement();
     saveState();
     if (showNotification) showToast(`${pattern.name} created from the selected pattern`);
     return pattern;
@@ -1314,7 +1315,7 @@
     }
     pattern.name = trimmed;
     renderPatternSelectors();
-    if (isSongWorkspace()) renderArrangement();
+    renderArrangement();
     saveState();
   }
 
@@ -1464,6 +1465,7 @@
           }
           clearStepCellSelection();
           setStepCellValue(track, step, cell, !track.cells[step]);
+          renderArrangement();
           saveState();
         });
         grid.append(cell);
@@ -1503,7 +1505,7 @@
       track.variant = select.value;
       saveState();
       renderTracks();
-      if (isSongWorkspace()) renderArrangement();
+      renderArrangement();
       previewInstrumentSound(track);
     });
     return select;
@@ -1730,7 +1732,7 @@
     renderTracks();
     renderPresets();
     updateArrangementLength();
-    if (isSongWorkspace()) renderArrangement();
+    renderArrangement();
     saveState();
     showToast(`${preset.title} pattern loaded`);
   }
@@ -1763,7 +1765,7 @@
     renderHeader();
     renderTracks();
     updateArrangementLength();
-    if (isSongWorkspace()) renderArrangement();
+    renderArrangement();
     if (state.currentStep >= getGridStepCount()) state.currentStep = -1;
     saveState();
   }
@@ -1792,7 +1794,7 @@
     applyPattern(pattern);
     renderTracks();
     renderPatternSelectors();
-    if (isSongWorkspace()) renderArrangement();
+    renderArrangement();
     saveState();
   }
 
@@ -1990,6 +1992,7 @@
       }
     }
     renderTracks();
+    renderArrangement();
     saveState();
     return true;
   }

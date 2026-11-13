@@ -525,6 +525,7 @@
     state.pianoSelectionFromMarquee = false;
     renderPianoInstrumentOptions();
     renderPianoRoll();
+    renderArrangement();
     saveState();
   }
 
@@ -584,6 +585,7 @@
       return;
     }
     renderPianoRoll();
+    renderArrangement();
     saveState();
     showToast(`Tuned ${changed} note${changed === 1 ? "" : "s"} to ${midiNoteName(state.pianoScaleRoot + 60).replace(/\d+$/, "")} ${state.pianoScaleType.replace("-", " ")}`);
   }
@@ -1387,6 +1389,7 @@
       if (targets.has(note.id)) note[property] = noteValue;
     });
     updatePianoNoteContextOutput(property, sliderValue);
+    renderArrangement();
     saveState();
   }
 
@@ -1861,6 +1864,8 @@
       });
     }
     renderPianoRoll();
+    updateArrangementLength();
+    renderArrangement();
     saveState();
     return true;
   }

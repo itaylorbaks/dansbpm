@@ -285,6 +285,8 @@
       state.pianoBars = Number(event.target.value);
       state.pianoCursorTick = Math.min(state.pianoCursorTick, state.pianoBars * PIANO_TICKS_PER_BAR - 0.001);
       renderPianoRoll();
+      updateArrangementLength();
+      renderArrangement();
       saveState();
     });
     $("#piano-scale-slider").addEventListener("input", (event) => {

@@ -396,7 +396,10 @@
     if (!stepPaint || event.pointerId !== stepPaint.pointerId) return;
     const changed = stepPaint.changed;
     stepPaint = null;
-    if (changed) saveState();
+    if (changed) {
+      renderArrangement();
+      saveState();
+    }
     window.setTimeout(() => { suppressStepClick = false; }, 0);
   }
 
@@ -608,6 +611,7 @@
     state.selectedStepCells.clear();
     if (changed) {
       renderTracks();
+      renderArrangement();
       saveState();
     } else {
       document.querySelectorAll(".step-cell.is-selected").forEach((cell) => cell.classList.remove("is-selected"));

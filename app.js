@@ -7221,7 +7221,10 @@ const DRIVE_SAMPLE_TRACKS = [
     if (!stepPaint || event.pointerId !== stepPaint.pointerId) return;
     const changed = stepPaint.changed;
     stepPaint = null;
-    if (changed) saveState();
+    if (changed) {
+      renderArrangement();
+      saveState();
+    }
     window.setTimeout(() => { suppressStepClick = false; }, 0);
   }
 
@@ -7433,6 +7436,7 @@ const DRIVE_SAMPLE_TRACKS = [
     state.selectedStepCells.clear();
     if (changed) {
       renderTracks();
+      renderArrangement();
       saveState();
     } else {
       document.querySelectorAll(".step-cell.is-selected").forEach((cell) => cell.classList.remove("is-selected"));
@@ -7998,6 +8002,7 @@ const DRIVE_SAMPLE_TRACKS = [
     state.pianoSelectionFromMarquee = false;
     renderPianoInstrumentOptions();
     renderPianoRoll();
+    renderArrangement();
     saveState();
   }
 
@@ -8057,6 +8062,7 @@ const DRIVE_SAMPLE_TRACKS = [
       return;
     }
     renderPianoRoll();
+    renderArrangement();
     saveState();
     showToast(`Tuned ${changed} note${changed === 1 ? "" : "s"} to ${midiNoteName(state.pianoScaleRoot + 60).replace(/\d+$/, "")} ${state.pianoScaleType.replace("-", " ")}`);
   }
@@ -8860,6 +8866,7 @@ const DRIVE_SAMPLE_TRACKS = [
       if (targets.has(note.id)) note[property] = noteValue;
     });
     updatePianoNoteContextOutput(property, sliderValue);
+    renderArrangement();
     saveState();
   }
 
@@ -9334,6 +9341,8 @@ const DRIVE_SAMPLE_TRACKS = [
       });
     }
     renderPianoRoll();
+    updateArrangementLength();
+    renderArrangement();
     saveState();
     return true;
   }
@@ -10672,6 +10681,7 @@ const DRIVE_SAMPLE_TRACKS = [
     updateTrackGains();
     renderTracks();
     renderPatternSelectors();
+    renderArrangement();
     saveState();
     showToast(`${track.name} removed from ${pattern.name}`);
   }
@@ -10689,7 +10699,7 @@ const DRIVE_SAMPLE_TRACKS = [
     renderPresets();
     renderPatternSelectors();
     updateArrangementLength();
-    if (isSongWorkspace()) renderArrangement();
+    renderArrangement();
     updateCollaborationLockUi();
     saveState();
   }
@@ -10734,7 +10744,7 @@ const DRIVE_SAMPLE_TRACKS = [
     renderPresets();
     renderPatternSelectors();
     updateArrangementLength();
-    if (isSongWorkspace()) renderArrangement();
+    renderArrangement();
     saveState();
     if (showNotification) showToast(`${pattern.name} created from the selected pattern`);
     return pattern;
@@ -10756,7 +10766,7 @@ const DRIVE_SAMPLE_TRACKS = [
     }
     pattern.name = trimmed;
     renderPatternSelectors();
-    if (isSongWorkspace()) renderArrangement();
+    renderArrangement();
     saveState();
   }
 
@@ -10906,6 +10916,7 @@ const DRIVE_SAMPLE_TRACKS = [
           }
           clearStepCellSelection();
           setStepCellValue(track, step, cell, !track.cells[step]);
+          renderArrangement();
           saveState();
         });
         grid.append(cell);
@@ -10945,7 +10956,7 @@ const DRIVE_SAMPLE_TRACKS = [
       track.variant = select.value;
       saveState();
       renderTracks();
-      if (isSongWorkspace()) renderArrangement();
+      renderArrangement();
       previewInstrumentSound(track);
     });
     return select;
@@ -11172,7 +11183,7 @@ const DRIVE_SAMPLE_TRACKS = [
     renderTracks();
     renderPresets();
     updateArrangementLength();
-    if (isSongWorkspace()) renderArrangement();
+    renderArrangement();
     saveState();
     showToast(`${preset.title} pattern loaded`);
   }
@@ -11205,7 +11216,7 @@ const DRIVE_SAMPLE_TRACKS = [
     renderHeader();
     renderTracks();
     updateArrangementLength();
-    if (isSongWorkspace()) renderArrangement();
+    renderArrangement();
     if (state.currentStep >= getGridStepCount()) state.currentStep = -1;
     saveState();
   }
@@ -11234,7 +11245,7 @@ const DRIVE_SAMPLE_TRACKS = [
     applyPattern(pattern);
     renderTracks();
     renderPatternSelectors();
-    if (isSongWorkspace()) renderArrangement();
+    renderArrangement();
     saveState();
   }
 
@@ -11432,6 +11443,7 @@ const DRIVE_SAMPLE_TRACKS = [
       }
     }
     renderTracks();
+    renderArrangement();
     saveState();
     return true;
   }
@@ -16675,6 +16687,9 @@ const DRIVE_SAMPLE_TRACKS = [
   }
 
   function renderArrangement() {
+    syncStepPianoEdit();
+    captureCurrentPattern();
+    captureCurrentMel();
     BAR_WIDTH = BASE_BAR_WIDTH * state.arrangementScale;
     $("#arrangement-empty").hidden = state.view !== "arrangement";
     $("#arrangement-scale-slider").value = String(Math.round(state.arrangementScale * 100));
@@ -26795,6 +26810,8 @@ const DRIVE_SAMPLE_TRACKS = [
       state.pianoBars = Number(event.target.value);
       state.pianoCursorTick = Math.min(state.pianoCursorTick, state.pianoBars * PIANO_TICKS_PER_BAR - 0.001);
       renderPianoRoll();
+      updateArrangementLength();
+      renderArrangement();
       saveState();
     });
     $("#piano-scale-slider").addEventListener("input", (event) => {
