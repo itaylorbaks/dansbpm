@@ -24677,8 +24677,11 @@ const DRIVE_SAMPLE_TRACKS = [
     }
 
     if (!flushSaveState()) {
-      showToast("Could not save the current project; import was cancelled.");
-      return;
+      if (!getCloudToken() || saveState.lastError !== "localStorage quota exceeded.") {
+        showToast("Could not save the current project; import was cancelled.");
+        return;
+      }
+      if (!await saveProjectNow()) return;
     }
     const previousProjectId = state.projectId;
     const previousProjectName = state.projectName;
