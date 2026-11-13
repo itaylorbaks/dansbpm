@@ -23,6 +23,10 @@ function safeProfileName(value) {
   return value.trim().replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 32);
 }
 
+function normalizeProfileName(value) {
+  return safeProfileName(value).normalize("NFKC").toLocaleLowerCase("en-US");
+}
+
 function safeProjectName(value) {
   if (typeof value !== "string") return "";
   return value.trim().replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 64);
@@ -88,6 +92,7 @@ export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
   const accountsPath = join(dataDirectory, "accounts.json");
   let accounts = {};
   let ready;
+  let persistQueue = Promise.resolve();
 
   async function loadAccounts() {
     if (!ready) {
@@ -95,7 +100,14 @@ export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
         await mkdir(dataDirectory, { recursive: true });
         try {
           const saved = JSON.parse(await readFile(accountsPath, "utf8"));
-          if (saved && typeof saved === "object" && !Array.isArray(saved)) accounts = saved;
+          if (saved && typeof saved === "object" && !Array.isArray(saved)) {
+            accounts = saved;
+            Object.values(accounts).forEach((account) => {
+              if (account && typeof account.name === "string") {
+                account.normalizedName = normalizeProfileName(account.name);
+              }
+            });
+          }
         } catch (error) {
           if (error.code !== "ENOENT") throw error;
         }
@@ -105,7 +117,10 @@ export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
   }
 
   async function persistAccounts() {
-    await writeAtomically(accountsPath, JSON.stringify(accounts));
+    const snapshot = JSON.stringify(accounts);
+    const write = persistQueue.then(() => writeAtomically(accountsPath, snapshot));
+    persistQueue = write.catch(() => {});
+    await write;
   }
 
   function projectFilePath(accountId, projectId) {
@@ -151,7 +166,7 @@ export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
           sendJson(response, 400, { error: "Enter a profile name and a password of at least 8 characters." });
           return true;
         }
-        const normalizedName = name.toLocaleLowerCase("en-US");
+        const normalizedName = normalizeProfileName(name);
         if (Object.values(accounts).some((account) => account.normalizedName === normalizedName)) {
           sendJson(response, 409, { error: "An account with that profile name already exists." });
           return true;
@@ -159,6 +174,10 @@ export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
         const id = randomUUID();
         const salt = randomBytes(16).toString("hex");
         const passwordHash = (await scryptAsync(password, salt, 64)).toString("hex");
+        if (Object.values(accounts).some((account) => account.normalizedName === normalizedName)) {
+          sendJson(response, 409, { error: "An account with that profile name already exists." });
+          return true;
+        }
         const account = { id, name, normalizedName, salt, passwordHash, projects: [] };
         accounts[id] = account;
         await persistAccounts();
@@ -171,7 +190,7 @@ export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
       if (request.method === "POST" && url.pathname === "/api/login") {
         const body = await readJsonBody(request);
         const name = safeProfileName(body.name);
-        const normalizedName = name.toLocaleLowerCase("en-US");
+        const normalizedName = normalizeProfileName(name);
         const account = Object.values(accounts).find((item) => item.normalizedName === normalizedName);
         if (!account || typeof body.password !== "string") {
           sendJson(response, 401, { error: "Profile name or password is incorrect." });

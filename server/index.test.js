@@ -257,6 +257,24 @@ test("accounts authenticate and persist compressed project files", async (t) => 
   const account = await registration.json();
   assert.equal(account.account.name, "Ada");
 
+  const duplicateRegistration = await request("/api/register", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "aDA", password: "another strong password" }),
+  });
+  assert.equal(duplicateRegistration.status, 409);
+
+  const concurrentRegistrations = await Promise.all(["Race", "race"].map((name) =>
+    request("/api/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, password: "another strong password" }),
+    })));
+  assert.deepEqual(
+    concurrentRegistrations.map((response) => response.status).sort(),
+    [201, 409],
+  );
+
   const projectId = "cloud-project-1";
   const project = await request("/api/projects", {
     method: "POST",
