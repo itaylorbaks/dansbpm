@@ -191,6 +191,91 @@
     });
   }
 
+  function openProjectSnapshotDb() {
+    if (!window.indexedDB) return Promise.reject(new Error("IndexedDB is unavailable"));
+    return new Promise((resolve, reject) => {
+      const request = window.indexedDB.open("pulsegrid-project-snapshots", 1);
+      request.onupgradeneeded = () => {
+        if (!request.result.objectStoreNames.contains("snapshots")) {
+          request.result.createObjectStore("snapshots", { keyPath: "id" });
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error("Could not open project snapshot storage"));
+    });
+  }
+
+  function readCachedProjectSnapshot(projectId) {
+    return openProjectSnapshotDb().then((database) => new Promise((resolve, reject) => {
+      let cached = null;
+      const transaction = database.transaction("snapshots", "readonly");
+      const request = transaction.objectStore("snapshots").get(projectId);
+      request.onsuccess = () => { cached = request.result || null; };
+      transaction.oncomplete = () => {
+        database.close();
+        resolve(cached);
+      };
+      transaction.onerror = () => {
+        database.close();
+        reject(transaction.error || new Error("Could not read the IndexedDB project cache."));
+      };
+      transaction.onabort = () => {
+        database.close();
+        reject(transaction.error || new Error("Reading the IndexedDB project cache was cancelled."));
+      };
+    }));
+  }
+
+  function writeCachedProjectSnapshot(projectId, snapshot, revision) {
+    return openProjectSnapshotDb().then((database) => new Promise((resolve, reject) => {
+      const transaction = database.transaction("snapshots", "readwrite");
+      transaction.oncomplete = () => {
+        database.close();
+        updateStorageIndicator();
+        resolve();
+      };
+      transaction.onerror = () => {
+        database.close();
+        reject(transaction.error || new Error("Could not cache the project in IndexedDB."));
+      };
+      transaction.onabort = () => {
+        database.close();
+        reject(transaction.error || new Error("Caching the project in IndexedDB was cancelled."));
+      };
+      try {
+        transaction.objectStore("snapshots").put({ id: projectId, snapshot, revision });
+      } catch (error) {
+        try { transaction.abort(); } catch { database.close(); }
+        reject(error);
+      }
+    }));
+  }
+
+  function deleteCachedProjectSnapshot(projectId) {
+    return openProjectSnapshotDb().then((database) => new Promise((resolve, reject) => {
+      const transaction = database.transaction("snapshots", "readwrite");
+      transaction.oncomplete = () => {
+        database.close();
+        updateStorageIndicator();
+        resolve();
+      };
+      transaction.onerror = () => {
+        database.close();
+        reject(transaction.error || new Error("Could not remove the IndexedDB project cache."));
+      };
+      transaction.onabort = () => {
+        database.close();
+        reject(transaction.error || new Error("Removing the IndexedDB project cache was cancelled."));
+      };
+      try {
+        transaction.objectStore("snapshots").delete(projectId);
+      } catch (error) {
+        try { transaction.abort(); } catch { database.close(); }
+        reject(error);
+      }
+    }));
+  }
+
   function formatStorageSize(bytes) {
     const units = ["B", "KB", "MB", "GB", "TB"];
     let size = bytes;

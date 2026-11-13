@@ -129,14 +129,19 @@
     }
   }
 
-  function restoreDjState() {
+  function restoreDjState(snapshotOverride = null) {
     try {
-      const projectSnapshot = JSON.parse(window.localStorage.getItem(getProjectStorageKey(state.projectId)) || "null");
+      const projectSnapshot = snapshotOverride ||
+        JSON.parse(window.localStorage.getItem(getProjectStorageKey(state.projectId)) || "null");
       const saved = projectSnapshot?.dj ||
         JSON.parse(window.localStorage.getItem(getDjStorageKey()) || "null");
       if (!saved || typeof saved !== "object") return;
       if (projectSnapshot?.dj) {
-        window.localStorage.setItem(getDjStorageKey(), JSON.stringify(projectSnapshot.dj));
+        try {
+          window.localStorage.setItem(getDjStorageKey(), JSON.stringify(projectSnapshot.dj));
+        } catch (error) {
+          if (error?.name !== "QuotaExceededError") throw error;
+        }
       }
       if (saved.activeDeck === "A" || saved.activeDeck === "B") djState.activeDeck = saved.activeDeck;
       if (Number.isFinite(saved.crossfader)) djState.crossfader = Math.max(0, Math.min(100, saved.crossfader));

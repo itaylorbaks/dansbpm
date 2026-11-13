@@ -1127,6 +1127,12 @@
     saveState.lastError = "";
     const project = state.projects.find((item) => item.id === projectId);
     if (project) {
+      if (project.localSnapshotStorage === "indexedDB") {
+        project.localSnapshotStorage = null;
+        void deleteCachedProjectSnapshot(projectId).catch((error) => {
+          showToast(`Could not remove the outdated IndexedDB cache: ${error.message || "browser storage is unavailable"}`);
+        });
+      }
       project.updatedAt = Date.now();
       if (getCloudToken()) project.localDirty = true;
       try {

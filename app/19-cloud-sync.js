@@ -67,6 +67,9 @@
       const existing = existingIndex === undefined
         ? projects.find((project) => project.id === remote.id && project.ownerId === accountId)
         : merged[existingIndex];
+      const inMemoryExisting = state.currentUser === accountId
+        ? state.projects.find((project) => project.id === remote.id && project.ownerId === accountId)
+        : null;
       const cloudProject = {
         ...existing,
         ...remote,
@@ -74,10 +77,17 @@
         cloudBacked: true,
         cloudHasFile: remote.hasFile === true,
         cloudRevision: Number.isSafeInteger(remote.revision) ? remote.revision : 0,
-        localCloudRevision: Number.isSafeInteger(existing?.localCloudRevision)
-          ? existing.localCloudRevision
-          : null,
-        localDirty: existing?.localDirty === true,
+        localCloudRevision: inMemoryExisting
+          ? Number.isSafeInteger(inMemoryExisting.localCloudRevision)
+            ? inMemoryExisting.localCloudRevision
+            : null
+          : Number.isSafeInteger(existing?.localCloudRevision)
+            ? existing.localCloudRevision
+            : null,
+        localDirty: existing?.localDirty === true || inMemoryExisting?.localDirty === true,
+        localSnapshotStorage: inMemoryExisting
+          ? inMemoryExisting.localSnapshotStorage || null
+          : existing?.localSnapshotStorage || null,
         updatedAt: Number.isFinite(remote.updatedAt) && remote.updatedAt > 0
           ? remote.updatedAt
           : existing?.updatedAt || 0,
@@ -89,10 +99,51 @@
         merged[existingIndex] = cloudProject;
       }
     });
-    window.localStorage.setItem(PROJECTS_KEY, JSON.stringify({
+    const writeCatalog = () => window.localStorage.setItem(PROJECTS_KEY, JSON.stringify({
       ...savedCatalog,
       projects: merged,
     }));
+    try {
+      writeCatalog();
+    } catch (error) {
+      if (error?.name !== "QuotaExceededError") throw error;
+      const remoteById = new Map(cloudProjects.map((project) => [project.id, project]));
+      let catalogSaved = false;
+      for (const project of merged.filter((item) =>
+        item.ownerId === accountId && item.cloudBacked && item.cloudHasFile)) {
+        const remote = remoteById.get(project.id);
+        const inMemoryProject = state.projects.find((item) =>
+          item.id === project.id && item.ownerId === accountId);
+        const persistedProject = projects.find((item) =>
+          item.id === project.id && item.ownerId === accountId);
+        const previousRevision = inMemoryProject?.cloudRevision ??
+          persistedProject?.cloudRevision ?? 0;
+        const remoteIsNewer = Number.isSafeInteger(remote?.revision) &&
+          remote.revision > previousRevision;
+        if ((project.localDirty === true || inMemoryProject?.localDirty === true) && !remoteIsNewer) continue;
+
+        const snapshotKey = getProjectStorageKey(project.id);
+        window.localStorage.removeItem(snapshotKey);
+        window.localStorage.removeItem(`${snapshotKey}:dj`);
+        if (project.localSnapshotStorage === "indexedDB") {
+          void deleteCachedProjectSnapshot(project.id).catch((deleteError) => {
+            showToast(`Could not remove the outdated IndexedDB cache: ${deleteError.message || "browser storage is unavailable"}`);
+          });
+        }
+        project.localCloudRevision = null;
+        project.localSnapshotStorage = null;
+        if (remoteIsNewer) project.localDirty = false;
+        try {
+          writeCatalog();
+          catalogSaved = true;
+          break;
+        } catch (retryError) {
+          if (retryError?.name !== "QuotaExceededError") throw retryError;
+        }
+      }
+      if (!catalogSaved) throw error;
+      updateStorageIndicator();
+    }
     if (state.currentUser === accountId) {
       state.projects = merged;
       const activeProject = merged.find((project) => project.id === state.projectId);

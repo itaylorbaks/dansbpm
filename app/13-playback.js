@@ -1055,6 +1055,7 @@
   function projectNeedsCloudDownload(project) {
     if (!project?.cloudBacked || !project.cloudHasFile) return false;
     if (project.localCloudRevision !== project.cloudRevision) return true;
+    if (project.localSnapshotStorage === "indexedDB") return false;
     try {
       return window.localStorage.getItem(getProjectStorageKey(project.id)) === null;
     } catch {
@@ -1082,7 +1083,13 @@
       const cachedSnapshotKey = getProjectStorageKey(cachedProject.id);
       window.localStorage.removeItem(cachedSnapshotKey);
       window.localStorage.removeItem(`${cachedSnapshotKey}:dj`);
+      if (cachedProject.localSnapshotStorage === "indexedDB") {
+        void deleteCachedProjectSnapshot(cachedProject.id).catch((error) => {
+          showToast(`Could not remove the outdated IndexedDB cache: ${error.message || "browser storage is unavailable"}`);
+        });
+      }
       cachedProject.localCloudRevision = null;
+      cachedProject.localSnapshotStorage = null;
       try {
         window.localStorage.setItem(snapshotKey, serialized);
         return;

@@ -71,12 +71,26 @@
       if (!project.cloudBacked) {
         Object.assign(project, await createCloudProjectRecord(project), { cloudBacked: true });
       }
-      const remote = await uploadCloudProject(project.id, await createCloudProjectFile());
+      const projectFile = await createCloudProjectFile();
+      const remote = await uploadCloudProject(project.id, projectFile);
+      let snapshotStoredInIndexedDb = false;
+      let localCacheError = null;
+      if (!locallySaved) {
+        try {
+          window.localStorage.removeItem(getProjectStorageKey(project.id));
+          window.localStorage.removeItem(`${getProjectStorageKey(project.id)}:dj`);
+          await writeCachedProjectSnapshot(project.id, projectFile.project.snapshot, remote.revision);
+          snapshotStoredInIndexedDb = true;
+        } catch (error) {
+          localCacheError = error;
+        }
+      }
       Object.assign(project, remote, {
         cloudBacked: true,
         cloudHasFile: true,
         cloudRevision: remote.revision,
-        localCloudRevision: locallySaved ? remote.revision : null,
+        localCloudRevision: locallySaved || snapshotStoredInIndexedDb ? remote.revision : null,
+        localSnapshotStorage: snapshotStoredInIndexedDb ? "indexedDB" : null,
         localDirty: false,
       });
       let catalogSaved = true;
@@ -88,11 +102,14 @@
       renderProjectList();
       $("#save-state").textContent = "Saved to cloud";
       $(".save-dot").style.background = "#7f9d43";
-      showToast(!locallySaved
-        ? `${state.projectName} saved to the cloud, but this browser reached its localStorage limit; its cached copy may be stale until reopened from the cloud`
-        : catalogSaved
-          ? `${state.projectName} saved to the cloud`
-          : `${state.projectName} saved to the cloud, but the browser project list could not be updated`);
+      const saveMessage = !locallySaved
+        ? snapshotStoredInIndexedDb
+          ? `${state.projectName} saved to the cloud and cached in IndexedDB`
+          : `${state.projectName} saved to the cloud, but its local cache could not be updated: ${localCacheError?.message || "browser storage is unavailable"}`
+        : `${state.projectName} saved to the cloud`;
+      showToast(catalogSaved
+        ? saveMessage
+        : `${saveMessage}; the browser project list could not be updated`);
       return true;
     } catch (error) {
       renderProjectList();
@@ -226,12 +243,33 @@
     const { snapshot, assets } = parseProjectFileContents(JSON.stringify(projectFile));
     const storageKey = getProjectStorageKey(project.id);
     const previousSnapshot = window.localStorage.getItem(storageKey);
+    const previousDjSnapshot = window.localStorage.getItem(`${storageKey}:dj`);
+    let previousIndexedDbSnapshot = null;
+    let snapshotStoredInIndexedDb = false;
     try {
-      saveCloudProjectSnapshot(project.id, snapshot);
+      try {
+        saveCloudProjectSnapshot(project.id, snapshot);
+      } catch (error) {
+        if (error?.name !== "QuotaExceededError") throw error;
+        previousIndexedDbSnapshot = await readCachedProjectSnapshot(project.id);
+        await writeCachedProjectSnapshot(project.id, snapshot, revision);
+        snapshotStoredInIndexedDb = true;
+        window.localStorage.removeItem(storageKey);
+        window.localStorage.removeItem(`${storageKey}:dj`);
+      }
       await replaceProjectRecordingAssets(project.id, assets);
     } catch (error) {
       if (previousSnapshot === null) window.localStorage.removeItem(storageKey);
       else window.localStorage.setItem(storageKey, previousSnapshot);
+      if (previousDjSnapshot === null) window.localStorage.removeItem(`${storageKey}:dj`);
+      else window.localStorage.setItem(`${storageKey}:dj`, previousDjSnapshot);
+      if (snapshotStoredInIndexedDb) {
+        if (previousIndexedDbSnapshot) {
+          await writeCachedProjectSnapshot(project.id, previousIndexedDbSnapshot.snapshot, previousIndexedDbSnapshot.revision);
+        } else {
+          await deleteCachedProjectSnapshot(project.id);
+        }
+      }
       throw error;
     }
     project.localCloudRevision = revision;
@@ -239,6 +277,7 @@
     project.cloudHasFile = true;
     project.cloudBacked = true;
     project.localDirty = false;
+    project.localSnapshotStorage = snapshotStoredInIndexedDb ? "indexedDB" : null;
     try {
       writeProjectCatalog();
     } catch {
@@ -328,13 +367,14 @@
     }
   }
 
-  function restoreState() {
+  function restoreState(snapshotOverride = null) {
     state.masterPitch = 0;
     state.soundDurationEdits = {};
     state.soundReverseEdits = {};
     state.soundProcessingEdits = {};
     try {
-      const saved = JSON.parse(window.localStorage.getItem(getProjectStorageKey(state.projectId)) || "null");
+      const saved = snapshotOverride ||
+        JSON.parse(window.localStorage.getItem(getProjectStorageKey(state.projectId)) || "null");
       if (!saved || typeof saved !== "object") return;
       if (saved.masterTrack && typeof saved.masterTrack === "object") {
         state.masterTrack = makeMixerBusTrack("mixer-master", saved.masterTrack);

@@ -801,7 +801,7 @@
     });
   }
 
-  function initialize() {
+  async function initialize() {
     initializeSettings();
     initializeUsers();
     state.currentUser = getSessionUser();
@@ -812,8 +812,40 @@
     state.patterns = [initialPattern];
     state.selectedPatternId = initialPattern.id;
     initializeProjects();
-    if (state.currentUser) restoreState();
-    restoreDjState();
+    let cachedSnapshot = null;
+    if (state.currentUser) {
+      const project = state.projects.find((item) => item.id === state.projectId);
+      let hasLocalSnapshot = false;
+      try {
+        hasLocalSnapshot = window.localStorage.getItem(getProjectStorageKey(state.projectId)) !== null;
+      } catch (error) {
+        showToast(`Could not read the local project cache: ${error.message || "browser storage is unavailable"}`);
+      }
+      if (project?.localSnapshotStorage === "indexedDB" && !hasLocalSnapshot) {
+        let cachedSnapshotRestored = false;
+        try {
+          const cached = await readCachedProjectSnapshot(state.projectId);
+          if (cached?.revision === project.localCloudRevision &&
+            cached.revision === project.cloudRevision) {
+            cachedSnapshot = cached.snapshot;
+            cachedSnapshotRestored = true;
+          }
+        } catch (error) {
+          showToast(`Could not restore the IndexedDB project cache: ${error.message || "browser storage is unavailable"}`);
+        }
+        if (!cachedSnapshotRestored) {
+          project.localSnapshotStorage = null;
+          project.localCloudRevision = null;
+          try {
+            writeProjectCatalog();
+          } catch (error) {
+            showToast(`Could not update the project cache status: ${error.message || "browser storage is unavailable"}`);
+          }
+        }
+      }
+      restoreState(cachedSnapshot);
+    }
+    restoreDjState(cachedSnapshot);
     restoreDansBpmSynthPatch();
     ensureMels();
     tempoValue.textContent = String(state.bpm);
@@ -834,27 +866,30 @@
     $("#active-user-label").textContent = getCurrentUserName();
   }
 
-  initialize();
-  updateStorageIndicator();
-  window.addEventListener("focus", updateStorageIndicator);
-  if (state.currentUser) {
-    restoreArrangement().then(() => {
-      if (!undoStacks.get("track-view")?.length) {
-        undoLatest.set("track-view", createUndoSnapshot("track-view"));
+  initialize().then(() => {
+    updateStorageIndicator();
+    window.addEventListener("focus", updateStorageIndicator);
+    if (state.currentUser) {
+      restoreArrangement().then(() => {
+        if (!undoStacks.get("track-view")?.length) {
+          undoLatest.set("track-view", createUndoSnapshot("track-view"));
+        }
+        renderDjView();
+        resumeCollaborationSession();
+      });
+      try {
+        if (window.sessionStorage.getItem(OPEN_PROJECTS_KEY) === "true") {
+          window.sessionStorage.removeItem(OPEN_PROJECTS_KEY);
+          renderProjectList();
+          $("#project-dialog").showModal();
+        }
+      } catch (error) {
+        showToast(`Could not open the project list: ${error.message || "session storage is unavailable"}`);
       }
-      renderDjView();
-      resumeCollaborationSession();
-    });
-    try {
-      if (window.sessionStorage.getItem(OPEN_PROJECTS_KEY) === "true") {
-        window.sessionStorage.removeItem(OPEN_PROJECTS_KEY);
-        renderProjectList();
-        $("#project-dialog").showModal();
+      if (getCloudToken()) {
+        startCloudProjectUpdates();
       }
-    } catch (error) {
-      showToast(`Could not open the project list: ${error.message || "session storage is unavailable"}`);
     }
-    if (getCloudToken()) {
-      startCloudProjectUpdates();
-    }
-  }
+  }).catch((error) => {
+    showToast(`Could not initialize the project: ${error.message || "browser storage is unavailable"}`);
+  });
