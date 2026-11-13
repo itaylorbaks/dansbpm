@@ -389,6 +389,21 @@ test("accounts authenticate and persist compressed project files", async (t) => 
 
   await app.close();
   app = await openServer({ dataDirectory });
+  const survivingSession = await request("/api/projects", {
+    headers: { authorization: `Bearer ${account.token}` },
+  });
+  assert.equal(survivingSession.status, 200);
+  const savedAfterRestart = await request(`/api/projects/${projectId}/file`, {
+    method: "PUT",
+    headers: {
+      authorization: `Bearer ${account.token}`,
+      "content-type": "application/vnd.dansbpm.project+json",
+    },
+    body: JSON.stringify(updatedFile),
+  });
+  assert.equal(savedAfterRestart.status, 200);
+  assert.equal((await savedAfterRestart.json()).project.revision, 3);
+
   const login = await request("/api/login", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -397,7 +412,7 @@ test("accounts authenticate and persist compressed project files", async (t) => 
   assert.equal(login.status, 200);
   const session = await login.json();
   assert.equal(session.projects[0].hasFile, true);
-  assert.equal(session.projects[0].revision, 2);
+  assert.equal(session.projects[0].revision, 3);
   const downloaded = await request(`/api/projects/${projectId}/file`, {
     headers: { authorization: `Bearer ${session.token}` },
   });

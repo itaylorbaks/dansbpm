@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { gzip } from "node:zlib";
@@ -94,16 +94,40 @@ function publicProject(project) {
 
 export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
   const origins = new Set(allowedOrigins);
-  const sessions = new Map();
   const accountsPath = join(dataDirectory, "accounts.json");
+  const sessionKeyPath = join(dataDirectory, "session.key");
   let accounts = {};
+  let sessionKey;
   let ready;
   let persistQueue = Promise.resolve();
+
+  async function loadSessionKey() {
+    try {
+      sessionKey = await readFile(sessionKeyPath);
+      if (sessionKey.length !== 32) {
+        throw new Error("The cloud session key is invalid.");
+      }
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      const generatedKey = randomBytes(32);
+      try {
+        await writeFile(sessionKeyPath, generatedKey, { flag: "wx", mode: 0o600 });
+        sessionKey = generatedKey;
+      } catch (writeError) {
+        if (writeError.code !== "EEXIST") throw writeError;
+        sessionKey = await readFile(sessionKeyPath);
+        if (sessionKey.length !== 32) {
+          throw new Error("The cloud session key is invalid.");
+        }
+      }
+    }
+  }
 
   async function loadAccounts() {
     if (!ready) {
       ready = (async () => {
         await mkdir(dataDirectory, { recursive: true });
+        await loadSessionKey();
         try {
           const saved = JSON.parse(await readFile(accountsPath, "utf8"));
           if (saved && typeof saved === "object" && !Array.isArray(saved)) {
@@ -133,10 +157,23 @@ export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
     return join(dataDirectory, "projects", accountId, `${projectId}.bpm.gz`);
   }
 
+  function createSessionToken(accountId) {
+    const nonce = randomBytes(32).toString("hex");
+    const value = `${accountId}.${nonce}`;
+    const signature = createHmac("sha256", sessionKey).update(value).digest("hex");
+    return `${value}.${signature}`;
+  }
+
   function authenticate(request) {
-    const match = /^Bearer ([A-Fa-f0-9]{64})$/.exec(request.headers.authorization || "");
-    const accountId = match && sessions.get(match[1]);
-    return accountId ? accounts[accountId] || null : null;
+    const match = /^Bearer ([0-9a-f-]{36})\.([A-Fa-f0-9]{64})\.([A-Fa-f0-9]{64})$/i
+      .exec(request.headers.authorization || "");
+    if (!match) return null;
+    const account = accounts[match[1]];
+    if (!account) return null;
+    const value = `${match[1]}.${match[2]}`;
+    const expected = createHmac("sha256", sessionKey).update(value).digest();
+    const supplied = Buffer.from(match[3], "hex");
+    return timingSafeEqual(expected, supplied) ? account : null;
   }
 
   async function handle(request, response) {
@@ -187,8 +224,7 @@ export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
         const account = { id, name, normalizedName, salt, passwordHash, projects: [] };
         accounts[id] = account;
         await persistAccounts();
-        const token = randomBytes(32).toString("hex");
-        sessions.set(token, id);
+        const token = createSessionToken(id);
         sendJson(response, 201, { account: publicAccount(account), token, projects: [] });
         return true;
       }
@@ -206,8 +242,7 @@ export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
           sendJson(response, 401, { error: "Profile name or password is incorrect." });
           return true;
         }
-        const token = randomBytes(32).toString("hex");
-        sessions.set(token, account.id);
+        const token = createSessionToken(account.id);
         sendJson(response, 200, {
           account: publicAccount(account),
           token,
@@ -293,21 +328,12 @@ export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
           "projects",
           `.deleting-${account.id}-${randomUUID()}`,
         );
-        const accountSessions = [...sessions.entries()]
-          .filter(([, sessionAccountId]) => sessionAccountId === account.id);
-        accountSessions.forEach(([token]) => sessions.delete(token));
-        const restoreSessions = () => {
-          accountSessions.forEach(([token, sessionAccountId]) => sessions.set(token, sessionAccountId));
-        };
         let projectDirectoryMoved = false;
         try {
           await rename(projectDirectory, pendingDeleteDirectory);
           projectDirectoryMoved = true;
         } catch (error) {
-          if (error.code !== "ENOENT") {
-            restoreSessions();
-            throw error;
-          }
+          if (error.code !== "ENOENT") throw error;
         }
         delete accounts[account.id];
         try {
@@ -315,7 +341,6 @@ export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
         } catch (error) {
           accounts[account.id] = account;
           if (projectDirectoryMoved) await rename(pendingDeleteDirectory, projectDirectory);
-          restoreSessions();
           throw error;
         }
         try {
@@ -326,7 +351,6 @@ export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
           accounts[account.id] = account;
           await persistAccounts();
           if (projectDirectoryMoved) await rename(pendingDeleteDirectory, projectDirectory);
-          restoreSessions();
           throw error;
         }
         sendJson(response, 200, { deleted: true });
