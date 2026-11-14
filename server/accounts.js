@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { gzip } from "node:zlib";
 import { join } from "node:path";
+import { Pool } from "pg";
 
 const scryptAsync = promisify(scrypt);
 const gzipAsync = promisify(gzip);
@@ -76,6 +77,16 @@ function publicAccount(account) {
   return { id: account.id, name: account.name };
 }
 
+function getProjectCreationCount(account) {
+  return Math.max(
+    Number.isSafeInteger(account.projectCreationCount) ? account.projectCreationCount : 0,
+    ...account.projects.map((project) => {
+      const match = /^New Proj ([1-9]\d*)$/.exec(project.name);
+      return match ? Number(match[1]) : 0;
+    }),
+  );
+}
+
 async function passwordMatches(account, password) {
   if (typeof password !== "string") return false;
   const suppliedHash = (await scryptAsync(password, account.salt, 64)).toString("hex");
@@ -92,16 +103,52 @@ function publicProject(project) {
   };
 }
 
-export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
+export function createAccountApi({
+  allowedOrigins = [],
+  dataDirectory,
+  databaseUrl = process.env.DATABASE_URL,
+} = {}) {
   const origins = new Set(allowedOrigins);
   const accountsPath = join(dataDirectory, "accounts.json");
   const sessionKeyPath = join(dataDirectory, "session.key");
+  const databasePool = databaseUrl
+    ? new Pool({ connectionString: databaseUrl })
+    : null;
   let accounts = {};
   let sessionKey;
   let ready;
   let persistQueue = Promise.resolve();
 
   async function loadSessionKey() {
+    if (databasePool) {
+      const saved = await databasePool.query(
+        "SELECT setting_value FROM dansbpm_settings WHERE setting_key = $1",
+        ["session-key"],
+      );
+      if (saved.rows[0]) {
+        sessionKey = Buffer.from(saved.rows[0].setting_value, "hex");
+      } else {
+        let generatedKey;
+        try {
+          generatedKey = await readFile(sessionKeyPath);
+        } catch (error) {
+          if (error.code !== "ENOENT") throw error;
+          generatedKey = randomBytes(32);
+        }
+        await databasePool.query(
+          "INSERT INTO dansbpm_settings (setting_key, setting_value) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+          ["session-key", generatedKey.toString("hex")],
+        );
+        const inserted = await databasePool.query(
+          "SELECT setting_value FROM dansbpm_settings WHERE setting_key = $1",
+          ["session-key"],
+        );
+        sessionKey = Buffer.from(inserted.rows[0].setting_value, "hex");
+      }
+      if (sessionKey.length !== 32) throw new Error("The cloud session key is invalid.");
+      return;
+    }
+
     try {
       sessionKey = await readFile(sessionKeyPath);
       if (sessionKey.length !== 32) {
@@ -126,17 +173,70 @@ export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
   async function loadAccounts() {
     if (!ready) {
       ready = (async () => {
+        if (databasePool) {
+          await databasePool.query(`
+            CREATE TABLE IF NOT EXISTS dansbpm_settings (
+              setting_key text PRIMARY KEY,
+              setting_value text NOT NULL
+            )
+          `);
+          await databasePool.query(`
+            CREATE TABLE IF NOT EXISTS dansbpm_accounts (
+              account_id text PRIMARY KEY,
+              normalized_name text NOT NULL UNIQUE,
+              account_data jsonb NOT NULL
+            )
+          `);
+          await databasePool.query(`
+            CREATE TABLE IF NOT EXISTS dansbpm_project_files (
+              account_id text NOT NULL REFERENCES dansbpm_accounts(account_id) ON DELETE CASCADE,
+              project_id text NOT NULL,
+              file_data bytea NOT NULL,
+              PRIMARY KEY (account_id, project_id)
+            )
+          `);
+          await loadSessionKey();
+
+          const migration = await databasePool.query(
+            "SELECT setting_value FROM dansbpm_settings WHERE setting_key = $1",
+            ["file-store-migrated"],
+          );
+          const saved = await databasePool.query(
+            "SELECT account_id, account_data FROM dansbpm_accounts",
+          );
+          if (saved.rows.length) {
+            accounts = Object.fromEntries(saved.rows.map(({ account_id, account_data }) =>
+              [account_id, account_data]));
+            normalizeAccountNames();
+          } else if (!migration.rows.length) {
+            try {
+              const legacy = JSON.parse(await readFile(accountsPath, "utf8"));
+              if (legacy && typeof legacy === "object" && !Array.isArray(legacy)) {
+                accounts = legacy;
+                normalizeAccountNames();
+                await persistAccounts();
+              }
+            } catch (error) {
+              if (error.code !== "ENOENT") throw error;
+            }
+          }
+          if (!migration.rows.length) {
+            await migrateProjectFiles();
+            await databasePool.query(
+              "INSERT INTO dansbpm_settings (setting_key, setting_value) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+              ["file-store-migrated", "true"],
+            );
+          }
+          return;
+        }
+
         await mkdir(dataDirectory, { recursive: true });
         await loadSessionKey();
         try {
           const saved = JSON.parse(await readFile(accountsPath, "utf8"));
           if (saved && typeof saved === "object" && !Array.isArray(saved)) {
             accounts = saved;
-            Object.values(accounts).forEach((account) => {
-              if (account && typeof account.name === "string") {
-                account.normalizedName = normalizeProfileName(account.name);
-              }
-            });
+            normalizeAccountNames();
           }
         } catch (error) {
           if (error.code !== "ENOENT") throw error;
@@ -146,15 +246,108 @@ export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
     await ready;
   }
 
+  function normalizeAccountNames() {
+    Object.values(accounts).forEach((account) => {
+      if (account && typeof account.name === "string") {
+        account.normalizedName = normalizeProfileName(account.name);
+      }
+    });
+  }
+
+  async function migrateProjectFiles() {
+    for (const account of Object.values(accounts)) {
+      for (const project of account.projects || []) {
+        if (!project.hasFile) continue;
+        try {
+          const fileData = await readFile(projectFilePath(account.id, project.id));
+          await databasePool.query(
+            `INSERT INTO dansbpm_project_files (account_id, project_id, file_data)
+             VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+            [account.id, project.id, fileData],
+          );
+        } catch (error) {
+          if (error.code !== "ENOENT") throw error;
+        }
+      }
+    }
+  }
+
   async function persistAccounts() {
-    const snapshot = JSON.stringify(accounts);
-    const write = persistQueue.then(() => writeAtomically(accountsPath, snapshot));
+    const snapshot = Object.values(accounts).map((account) => structuredClone(account));
+    const write = persistQueue.then(async () => {
+      if (!databasePool) {
+        await writeAtomically(accountsPath, JSON.stringify(accounts));
+        return;
+      }
+      const client = await databasePool.connect();
+      try {
+        await client.query("BEGIN");
+        for (const account of snapshot) {
+          await client.query(
+            `INSERT INTO dansbpm_accounts (account_id, normalized_name, account_data)
+             VALUES ($1, $2, $3::jsonb)
+             ON CONFLICT (account_id) DO UPDATE SET
+               normalized_name = EXCLUDED.normalized_name,
+               account_data = EXCLUDED.account_data`,
+            [account.id, account.normalizedName, JSON.stringify(account)],
+          );
+        }
+        await client.query(
+          "DELETE FROM dansbpm_accounts WHERE NOT (account_id = ANY($1::text[]))",
+          [snapshot.map((account) => account.id)],
+        );
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    });
     persistQueue = write.catch(() => {});
     await write;
   }
 
   function projectFilePath(accountId, projectId) {
     return join(dataDirectory, "projects", accountId, `${projectId}.bpm.gz`);
+  }
+
+  async function readProjectFile(accountId, projectId) {
+    if (!databasePool) return readFile(projectFilePath(accountId, projectId));
+    const result = await databasePool.query(
+      "SELECT file_data FROM dansbpm_project_files WHERE account_id = $1 AND project_id = $2",
+      [accountId, projectId],
+    );
+    if (!result.rows.length) {
+      throw Object.assign(new Error("Cloud project file not found."), { code: "ENOENT" });
+    }
+    return result.rows[0].file_data;
+  }
+
+  async function writeProjectFile(accountId, projectId, fileData) {
+    if (!databasePool) {
+      const path = projectFilePath(accountId, projectId);
+      await mkdir(join(dataDirectory, "projects", accountId), { recursive: true });
+      await writeAtomically(path, fileData);
+      return;
+    }
+    await databasePool.query(
+      `INSERT INTO dansbpm_project_files (account_id, project_id, file_data)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (account_id, project_id) DO UPDATE SET file_data = EXCLUDED.file_data`,
+      [accountId, projectId, fileData],
+    );
+  }
+
+  async function deleteProjectFile(accountId, projectId) {
+    if (!databasePool) {
+      await rm(projectFilePath(accountId, projectId), { force: true });
+      return;
+    }
+    await databasePool.query(
+      "DELETE FROM dansbpm_project_files WHERE account_id = $1 AND project_id = $2",
+      [accountId, projectId],
+    );
   }
 
   function createSessionToken(accountId) {
@@ -223,7 +416,12 @@ export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
         }
         const account = { id, name, normalizedName, salt, passwordHash, projects: [] };
         accounts[id] = account;
-        await persistAccounts();
+        try {
+          await persistAccounts();
+        } catch (error) {
+          delete accounts[id];
+          throw error;
+        }
         const token = createSessionToken(id);
         sendJson(response, 201, { account: publicAccount(account), token, projects: [] });
         return true;
@@ -329,11 +527,13 @@ export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
           `.deleting-${account.id}-${randomUUID()}`,
         );
         let projectDirectoryMoved = false;
-        try {
-          await rename(projectDirectory, pendingDeleteDirectory);
-          projectDirectoryMoved = true;
-        } catch (error) {
-          if (error.code !== "ENOENT") throw error;
+        if (!databasePool) {
+          try {
+            await rename(projectDirectory, pendingDeleteDirectory);
+            projectDirectoryMoved = true;
+          } catch (error) {
+            if (error.code !== "ENOENT") throw error;
+          }
         }
         delete accounts[account.id];
         try {
@@ -344,7 +544,7 @@ export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
           throw error;
         }
         try {
-          if (projectDirectoryMoved) {
+          if (!databasePool && projectDirectoryMoved) {
             await rm(pendingDeleteDirectory, { recursive: true, force: true });
           }
         } catch (error) {
@@ -374,9 +574,29 @@ export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
           sendJson(response, 409, { error: "That project already exists." });
           return true;
         }
-        const project = { id, name, updatedAt: 0, revision: 0, hasFile: false };
+        const previousCreationCount = getProjectCreationCount(account);
+        const requestedNumber = /^New Proj ([1-9]\d*)$/.exec(name);
+        const projectCreationCount = Math.max(
+          previousCreationCount + 1,
+          requestedNumber ? Number(requestedNumber[1]) : 0,
+        );
+        const project = {
+          id,
+          name: requestedNumber ? `New Proj ${projectCreationCount}` : name,
+          updatedAt: 0,
+          revision: 0,
+          hasFile: false,
+        };
+        account.projectCreationCount = projectCreationCount;
         account.projects.unshift(project);
-        await persistAccounts();
+        try {
+          await persistAccounts();
+        } catch (error) {
+          account.projects = account.projects.filter((item) => item !== project);
+          if (previousCreationCount) account.projectCreationCount = previousCreationCount;
+          else delete account.projectCreationCount;
+          throw error;
+        }
         sendJson(response, 201, { project: publicProject(project) });
         return true;
       }
@@ -394,7 +614,7 @@ export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
             sendJson(response, 404, { error: "This project has not been saved to the cloud yet." });
             return true;
           }
-          const compressed = await readFile(projectFilePath(account.id, project.id));
+          const compressed = await readProjectFile(account.id, project.id);
           response.writeHead(200, {
             "content-type": "application/json; charset=utf-8",
             "content-encoding": "gzip",
@@ -421,9 +641,7 @@ export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
             return true;
           }
           const compressed = await gzipAsync(body);
-          const path = projectFilePath(account.id, project.id);
-          await mkdir(join(dataDirectory, "projects", account.id), { recursive: true });
-          await writeAtomically(path, compressed);
+          await writeProjectFile(account.id, project.id, compressed);
           project.name = safeProjectName(document.project.name) || project.name;
           project.updatedAt = Date.now();
           project.revision += 1;
@@ -447,7 +665,7 @@ export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
         if (!projectMatch[2] && request.method === "DELETE") {
           account.projects = account.projects.filter((item) => item.id !== project.id);
           await persistAccounts();
-          await rm(projectFilePath(account.id, project.id), { force: true });
+          await deleteProjectFile(account.id, project.id);
           sendJson(response, 200, { deleted: true });
           return true;
         }
@@ -467,5 +685,10 @@ export function createAccountApi({ allowedOrigins = [], dataDirectory } = {}) {
     }
   }
 
-  return { handle };
+  return {
+    handle,
+    async close() {
+      await databasePool?.end();
+    },
+  };
 }

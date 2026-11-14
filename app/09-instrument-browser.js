@@ -354,7 +354,9 @@
     const pattern = getPattern(patternId);
     if (!pattern) return;
     const trackPattern = getPattern(trackId);
-    if (trackPattern && !state.patternClips.some((clip) => (clip.trackId || clip.patternId) === trackId)) {
+    const trackHasClips = state.patternClips.some((clip) => (clip.trackId || clip.patternId) === trackId);
+    if (trackPattern && !trackHasClips) {
+      trackPattern.name = pattern.name;
       trackPattern.insertAfterTrackId = getLastArrangementTrackId();
     }
     const durationBars = pattern.steps / 16;
@@ -436,6 +438,10 @@
     const mel = getMel(melId);
     const track = state.melTracks.find((item) => item.id === trackId);
     if (!mel || !track) return;
+    if (!track.clips.length) {
+      track.name = mel.name;
+      track.instrumentId = mel.instrumentId;
+    }
     const length = getMelLengthBars(mel);
     track.clips.push({
       id: makeId(),
@@ -543,7 +549,7 @@
     const currentSource = getPattern(source.id) || source;
     const pattern = {
       id: makeId(),
-      name: getNextPatternName(),
+      name: currentSource.name,
       kind: "pattern",
       arrangementCopy: true,
       color: getPatternColor(state.patterns.length),

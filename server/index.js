@@ -228,13 +228,14 @@ export function createCollaborationServer({
   allowedOrigins = [],
   maxPayloadBytes = MAX_ROOM_BYTES + 1024 * 1024,
   roomTtlMs = 24 * 60 * 60 * 1000,
+  databaseUrl,
   dataDirectory = process.env.DANSBPM_DATA_DIR ||
     join(dirname(fileURLToPath(import.meta.url)), ".data"),
 } = {}) {
   const origins = new Set(allowedOrigins);
   const rooms = new Map();
   const clients = new Map();
-  const accountApi = createAccountApi({ allowedOrigins, dataDirectory });
+  const accountApi = createAccountApi({ allowedOrigins, dataDirectory, databaseUrl });
 
   const server = createServer((request, response) => {
     if (request.url === "/healthz") {
@@ -645,6 +646,7 @@ export function createCollaborationServer({
       websocketServer.clients.forEach((socket) => socket.close());
       await new Promise((resolve) => server.close(resolve));
       websocketServer.close();
+      await accountApi.close();
     },
   };
 }
@@ -658,7 +660,10 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
     console.error("Set DANSBPM_ALLOWED_ORIGINS to the exact origin(s) serving the app.");
     process.exitCode = 1;
   } else {
-    const { server } = createCollaborationServer({ allowedOrigins });
+    const { server } = createCollaborationServer({
+      allowedOrigins,
+      databaseUrl: process.env.DATABASE_URL,
+    });
     const port = Number(process.env.PORT) || 8787;
     server.listen(port, "0.0.0.0", () => {
       console.log(`DansBPM collaboration server listening on port ${port}`);

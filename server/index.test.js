@@ -256,6 +256,10 @@ test("accounts authenticate and persist compressed project files", async (t) => 
   assert.equal(registration.status, 201);
   const account = await registration.json();
   assert.equal(account.account.name, "Ada");
+  const savedAccounts = JSON.parse(await readFile(join(dataDirectory, "accounts.json"), "utf8"));
+  const savedAccount = savedAccounts[account.account.id];
+  assert.equal(typeof savedAccount.passwordHash, "string");
+  assert.equal(Object.hasOwn(savedAccount, "password"), false);
 
   const duplicateRegistration = await request("/api/register", {
     method: "POST",
@@ -418,6 +422,62 @@ test("accounts authenticate and persist compressed project files", async (t) => 
   });
   assert.equal(downloaded.status, 200);
   assert.deepEqual(await downloaded.json(), updatedFile);
+});
+
+test("cloud project numbers do not reset when a project is deleted or the server restarts", async (t) => {
+  const dataDirectory = await mkdtemp(join(tmpdir(), "dansbpm-project-number-test-"));
+  let app = await openServer({ dataDirectory });
+  t.after(async () => {
+    await app.close();
+    await rm(dataDirectory, { recursive: true, force: true });
+  });
+  const request = (path, options = {}) => fetch(`${app.httpUrl}${path}`, {
+    ...options,
+    headers: {
+      origin: "http://localhost",
+      ...(options.headers || {}),
+    },
+  });
+  const registration = await request("/api/register", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Ada", password: "correct horse battery" }),
+  });
+  const session = await registration.json();
+  const createProject = (id, name) => request("/api/projects", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ id, name }),
+  });
+
+  assert.equal((await (await createProject("project-1", "New Proj 1")).json()).project.name, "New Proj 1");
+  assert.equal((await (await createProject("project-2", "New Proj 2")).json()).project.name, "New Proj 2");
+  assert.equal((await request("/api/projects/project-2", {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${session.token}` },
+  })).status, 200);
+
+  await app.close();
+  app = await openServer({ dataDirectory });
+  const login = await request("/api/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "ada", password: "correct horse battery" }),
+  });
+  assert.equal(login.status, 200);
+  const newSession = await login.json();
+  const nextProject = await request("/api/projects", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${newSession.token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ id: "project-3", name: "New Proj 2" }),
+  });
+  assert.equal((await nextProject.json()).project.name, "New Proj 3");
 });
 
 test("cloud accounts can change credentials and be deleted with their projects", async (t) => {
