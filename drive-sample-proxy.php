@@ -62,13 +62,14 @@ curl_setopt_array($curl, [
             return 0;
         }
         if (!$sentHeaders) {
-            $contentType = strtolower($upstreamHeaders["content-type"] ?? "");
-            if (!str_starts_with($contentType, "audio/") && $contentType !== "application/octet-stream") {
+            $contentType = strtolower(trim((string) ($upstreamHeaders["content-type"] ?? "")));
+            $mediaType = $contentType !== "" ? strtolower(trim(strtok($contentType, ";"))) : "";
+            if (!str_starts_with($mediaType, "audio/") && $mediaType !== "application/octet-stream") {
                 http_response_code(502);
                 return 0;
             }
             http_response_code($status);
-            header("Content-Type: " . $contentType);
+            header("Content-Type: " . $mediaType);
             header("Content-Disposition: inline");
             header("Cache-Control: no-store");
             header("X-Content-Type-Options: nosniff");
