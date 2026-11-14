@@ -578,7 +578,6 @@
       }
     });
     $("#switch-user-button").addEventListener("click", switchUser);
-    bindCloudAccountSettings();
     $("#collaborate-button").addEventListener("click", () => {
       $("#project-dialog").close();
       try {
@@ -865,8 +864,7 @@
         let cachedSnapshotRestored = false;
         try {
           const cached = await readCachedProjectSnapshot(state.projectId);
-          if (cached?.revision === project.localCloudRevision &&
-            cached.revision === project.cloudRevision) {
+          if (cached) {
             cachedSnapshot = cached.snapshot;
             cachedSnapshotRestored = true;
           }
@@ -874,6 +872,7 @@
           showToast(`Could not restore the IndexedDB project cache: ${error.message || "browser storage is unavailable"}`);
         }
         if (!cachedSnapshotRestored) {
+          project.localOnlyUnavailable = true;
           project.localSnapshotStorage = null;
           project.localCloudRevision = null;
           try {
@@ -881,9 +880,31 @@
           } catch (error) {
             showToast(`Could not update the project cache status: ${error.message || "browser storage is unavailable"}`);
           }
+        } else {
+          project.localOnlyUnavailable = false;
         }
       }
-      restoreState(cachedSnapshot);
+      if (project?.localOnlyUnavailable) {
+        const replacement = {
+          id: makeId(),
+          name: `New Proj ${getNextProjectNumber(state.currentUser)}`,
+          ownerId: state.currentUser,
+          updatedAt: Date.now(),
+        };
+        state.projects.unshift(replacement);
+        state.projectId = replacement.id;
+        state.projectName = replacement.name;
+        state.activeProjectIds[state.currentUser] = replacement.id;
+        updateProjectNameLabel();
+        try {
+          writeProjectCatalog();
+        } catch (error) {
+          showToast(`Could not save the new local project: ${error.message || "browser storage is unavailable"}`);
+        }
+        showToast(`${project.name} is not stored in this browser. A new local project was opened; import a BPM export to use the old project here.`);
+      } else {
+        restoreState(cachedSnapshot);
+      }
     }
     restoreDjState(cachedSnapshot);
     restoreDansBpmSynthPatch();
@@ -925,9 +946,6 @@
         }
       } catch (error) {
         showToast(`Could not open the project list: ${error.message || "session storage is unavailable"}`);
-      }
-      if (getCloudToken()) {
-        startCloudProjectUpdates();
       }
     }
   }).catch((error) => {

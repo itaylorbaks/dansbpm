@@ -22416,7 +22416,7 @@ const DRIVE_SAMPLE_TRACKS = [
   function renderLoginUsers() {
     const options = $("#login-options");
     options.replaceChildren();
-    state.users.filter((user) => !user.cloudAccount).forEach((user) => {
+    state.users.forEach((user) => {
       const button = document.createElement("button");
       button.className = "login-option";
       button.type = "button";
@@ -22449,7 +22449,6 @@ const DRIVE_SAMPLE_TRACKS = [
           .map((user) => ({
             id: user.id,
             name: user.name.trim().slice(0, 32),
-            ...(user.cloudAccount === true ? { cloudAccount: true } : {}),
           }));
       }
       DEFAULT_USERS.forEach((defaultUser) => {
@@ -22461,6 +22460,11 @@ const DRIVE_SAMPLE_TRACKS = [
       if (!state.users.length) state.users = users;
       showToast(`Could not load or save profiles: ${error.message || "browser storage is unavailable"}`);
     }
+    try {
+      window.sessionStorage.removeItem(CLOUD_TOKEN_KEY);
+    } catch (error) {
+      showToast(`Could not clear the previous cloud sign-in: ${error.message || "session storage is unavailable"}`);
+    }
     renderLoginUsers();
   }
 
@@ -22468,7 +22472,6 @@ const DRIVE_SAMPLE_TRACKS = [
     try {
       const userId = window.sessionStorage.getItem(ACTIVE_USER_KEY);
       const user = state.users.find((item) => item.id === userId);
-      if (user?.cloudAccount && !getCloudToken()) return null;
       return user ? userId : null;
     } catch {
       return null;
@@ -22476,7 +22479,7 @@ const DRIVE_SAMPLE_TRACKS = [
   }
 
   function selectUser(userId) {
-    if (!state.users.some((user) => user.id === userId && !user.cloudAccount)) return;
+    if (!state.users.some((user) => user.id === userId)) return;
     try {
       window.sessionStorage.setItem(ACTIVE_USER_KEY, userId);
       window.sessionStorage.setItem(OPEN_PROJECTS_KEY, "true");
@@ -22487,11 +22490,9 @@ const DRIVE_SAMPLE_TRACKS = [
     }
   }
 
-  async function createUser() {
+  function createUser() {
     const input = $("#new-profile-name");
     const name = input.value.trim().slice(0, 32);
-    const passwordInput = $("#new-profile-password");
-    const password = passwordInput.value;
     const error = $("#login-error");
     error.textContent = "";
     if (!name) {
@@ -22499,32 +22500,40 @@ const DRIVE_SAMPLE_TRACKS = [
       input.focus();
       return;
     }
-    if (password.length < 8) {
-      error.textContent = "Choose a password with at least 8 characters.";
-      passwordInput.focus();
+    if (state.users.some((user) => user.name.normalize("NFKC").toLocaleLowerCase("en-US") ===
+        name.normalize("NFKC").toLocaleLowerCase("en-US"))) {
+      error.textContent = "A profile with that username already exists in this browser.";
+      input.focus();
       return;
     }
+    const user = { id: makeId(), name };
+    state.users.push(user);
     try {
-      await registerCloudAccount(name, password);
-    } catch (createError) {
-      error.textContent = createError.message || "Could not create this account.";
+      saveUsers();
+    } catch (saveError) {
+      state.users = state.users.filter((item) => item !== user);
+      error.textContent = `Could not save this profile: ${saveError.message || "browser storage is unavailable"}`;
+      return;
     }
+    selectUser(user.id);
   }
 
-  async function loginUser() {
+  function loginUser() {
     const name = $("#login-profile-name").value.trim();
-    const passwordInput = $("#login-profile-password");
     const error = $("#login-error");
     error.textContent = "";
-    if (!name || !passwordInput.value) {
-      error.textContent = "Enter your profile name and password.";
+    if (!name) {
+      error.textContent = "Enter your username.";
       return;
     }
-    try {
-      await loginCloudAccount(name, passwordInput.value);
-    } catch (loginError) {
-      error.textContent = loginError.message || "Could not sign in.";
+    const normalizedName = name.normalize("NFKC").toLocaleLowerCase("en-US");
+    const user = state.users.find((item) =>
+      item.name.normalize("NFKC").toLocaleLowerCase("en-US") === normalizedName);
+    if (!user) {
+      error.textContent = "No local profile with that username. Create one in this browser first.";
+      return;
     }
+    selectUser(user.id);
   }
 
   function writeProjectCatalog() {
@@ -22549,10 +22558,24 @@ const DRIVE_SAMPLE_TRACKS = [
       let projects = Array.isArray(savedCatalog?.projects)
         ? savedCatalog.projects.filter((project) => typeof project?.id === "string" && typeof project.name === "string")
         : [];
-      projects = projects.map((project) => ({
-        ...project,
-        ownerId: state.users.some((user) => user.id === project.ownerId) ? project.ownerId : "taylor",
-      }));
+      projects = projects.map((project) => {
+        let hasLocalSnapshot = false;
+        try {
+          hasLocalSnapshot = window.localStorage.getItem(getProjectStorageKey(project.id)) !== null;
+        } catch {
+          // The unavailable-storage case is reported when the project is opened.
+        }
+        return {
+          ...project,
+          ownerId: state.users.some((user) => user.id === project.ownerId) ? project.ownerId : "taylor",
+          localOnlyUnavailable: project.localOnlyUnavailable === true ||
+            project.cloudBacked === true && project.cloudHasFile === true &&
+              !hasLocalSnapshot && project.localSnapshotStorage !== "indexedDB",
+          cloudBacked: false,
+          cloudHasFile: false,
+          localDirty: false,
+        };
+      });
       const savedCreationCounts = savedCatalog?.projectCreationCounts;
       state.projectCreationCounts = Object.fromEntries(state.users.map((user) => [
         user.id,
@@ -24286,7 +24309,9 @@ const DRIVE_SAMPLE_TRACKS = [
           hourCycle: "h23",
         })
         : "";
-      detail.textContent = project.cloudBacked
+      detail.textContent = project.localOnlyUnavailable
+        ? "NOT STORED IN THIS BROWSER"
+        : project.cloudBacked
         ? project.cloudHasFile
           ? `CLOUD · SAVED ${savedAt}`
           : "CLOUD · NOT SAVED YET"
@@ -24302,7 +24327,7 @@ const DRIVE_SAMPLE_TRACKS = [
     });
     const selectedProject = projects.find((project) => project.id === selectedProjectId);
     const cloudNeedsDownload = projectNeedsCloudDownload(selectedProject);
-    $("#enter-project-button").disabled = !selectedProject ||
+    $("#enter-project-button").disabled = !selectedProject || selectedProject.localOnlyUnavailable ||
       selectedProject.id === state.projectId && !cloudNeedsDownload;
     $("#delete-project-button").disabled = !selectedProject;
     $("#delete-project-button").title = "Permanently delete the selected project and its saved audio.";
@@ -24419,6 +24444,10 @@ const DRIVE_SAMPLE_TRACKS = [
     const project = state.projects.find((item) =>
       item.id === projectId && item.ownerId === state.currentUser);
     if (!project) return;
+    if (project.localOnlyUnavailable) {
+      showToast(`${project.name} is not stored in this browser. Import a BPM export to use it locally.`);
+      return;
+    }
     const cloudNeedsDownload = projectNeedsCloudDownload(project);
     if (projectId === state.projectId && !cloudNeedsDownload) return;
     if (projectId === state.projectId && cloudNeedsDownload) {
@@ -24875,7 +24904,6 @@ const DRIVE_SAMPLE_TRACKS = [
     if (state.isPlaying) stopPlayback();
     stopAllWorkspacePlayers();
     try {
-      if (getCloudToken()) endCloudSession();
       window.sessionStorage.removeItem(ACTIVE_USER_KEY);
       window.sessionStorage.removeItem(OPEN_PROJECTS_KEY);
       window.location.reload();
@@ -26141,11 +26169,7 @@ const DRIVE_SAMPLE_TRACKS = [
   let cloudProjectRefreshFailed = false;
 
   function getCloudToken() {
-    try {
-      return window.sessionStorage.getItem(CLOUD_TOKEN_KEY) || "";
-    } catch {
-      return "";
-    }
+    return "";
   }
 
   function getCloudApiBaseUrl() {
@@ -26292,184 +26316,6 @@ const DRIVE_SAMPLE_TRACKS = [
       }
       renderProjectList();
     }
-  }
-
-  async function registerCloudAccount(name, password) {
-    const { payload } = await cloudRequest("/register", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name, password }),
-    });
-    await activateCloudAccount(payload);
-  }
-
-  async function loginCloudAccount(name, password) {
-    const { payload } = await cloudRequest("/login", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name, password }),
-    });
-    await activateCloudAccount(payload);
-  }
-
-  async function updateCloudAccountName(name, currentPassword) {
-    const { payload } = await cloudRequest("/account", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name, currentPassword }),
-    });
-    return payload.account;
-  }
-
-  async function updateCloudAccountPassword(currentPassword, password) {
-    await cloudRequest("/account/password", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ currentPassword, password }),
-    });
-  }
-
-  async function removeCloudAccount(password) {
-    await cloudRequest("/account", {
-      method: "DELETE",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ password }),
-    });
-    const accountId = state.currentUser;
-    const accountProjects = state.projects.filter((project) => project.ownerId === accountId);
-    const cleanupErrors = [];
-    for (const project of accountProjects) {
-      const storageKey = getProjectStorageKey(project.id);
-      for (const cleanup of [
-        () => window.localStorage.removeItem(storageKey),
-        () => window.localStorage.removeItem(`${storageKey}:dj`),
-        () => deleteCachedProjectSnapshot(project.id),
-        () => replaceProjectRecordingAssets(project.id, []),
-      ]) {
-        try {
-          await cleanup();
-        } catch (error) {
-          cleanupErrors.push(error.message || "browser storage is unavailable");
-        }
-      }
-    }
-    state.projects = state.projects.filter((project) => project.ownerId !== accountId);
-    state.users = state.users.filter((user) => user.id !== accountId);
-    for (const cleanup of [
-      () => saveUsers(),
-      () => writeProjectCatalog(),
-      () => window.sessionStorage.removeItem(CLOUD_TOKEN_KEY),
-      () => window.sessionStorage.removeItem(ACTIVE_USER_KEY),
-      () => window.sessionStorage.removeItem(OPEN_PROJECTS_KEY),
-    ]) {
-      try {
-        await cleanup();
-      } catch (error) {
-        cleanupErrors.push(error.message || "browser storage is unavailable");
-      }
-    }
-    $("#account-dialog").close();
-    showToast(cleanupErrors.length
-      ? `Cloud account deleted, but some browser cache cleanup failed: ${cleanupErrors[0]}`
-      : "Cloud account and projects deleted");
-    window.setTimeout(() => window.location.reload(), 2000);
-  }
-
-  function bindCloudAccountSettings() {
-    $("#account-button").hidden = !getCloudToken();
-    $("#account-button").addEventListener("click", () => {
-      if (!getCloudToken()) {
-        showToast("Sign in to a cloud account to manage account settings.");
-        return;
-      }
-      $("#account-new-username").value = getCurrentUserName();
-      $("#project-dialog").close();
-      $("#account-dialog").showModal();
-    });
-    $("#account-dialog-close").addEventListener("click", () => $("#account-dialog").close());
-    $("#account-username-form").addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const form = event.currentTarget;
-      const button = form.querySelector('button[type="submit"]');
-      button.disabled = true;
-      try {
-        const account = await updateCloudAccountName(
-          $("#account-new-username").value,
-          $("#account-username-password").value,
-        );
-        state.users = state.users.map((user) =>
-          user.id === state.currentUser ? { ...user, name: account.name } : user);
-        $("#active-user-label").textContent = account.name;
-        $("#account-new-username").value = account.name;
-        $("#account-username-password").value = "";
-        renderProjectList();
-        try {
-          saveUsers();
-        } catch (error) {
-          showToast(`Username updated in the cloud, but could not save it in this browser: ${error.message || "browser storage is unavailable"}`);
-          return;
-        }
-        showToast("Username updated");
-      } catch (error) {
-        showToast(`Could not update username: ${error.message || "the cloud server is unavailable"}`);
-      } finally {
-        button.disabled = false;
-      }
-    });
-    $("#account-password-form").addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const form = event.currentTarget;
-      const button = form.querySelector('button[type="submit"]');
-      if ($("#account-new-password").value !== $("#account-confirm-password").value) {
-        showToast("The new passwords do not match.");
-        return;
-      }
-      button.disabled = true;
-      try {
-        await updateCloudAccountPassword(
-          $("#account-current-password").value,
-          $("#account-new-password").value,
-        );
-        $("#account-current-password").value = "";
-        $("#account-new-password").value = "";
-        $("#account-confirm-password").value = "";
-        showToast("Password updated");
-      } catch (error) {
-        showToast(`Could not update password: ${error.message || "the cloud server is unavailable"}`);
-      } finally {
-        button.disabled = false;
-      }
-    });
-    $("#account-delete-form").addEventListener("submit", async (event) => {
-      event.preventDefault();
-      if ($("#account-delete-confirmation").value.trim() !== getCurrentUserName()) {
-        showToast("Type your username exactly to confirm account deletion.");
-        return;
-      }
-      if (!window.confirm("Permanently delete this cloud account and all its cloud projects?")) return;
-      const form = event.currentTarget;
-      const button = form.querySelector('button[type="submit"]');
-      button.disabled = true;
-      try {
-        await removeCloudAccount($("#account-delete-password").value);
-      } catch (error) {
-        showToast(`Could not delete the cloud account: ${error.message || "the cloud server is unavailable"}`);
-      } finally {
-        button.disabled = false;
-      }
-    });
-  }
-
-  async function activateCloudAccount(session) {
-    const { account, token, projects } = session;
-    const user = { id: account.id, name: account.name, cloudAccount: true };
-    state.users = [...state.users.filter((item) => item.id !== user.id), user];
-    saveUsers();
-    window.sessionStorage.setItem(CLOUD_TOKEN_KEY, token);
-    window.sessionStorage.setItem(ACTIVE_USER_KEY, user.id);
-    window.sessionStorage.setItem(OPEN_PROJECTS_KEY, "true");
-    saveCloudProjectCatalog(user.id, projects);
-    window.location.reload();
   }
 
   async function refreshCloudProjectCatalog(includeLocalCacheCheck = false) {
@@ -27168,7 +27014,6 @@ const DRIVE_SAMPLE_TRACKS = [
       }
     });
     $("#switch-user-button").addEventListener("click", switchUser);
-    bindCloudAccountSettings();
     $("#collaborate-button").addEventListener("click", () => {
       $("#project-dialog").close();
       try {
@@ -27455,8 +27300,7 @@ const DRIVE_SAMPLE_TRACKS = [
         let cachedSnapshotRestored = false;
         try {
           const cached = await readCachedProjectSnapshot(state.projectId);
-          if (cached?.revision === project.localCloudRevision &&
-            cached.revision === project.cloudRevision) {
+          if (cached) {
             cachedSnapshot = cached.snapshot;
             cachedSnapshotRestored = true;
           }
@@ -27464,6 +27308,7 @@ const DRIVE_SAMPLE_TRACKS = [
           showToast(`Could not restore the IndexedDB project cache: ${error.message || "browser storage is unavailable"}`);
         }
         if (!cachedSnapshotRestored) {
+          project.localOnlyUnavailable = true;
           project.localSnapshotStorage = null;
           project.localCloudRevision = null;
           try {
@@ -27471,9 +27316,31 @@ const DRIVE_SAMPLE_TRACKS = [
           } catch (error) {
             showToast(`Could not update the project cache status: ${error.message || "browser storage is unavailable"}`);
           }
+        } else {
+          project.localOnlyUnavailable = false;
         }
       }
-      restoreState(cachedSnapshot);
+      if (project?.localOnlyUnavailable) {
+        const replacement = {
+          id: makeId(),
+          name: `New Proj ${getNextProjectNumber(state.currentUser)}`,
+          ownerId: state.currentUser,
+          updatedAt: Date.now(),
+        };
+        state.projects.unshift(replacement);
+        state.projectId = replacement.id;
+        state.projectName = replacement.name;
+        state.activeProjectIds[state.currentUser] = replacement.id;
+        updateProjectNameLabel();
+        try {
+          writeProjectCatalog();
+        } catch (error) {
+          showToast(`Could not save the new local project: ${error.message || "browser storage is unavailable"}`);
+        }
+        showToast(`${project.name} is not stored in this browser. A new local project was opened; import a BPM export to use the old project here.`);
+      } else {
+        restoreState(cachedSnapshot);
+      }
     }
     restoreDjState(cachedSnapshot);
     restoreDansBpmSynthPatch();
@@ -27515,9 +27382,6 @@ const DRIVE_SAMPLE_TRACKS = [
         }
       } catch (error) {
         showToast(`Could not open the project list: ${error.message || "session storage is unavailable"}`);
-      }
-      if (getCloudToken()) {
-        startCloudProjectUpdates();
       }
     }
   }).catch((error) => {

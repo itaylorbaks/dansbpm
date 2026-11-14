@@ -361,7 +361,6 @@
     if (state.isPlaying) stopPlayback();
     stopAllWorkspacePlayers();
     try {
-      if (getCloudToken()) endCloudSession();
       window.sessionStorage.removeItem(ACTIVE_USER_KEY);
       window.sessionStorage.removeItem(OPEN_PROJECTS_KEY);
       window.location.reload();

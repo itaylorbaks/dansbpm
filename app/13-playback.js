@@ -1137,7 +1137,7 @@
   function renderLoginUsers() {
     const options = $("#login-options");
     options.replaceChildren();
-    state.users.filter((user) => !user.cloudAccount).forEach((user) => {
+    state.users.forEach((user) => {
       const button = document.createElement("button");
       button.className = "login-option";
       button.type = "button";
@@ -1170,7 +1170,6 @@
           .map((user) => ({
             id: user.id,
             name: user.name.trim().slice(0, 32),
-            ...(user.cloudAccount === true ? { cloudAccount: true } : {}),
           }));
       }
       DEFAULT_USERS.forEach((defaultUser) => {
@@ -1182,6 +1181,11 @@
       if (!state.users.length) state.users = users;
       showToast(`Could not load or save profiles: ${error.message || "browser storage is unavailable"}`);
     }
+    try {
+      window.sessionStorage.removeItem(CLOUD_TOKEN_KEY);
+    } catch (error) {
+      showToast(`Could not clear the previous cloud sign-in: ${error.message || "session storage is unavailable"}`);
+    }
     renderLoginUsers();
   }
 
@@ -1189,7 +1193,6 @@
     try {
       const userId = window.sessionStorage.getItem(ACTIVE_USER_KEY);
       const user = state.users.find((item) => item.id === userId);
-      if (user?.cloudAccount && !getCloudToken()) return null;
       return user ? userId : null;
     } catch {
       return null;
@@ -1197,7 +1200,7 @@
   }
 
   function selectUser(userId) {
-    if (!state.users.some((user) => user.id === userId && !user.cloudAccount)) return;
+    if (!state.users.some((user) => user.id === userId)) return;
     try {
       window.sessionStorage.setItem(ACTIVE_USER_KEY, userId);
       window.sessionStorage.setItem(OPEN_PROJECTS_KEY, "true");
@@ -1208,11 +1211,9 @@
     }
   }
 
-  async function createUser() {
+  function createUser() {
     const input = $("#new-profile-name");
     const name = input.value.trim().slice(0, 32);
-    const passwordInput = $("#new-profile-password");
-    const password = passwordInput.value;
     const error = $("#login-error");
     error.textContent = "";
     if (!name) {
@@ -1220,32 +1221,40 @@
       input.focus();
       return;
     }
-    if (password.length < 8) {
-      error.textContent = "Choose a password with at least 8 characters.";
-      passwordInput.focus();
+    if (state.users.some((user) => user.name.normalize("NFKC").toLocaleLowerCase("en-US") ===
+        name.normalize("NFKC").toLocaleLowerCase("en-US"))) {
+      error.textContent = "A profile with that username already exists in this browser.";
+      input.focus();
       return;
     }
+    const user = { id: makeId(), name };
+    state.users.push(user);
     try {
-      await registerCloudAccount(name, password);
-    } catch (createError) {
-      error.textContent = createError.message || "Could not create this account.";
+      saveUsers();
+    } catch (saveError) {
+      state.users = state.users.filter((item) => item !== user);
+      error.textContent = `Could not save this profile: ${saveError.message || "browser storage is unavailable"}`;
+      return;
     }
+    selectUser(user.id);
   }
 
-  async function loginUser() {
+  function loginUser() {
     const name = $("#login-profile-name").value.trim();
-    const passwordInput = $("#login-profile-password");
     const error = $("#login-error");
     error.textContent = "";
-    if (!name || !passwordInput.value) {
-      error.textContent = "Enter your profile name and password.";
+    if (!name) {
+      error.textContent = "Enter your username.";
       return;
     }
-    try {
-      await loginCloudAccount(name, passwordInput.value);
-    } catch (loginError) {
-      error.textContent = loginError.message || "Could not sign in.";
+    const normalizedName = name.normalize("NFKC").toLocaleLowerCase("en-US");
+    const user = state.users.find((item) =>
+      item.name.normalize("NFKC").toLocaleLowerCase("en-US") === normalizedName);
+    if (!user) {
+      error.textContent = "No local profile with that username. Create one in this browser first.";
+      return;
     }
+    selectUser(user.id);
   }
 
   function writeProjectCatalog() {
@@ -1270,10 +1279,24 @@
       let projects = Array.isArray(savedCatalog?.projects)
         ? savedCatalog.projects.filter((project) => typeof project?.id === "string" && typeof project.name === "string")
         : [];
-      projects = projects.map((project) => ({
-        ...project,
-        ownerId: state.users.some((user) => user.id === project.ownerId) ? project.ownerId : "taylor",
-      }));
+      projects = projects.map((project) => {
+        let hasLocalSnapshot = false;
+        try {
+          hasLocalSnapshot = window.localStorage.getItem(getProjectStorageKey(project.id)) !== null;
+        } catch {
+          // The unavailable-storage case is reported when the project is opened.
+        }
+        return {
+          ...project,
+          ownerId: state.users.some((user) => user.id === project.ownerId) ? project.ownerId : "taylor",
+          localOnlyUnavailable: project.localOnlyUnavailable === true ||
+            project.cloudBacked === true && project.cloudHasFile === true &&
+              !hasLocalSnapshot && project.localSnapshotStorage !== "indexedDB",
+          cloudBacked: false,
+          cloudHasFile: false,
+          localDirty: false,
+        };
+      });
       const savedCreationCounts = savedCatalog?.projectCreationCounts;
       state.projectCreationCounts = Object.fromEntries(state.users.map((user) => [
         user.id,
