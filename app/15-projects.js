@@ -917,6 +917,8 @@
         track.fxRuntime = null;
         track.analyser = null;
         track.sourceGains = null;
+        track.sidechainInputNode = null;
+        track.sidechainSourceNode = null;
         track.effects = makeDefaultEffects(track.effects);
       });
       allTracks.forEach((track) => {
