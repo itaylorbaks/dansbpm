@@ -796,12 +796,12 @@
       element.setAttribute("aria-valuenow", "0");
       if (fill) fill.style.width = "0%";
     });
-    if (state.view !== "mixer" || !state.isPlaying || state.playbackMode !== "arrangement") {
+    if (state.view !== "mixer" || !state.isPlaying) {
       resetMeters();
       return;
     }
     const draw = () => {
-      if (state.view !== "mixer" || !state.isPlaying || state.playbackMode !== "arrangement") {
+      if (state.view !== "mixer" || !state.isPlaying) {
         resetMeters();
         state.mixerMeterAnimation = null;
         return;
