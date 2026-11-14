@@ -784,6 +784,7 @@
       cancelAnimationFrame(state.mixerMeterAnimation);
       state.mixerMeterAnimation = null;
     }
+    const isPlaying = () => state.isPlaying || Object.values(state.workspacePlayers).some(Boolean);
     const tracksById = new Map(getMixerTracks().map(({ track }) => [track.id, track]));
     const meters = Array.from(document.querySelectorAll(".mixer-volume-monitor"), (meter) => ({
       element: meter,
@@ -796,12 +797,12 @@
       element.setAttribute("aria-valuenow", "0");
       if (fill) fill.style.width = "0%";
     });
-    if (state.view !== "mixer" || !state.isPlaying) {
+    if (state.view !== "mixer" || !isPlaying()) {
       resetMeters();
       return;
     }
     const draw = () => {
-      if (state.view !== "mixer" || !state.isPlaying) {
+      if (state.view !== "mixer" || !isPlaying()) {
         resetMeters();
         state.mixerMeterAnimation = null;
         return;
