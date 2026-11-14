@@ -98,6 +98,14 @@ def classify_sample(path, filename):
     words = " ".join(path + [filename]).lower()
     if "foley" in words:
         family, category = "Foley", "One-Shots"
+    elif re.search(r"\bhh\b", words):
+        family = "Drums"
+        if re.search(r"\bopen\b", words):
+            category = "Open Hi-Hats"
+        elif re.search(r"\bclosed\b", words):
+            category = "Closed Hi-Hats"
+        else:
+            category = "Hi-Hats"
     elif "ambience" in words or any(word in words for word in ("guitar", "mallet", "piano", "pad", "string")):
         family = "Ambient Loops"
         category = clean_category(path[-1]) if len(path) > 1 else "Ambience"
