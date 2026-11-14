@@ -1507,9 +1507,7 @@
           hourCycle: "h23",
         })
         : "";
-      detail.textContent = project.localOnlyUnavailable
-        ? "NOT STORED IN THIS BROWSER"
-        : project.cloudBacked
+      detail.textContent = project.cloudBacked
         ? project.cloudHasFile
           ? `CLOUD · SAVED ${savedAt}`
           : "CLOUD · NOT SAVED YET"
@@ -1525,7 +1523,7 @@
     });
     const selectedProject = projects.find((project) => project.id === selectedProjectId);
     const cloudNeedsDownload = projectNeedsCloudDownload(selectedProject);
-    $("#enter-project-button").disabled = !selectedProject || selectedProject.localOnlyUnavailable ||
+    $("#enter-project-button").disabled = !selectedProject ||
       selectedProject.id === state.projectId && !cloudNeedsDownload;
     $("#delete-project-button").disabled = !selectedProject;
     $("#delete-project-button").title = "Permanently delete the selected project and its saved audio.";
@@ -1642,10 +1640,6 @@
     const project = state.projects.find((item) =>
       item.id === projectId && item.ownerId === state.currentUser);
     if (!project) return;
-    if (project.localOnlyUnavailable) {
-      showToast(`${project.name} is not stored in this browser. Import a BPM export to use it locally.`);
-      return;
-    }
     const cloudNeedsDownload = projectNeedsCloudDownload(project);
     if (projectId === state.projectId && !cloudNeedsDownload) return;
     if (projectId === state.projectId && cloudNeedsDownload) {
