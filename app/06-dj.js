@@ -1978,9 +1978,11 @@
     const secondsPerBar = 240 / state.bpm / deck.songRate;
     const currentBar = deck.songPositionBar + Math.max(0, now - deck.songAnchorTime) / secondsPerBar;
     const lookAheadBars = lookAhead / secondsPerBar;
-    const hasArrangementSolo = [...state.tracks, ...state.patterns, ...state.melTracks, ...state.arrangementTracks]
+    const arrangementPatternTrackIds = getArrangementPatternTrackIds();
+    const arrangementPatternTracks = state.patterns.filter((track) => arrangementPatternTrackIds.has(track.id));
+    const hasArrangementSolo = [...state.tracks, ...arrangementPatternTracks, ...state.melTracks, ...state.arrangementTracks]
       .some((track) => track.solo);
-    const hasViewTrackSolo = [...state.patterns, ...state.melTracks, ...state.arrangementTracks]
+    const hasViewTrackSolo = [...arrangementPatternTracks, ...state.melTracks, ...state.arrangementTracks]
       .some((track) => track.solo);
     const hasInstrumentSolo = state.tracks.some((track) => track.solo);
     const isInLookAhead = (time) => time >= now && time < now + lookAhead && time < endTime;
@@ -2042,7 +2044,7 @@
         state.tracks.forEach((track) => {
           if (!patternTrackIds.includes(track.id) || !pattern.cells?.[track.id]?.[patternStep] ||
             track.muted || (hasInstrumentSolo && !track.solo) ||
-            Array.isArray(pattern.stepPianoNotes?.[track.id])) return;
+            hasPatternStepPianoNotes(pattern, track.id)) return;
           const eventKey = `pattern:${clip.id}:${sourceStep}:${track.id}`;
           if (deck.songEvents.has(eventKey)) return;
           const trackTime = time + (getTrackStepTime(track, patternStep, pattern, time) - time) / deck.songRate;
@@ -2132,7 +2134,7 @@
             const track = state.tracks.find((item) => item.id === trackId);
             if (!track || !pattern.cells?.[trackId]?.[eventStep] ||
               track.muted || (hasSolo && !track.solo) ||
-              Array.isArray(pattern.stepPianoNotes?.[trackId])) return;
+              hasPatternStepPianoNotes(pattern, trackId)) return;
             const variant = pattern.variants?.[trackId] || "classic";
             triggerTrack(track, getTrackStepTime(track, eventStep, pattern, eventTime),
               variant, getNoteDuration(pattern) / getDjRate(deck), track, deck.eqLowNode);
@@ -3033,7 +3035,7 @@
     activeTracks.forEach((track) => {
       const cells = pattern ? pattern.cells?.[track.id] || [] : track.cells;
       const variant = pattern ? pattern.variants?.[track.id] || "classic" : track.variant;
-      if (cells[step] && !Array.isArray(pattern?.stepPianoNotes?.[track.id]) &&
+      if (cells[step] && !hasPatternStepPianoNotes(pattern, track.id) &&
         !track.muted && (!hasSolo || track.solo)) {
         if (pattern && loopIndex !== null &&
           state.liveRecordedHits.delete(`${pattern.id}:${loopIndex}:${track.id}:${step}`)) return;

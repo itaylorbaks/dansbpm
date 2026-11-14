@@ -520,6 +520,7 @@
               id: pattern.id,
               name: pattern.name,
               kind: "pattern",
+              arrangementCopy: pattern.arrangementCopy === true,
               insertAfterTrackId: typeof pattern.insertAfterTrackId === "string" ? pattern.insertAfterTrackId : null,
               color: isPatternColor(pattern.color) ? pattern.color : getPatternColor(index),
               steps: patternSteps,
@@ -600,6 +601,12 @@
               startBar: Math.max(0, Math.min(MAX_ARRANGEMENT_BARS - durationBars, clip.startBar)),
             };
           });
+        state.patternClips.forEach((clip) => {
+          if (clip.trackId && clip.trackId !== clip.patternId) {
+            const patternTrack = getPattern(clip.trackId);
+            if (patternTrack) patternTrack.arrangementCopy = true;
+          }
+        });
       }
       if (Number.isFinite(saved.pianoBars) && [1, 2, 4, 8].includes(saved.pianoBars)) state.pianoBars = saved.pianoBars;
       if (Number.isFinite(saved.pianoCursorTick)) state.pianoCursorTick = Math.max(0, Math.min(state.pianoBars * PIANO_TICKS_PER_BAR - 0.001, saved.pianoCursorTick));
@@ -885,7 +892,12 @@
       await connectMasterPitchProcessor(context);
       state.noiseBuffer = createNoiseBuffer(context);
       const hasSolo = [...state.tracks, ...state.arrangementTracks].some((track) => track.solo);
-      const hasArrangementSolo = [...state.patterns, ...state.melTracks, ...state.arrangementTracks]
+      const arrangementPatternTrackIds = getArrangementPatternTrackIds();
+      const hasArrangementSolo = [
+        ...state.patterns.filter((track) => arrangementPatternTrackIds.has(track.id)),
+        ...state.melTracks,
+        ...state.arrangementTracks,
+      ]
         .some((track) => track.solo);
       allTracks.forEach((track) => {
         ensureTrackMixerState(track);
@@ -943,7 +955,7 @@
             (Math.floor(tick / 2) % 2 === 1 ? getStepDuration() * (state.swing / 100) : 0);
           if (time >= duration) continue;
           patternSources.forEach((track) => {
-            if (pattern.cells[track.id]?.[patternStep] && !Array.isArray(pattern.stepPianoNotes?.[track.id]) &&
+            if (pattern.cells[track.id]?.[patternStep] && !hasPatternStepPianoNotes(pattern, track.id) &&
               !track.muted && (!hasSolo || track.solo)) {
               const trackTime = getTrackStepTime(track, patternStep, pattern, time);
               triggerTrack(track, trackTime, pattern.variants[track.id] || track.variant,

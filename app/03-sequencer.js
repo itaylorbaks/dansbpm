@@ -2,6 +2,20 @@
     return state.patterns.find((pattern) => pattern.id === patternId) || null;
   }
 
+  function getArrangementPatternTrackIds() {
+    return new Set(state.patternClips.map((clip) => clip.trackId || clip.patternId));
+  }
+
+  function getPatternLibraryAssets() {
+    const laneCopyIds = new Set(state.patterns
+      .filter((pattern) => pattern.arrangementCopy)
+      .map((pattern) => pattern.id));
+    state.patternClips.forEach((clip) => {
+      if (clip.trackId && clip.trackId !== clip.patternId) laneCopyIds.add(clip.trackId);
+    });
+    return state.patterns.filter((pattern) => !laneCopyIds.has(pattern.id));
+  }
+
   function getPatternGridResolution(pattern) {
     if (GRID_RESOLUTIONS.includes(pattern?.gridResolution)) return pattern.gridResolution;
     if (GRID_RESOLUTIONS.includes(pattern?.noteLength)) return pattern.noteLength;
@@ -94,9 +108,16 @@
     }[track.kind] || 60;
   }
 
+  function hasPatternStepPianoNotes(pattern, trackId) {
+    const notes = pattern.stepPianoNotes?.[trackId];
+    return Array.isArray(notes) && notes.length > 0;
+  }
+
   function getStepPianoNotes(pattern, track) {
     const savedNotes = pattern.stepPianoNotes?.[track.id];
-    if (Array.isArray(savedNotes)) return savedNotes.map((note) => ({ ...note, trackId: track.id }));
+    if (hasPatternStepPianoNotes(pattern, track.id)) {
+      return savedNotes.map((note) => ({ ...note, trackId: track.id }));
+    }
     const ticksPerStep = getGridTicksPerStep(pattern);
     return Array.from({ length: getGridStepCount(pattern) }, (_, step) => {
       if (!pattern.cells?.[track.id]?.[step]) return null;

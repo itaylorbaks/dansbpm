@@ -884,6 +884,7 @@
     restoreDjState(cachedSnapshot);
     restoreDansBpmSynthPatch();
     ensureMels();
+    bindEvents();
     tempoValue.textContent = String(state.bpm);
     swingSlider.value = String(state.swing);
     $("#swing-value").textContent = `${state.swing}%`;
@@ -896,7 +897,6 @@
     renderMelOptions();
     state.arrangementCursor = Math.min(state.arrangementCursor, state.arrangementBars - 0.001);
     setWorkspaceView(state.view, true);
-    bindEvents();
     seedUndoHistory();
     $("#login-screen").hidden = Boolean(state.currentUser);
     $("#active-user-label").textContent = getCurrentUserName();
@@ -927,5 +927,6 @@
       }
     }
   }).catch((error) => {
+    console.error("App initialization failed:", error);
     showToast(`Could not initialize the project: ${error.message || "browser storage is unavailable"}`);
   });

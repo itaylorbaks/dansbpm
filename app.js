@@ -6827,6 +6827,20 @@ const DRIVE_SAMPLE_TRACKS = [
     return state.patterns.find((pattern) => pattern.id === patternId) || null;
   }
 
+  function getArrangementPatternTrackIds() {
+    return new Set(state.patternClips.map((clip) => clip.trackId || clip.patternId));
+  }
+
+  function getPatternLibraryAssets() {
+    const laneCopyIds = new Set(state.patterns
+      .filter((pattern) => pattern.arrangementCopy)
+      .map((pattern) => pattern.id));
+    state.patternClips.forEach((clip) => {
+      if (clip.trackId && clip.trackId !== clip.patternId) laneCopyIds.add(clip.trackId);
+    });
+    return state.patterns.filter((pattern) => !laneCopyIds.has(pattern.id));
+  }
+
   function getPatternGridResolution(pattern) {
     if (GRID_RESOLUTIONS.includes(pattern?.gridResolution)) return pattern.gridResolution;
     if (GRID_RESOLUTIONS.includes(pattern?.noteLength)) return pattern.noteLength;
@@ -6919,9 +6933,16 @@ const DRIVE_SAMPLE_TRACKS = [
     }[track.kind] || 60;
   }
 
+  function hasPatternStepPianoNotes(pattern, trackId) {
+    const notes = pattern.stepPianoNotes?.[trackId];
+    return Array.isArray(notes) && notes.length > 0;
+  }
+
   function getStepPianoNotes(pattern, track) {
     const savedNotes = pattern.stepPianoNotes?.[track.id];
-    if (Array.isArray(savedNotes)) return savedNotes.map((note) => ({ ...note, trackId: track.id }));
+    if (hasPatternStepPianoNotes(pattern, track.id)) {
+      return savedNotes.map((note) => ({ ...note, trackId: track.id }));
+    }
     const ticksPerStep = getGridTicksPerStep(pattern);
     return Array.from({ length: getGridStepCount(pattern) }, (_, step) => {
       if (!pattern.cells?.[track.id]?.[step]) return null;
@@ -13700,9 +13721,11 @@ const DRIVE_SAMPLE_TRACKS = [
     const secondsPerBar = 240 / state.bpm / deck.songRate;
     const currentBar = deck.songPositionBar + Math.max(0, now - deck.songAnchorTime) / secondsPerBar;
     const lookAheadBars = lookAhead / secondsPerBar;
-    const hasArrangementSolo = [...state.tracks, ...state.patterns, ...state.melTracks, ...state.arrangementTracks]
+    const arrangementPatternTrackIds = getArrangementPatternTrackIds();
+    const arrangementPatternTracks = state.patterns.filter((track) => arrangementPatternTrackIds.has(track.id));
+    const hasArrangementSolo = [...state.tracks, ...arrangementPatternTracks, ...state.melTracks, ...state.arrangementTracks]
       .some((track) => track.solo);
-    const hasViewTrackSolo = [...state.patterns, ...state.melTracks, ...state.arrangementTracks]
+    const hasViewTrackSolo = [...arrangementPatternTracks, ...state.melTracks, ...state.arrangementTracks]
       .some((track) => track.solo);
     const hasInstrumentSolo = state.tracks.some((track) => track.solo);
     const isInLookAhead = (time) => time >= now && time < now + lookAhead && time < endTime;
@@ -13764,7 +13787,7 @@ const DRIVE_SAMPLE_TRACKS = [
         state.tracks.forEach((track) => {
           if (!patternTrackIds.includes(track.id) || !pattern.cells?.[track.id]?.[patternStep] ||
             track.muted || (hasInstrumentSolo && !track.solo) ||
-            Array.isArray(pattern.stepPianoNotes?.[track.id])) return;
+            hasPatternStepPianoNotes(pattern, track.id)) return;
           const eventKey = `pattern:${clip.id}:${sourceStep}:${track.id}`;
           if (deck.songEvents.has(eventKey)) return;
           const trackTime = time + (getTrackStepTime(track, patternStep, pattern, time) - time) / deck.songRate;
@@ -13854,7 +13877,7 @@ const DRIVE_SAMPLE_TRACKS = [
             const track = state.tracks.find((item) => item.id === trackId);
             if (!track || !pattern.cells?.[trackId]?.[eventStep] ||
               track.muted || (hasSolo && !track.solo) ||
-              Array.isArray(pattern.stepPianoNotes?.[trackId])) return;
+              hasPatternStepPianoNotes(pattern, trackId)) return;
             const variant = pattern.variants?.[trackId] || "classic";
             triggerTrack(track, getTrackStepTime(track, eventStep, pattern, eventTime),
               variant, getNoteDuration(pattern) / getDjRate(deck), track, deck.eqLowNode);
@@ -14755,7 +14778,7 @@ const DRIVE_SAMPLE_TRACKS = [
     activeTracks.forEach((track) => {
       const cells = pattern ? pattern.cells?.[track.id] || [] : track.cells;
       const variant = pattern ? pattern.variants?.[track.id] || "classic" : track.variant;
-      if (cells[step] && !Array.isArray(pattern?.stepPianoNotes?.[track.id]) &&
+      if (cells[step] && !hasPatternStepPianoNotes(pattern, track.id) &&
         !track.muted && (!hasSolo || track.solo)) {
         if (pattern && loopIndex !== null &&
           state.liveRecordedHits.delete(`${pattern.id}:${loopIndex}:${track.id}:${step}`)) return;
@@ -18174,7 +18197,7 @@ const DRIVE_SAMPLE_TRACKS = [
     renderList(
       "pattern-asset-browser",
       "pattern-asset-count",
-      state.patterns,
+      getPatternLibraryAssets(),
       "Pattern",
       "application/x-pulsegrid-pattern-source",
       (pattern) => ({ patternId: pattern.id }),
@@ -18463,6 +18486,7 @@ const DRIVE_SAMPLE_TRACKS = [
       id: makeId(),
       name: getNextPatternName(),
       kind: "pattern",
+      arrangementCopy: true,
       color: getPatternColor(state.patterns.length),
       steps: currentSource.steps,
       trackIds: [...getPatternTrackIds(currentSource)],
@@ -21220,7 +21244,12 @@ const DRIVE_SAMPLE_TRACKS = [
       ...state.effectTracks, state.masterTrack,
     ].filter(Boolean);
     const hasSolo = [...state.tracks, ...state.arrangementTracks].some((track) => track.solo);
-    const hasArrangementSolo = [...state.patterns, ...state.melTracks, ...state.arrangementTracks]
+    const arrangementPatternTrackIds = getArrangementPatternTrackIds();
+    const hasArrangementSolo = [
+      ...state.patterns.filter((track) => arrangementPatternTrackIds.has(track.id)),
+      ...state.melTracks,
+      ...state.arrangementTracks,
+    ]
       .some((track) => track.solo);
     allTracks.forEach((track) => {
       track.panNode?.pan.setTargetAtTime(track.pan, state.audioContext.currentTime, 0.015);
@@ -22585,6 +22614,7 @@ const DRIVE_SAMPLE_TRACKS = [
         return {
           id: pattern.id,
           name: pattern.name,
+          arrangementCopy: pattern.arrangementCopy === true,
           insertAfterTrackId: pattern.insertAfterTrackId || null,
           steps: pattern.steps,
           trackIds,
@@ -24982,6 +25012,7 @@ const DRIVE_SAMPLE_TRACKS = [
               id: pattern.id,
               name: pattern.name,
               kind: "pattern",
+              arrangementCopy: pattern.arrangementCopy === true,
               insertAfterTrackId: typeof pattern.insertAfterTrackId === "string" ? pattern.insertAfterTrackId : null,
               color: isPatternColor(pattern.color) ? pattern.color : getPatternColor(index),
               steps: patternSteps,
@@ -25062,6 +25093,12 @@ const DRIVE_SAMPLE_TRACKS = [
               startBar: Math.max(0, Math.min(MAX_ARRANGEMENT_BARS - durationBars, clip.startBar)),
             };
           });
+        state.patternClips.forEach((clip) => {
+          if (clip.trackId && clip.trackId !== clip.patternId) {
+            const patternTrack = getPattern(clip.trackId);
+            if (patternTrack) patternTrack.arrangementCopy = true;
+          }
+        });
       }
       if (Number.isFinite(saved.pianoBars) && [1, 2, 4, 8].includes(saved.pianoBars)) state.pianoBars = saved.pianoBars;
       if (Number.isFinite(saved.pianoCursorTick)) state.pianoCursorTick = Math.max(0, Math.min(state.pianoBars * PIANO_TICKS_PER_BAR - 0.001, saved.pianoCursorTick));
@@ -25347,7 +25384,12 @@ const DRIVE_SAMPLE_TRACKS = [
       await connectMasterPitchProcessor(context);
       state.noiseBuffer = createNoiseBuffer(context);
       const hasSolo = [...state.tracks, ...state.arrangementTracks].some((track) => track.solo);
-      const hasArrangementSolo = [...state.patterns, ...state.melTracks, ...state.arrangementTracks]
+      const arrangementPatternTrackIds = getArrangementPatternTrackIds();
+      const hasArrangementSolo = [
+        ...state.patterns.filter((track) => arrangementPatternTrackIds.has(track.id)),
+        ...state.melTracks,
+        ...state.arrangementTracks,
+      ]
         .some((track) => track.solo);
       allTracks.forEach((track) => {
         ensureTrackMixerState(track);
@@ -25405,7 +25447,7 @@ const DRIVE_SAMPLE_TRACKS = [
             (Math.floor(tick / 2) % 2 === 1 ? getStepDuration() * (state.swing / 100) : 0);
           if (time >= duration) continue;
           patternSources.forEach((track) => {
-            if (pattern.cells[track.id]?.[patternStep] && !Array.isArray(pattern.stepPianoNotes?.[track.id]) &&
+            if (pattern.cells[track.id]?.[patternStep] && !hasPatternStepPianoNotes(pattern, track.id) &&
               !track.muted && (!hasSolo || track.solo)) {
               const trackTime = getTrackStepTime(track, patternStep, pattern, time);
               triggerTrack(track, trackTime, pattern.variants[track.id] || track.variant,
@@ -27410,6 +27452,7 @@ const DRIVE_SAMPLE_TRACKS = [
     restoreDjState(cachedSnapshot);
     restoreDansBpmSynthPatch();
     ensureMels();
+    bindEvents();
     tempoValue.textContent = String(state.bpm);
     swingSlider.value = String(state.swing);
     $("#swing-value").textContent = `${state.swing}%`;
@@ -27422,7 +27465,6 @@ const DRIVE_SAMPLE_TRACKS = [
     renderMelOptions();
     state.arrangementCursor = Math.min(state.arrangementCursor, state.arrangementBars - 0.001);
     setWorkspaceView(state.view, true);
-    bindEvents();
     seedUndoHistory();
     $("#login-screen").hidden = Boolean(state.currentUser);
     $("#active-user-label").textContent = getCurrentUserName();
@@ -27453,6 +27495,7 @@ const DRIVE_SAMPLE_TRACKS = [
       }
     }
   }).catch((error) => {
+    console.error("App initialization failed:", error);
     showToast(`Could not initialize the project: ${error.message || "browser storage is unavailable"}`);
   });
   function readMidiVariableLength(bytes, cursor) {

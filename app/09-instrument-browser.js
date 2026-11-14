@@ -256,7 +256,7 @@
     renderList(
       "pattern-asset-browser",
       "pattern-asset-count",
-      state.patterns,
+      getPatternLibraryAssets(),
       "Pattern",
       "application/x-pulsegrid-pattern-source",
       (pattern) => ({ patternId: pattern.id }),
@@ -545,6 +545,7 @@
       id: makeId(),
       name: getNextPatternName(),
       kind: "pattern",
+      arrangementCopy: true,
       color: getPatternColor(state.patterns.length),
       steps: currentSource.steps,
       trackIds: [...getPatternTrackIds(currentSource)],

@@ -1347,6 +1347,7 @@
         return {
           id: pattern.id,
           name: pattern.name,
+          arrangementCopy: pattern.arrangementCopy === true,
           insertAfterTrackId: pattern.insertAfterTrackId || null,
           steps: pattern.steps,
           trackIds,

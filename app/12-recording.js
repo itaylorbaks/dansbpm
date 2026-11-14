@@ -602,7 +602,12 @@
       ...state.effectTracks, state.masterTrack,
     ].filter(Boolean);
     const hasSolo = [...state.tracks, ...state.arrangementTracks].some((track) => track.solo);
-    const hasArrangementSolo = [...state.patterns, ...state.melTracks, ...state.arrangementTracks]
+    const arrangementPatternTrackIds = getArrangementPatternTrackIds();
+    const hasArrangementSolo = [
+      ...state.patterns.filter((track) => arrangementPatternTrackIds.has(track.id)),
+      ...state.melTracks,
+      ...state.arrangementTracks,
+    ]
       .some((track) => track.solo);
     allTracks.forEach((track) => {
       track.panNode?.pan.setTargetAtTime(track.pan, state.audioContext.currentTime, 0.015);
