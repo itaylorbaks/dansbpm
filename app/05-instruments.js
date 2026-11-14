@@ -385,6 +385,7 @@
   }
 
   function openStepTrackMix(track) {
+    $("#step-track-mix-context").textContent = state.view === "piano-roll" ? "PIANO ROLL INSTRUMENT" : "STEP ROW MIX";
     $("#step-track-mix-title").textContent = `${track.name} mix`;
     const controls = $("#step-track-mix-controls");
     controls.replaceChildren();

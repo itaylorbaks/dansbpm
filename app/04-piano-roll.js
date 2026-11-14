@@ -140,6 +140,10 @@
     picker.disabled = !selected;
     picker.setAttribute("aria-label", selected ? `Piano roll instrument: ${selected.name}` : "Choose piano roll instrument");
     picker.title = selected?.name || "Choose an instrument";
+    const mixButton = $("#piano-track-mix-button");
+    mixButton.disabled = !selected;
+    mixButton.setAttribute("aria-label", selected ? `Open sound designer for ${selected.name}` : "Choose an instrument to mix");
+    mixButton.title = selected ? `Sound designer for ${selected.name}` : "Choose an instrument";
     let editButton = $("#edit-dansbpm-synth");
     if (!editButton) {
       editButton = document.createElement("button");

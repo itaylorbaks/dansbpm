@@ -224,6 +224,10 @@
       event.dataTransfer.effectAllowed = "copy";
     });
     $("#piano-instrument-select").addEventListener("click", () => openStepInstrumentPicker(null, "piano-roll"));
+    $("#piano-track-mix-button").addEventListener("click", () => {
+      const track = getPianoTrack();
+      if (track) openStepTrackMix(track);
+    });
     $("#piano-draw-mode-button").addEventListener("click", () => {
       state.pianoDrawMode = !state.pianoDrawMode;
       renderPianoRoll();

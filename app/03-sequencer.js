@@ -241,6 +241,7 @@
     state.selectedPianoNoteId = null;
     state.selectedPianoNoteIds.clear();
     state.pianoSelectionFromMarquee = false;
+    renderPianoInstrumentOptions();
     updateStepPianoEditorControls();
     $("#step-track-mix-dialog").close();
     setWorkspaceView("piano-roll");
