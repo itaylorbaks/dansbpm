@@ -7066,6 +7066,7 @@ const DRIVE_SAMPLE_TRACKS = [
     state.selectedPianoNoteId = null;
     state.selectedPianoNoteIds.clear();
     state.pianoSelectionFromMarquee = false;
+    renderPianoInstrumentOptions();
     updateStepPianoEditorControls();
     $("#step-track-mix-dialog").close();
     setWorkspaceView("piano-roll");
@@ -7638,6 +7639,10 @@ const DRIVE_SAMPLE_TRACKS = [
     picker.disabled = !selected;
     picker.setAttribute("aria-label", selected ? `Piano roll instrument: ${selected.name}` : "Choose piano roll instrument");
     picker.title = selected?.name || "Choose an instrument";
+    const mixButton = $("#piano-track-mix-button");
+    mixButton.disabled = !selected;
+    mixButton.setAttribute("aria-label", selected ? `Open sound designer for ${selected.name}` : "Choose an instrument to mix");
+    mixButton.title = selected ? `Sound designer for ${selected.name}` : "Choose an instrument";
     let editButton = $("#edit-dansbpm-synth");
     if (!editButton) {
       editButton = document.createElement("button");
@@ -9857,6 +9862,7 @@ const DRIVE_SAMPLE_TRACKS = [
   }
 
   function openStepTrackMix(track) {
+    $("#step-track-mix-context").textContent = state.view === "piano-roll" ? "PIANO ROLL INSTRUMENT" : "STEP ROW MIX";
     $("#step-track-mix-title").textContent = `${track.name} mix`;
     const controls = $("#step-track-mix-controls");
     controls.replaceChildren();
@@ -26792,6 +26798,10 @@ const DRIVE_SAMPLE_TRACKS = [
       event.dataTransfer.effectAllowed = "copy";
     });
     $("#piano-instrument-select").addEventListener("click", () => openStepInstrumentPicker(null, "piano-roll"));
+    $("#piano-track-mix-button").addEventListener("click", () => {
+      const track = getPianoTrack();
+      if (track) openStepTrackMix(track);
+    });
     $("#piano-draw-mode-button").addEventListener("click", () => {
       state.pianoDrawMode = !state.pianoDrawMode;
       renderPianoRoll();
