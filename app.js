@@ -21357,6 +21357,15 @@ const DRIVE_SAMPLE_TRACKS = [
     return Math.max(0.125, Math.min(8, edits.playbackMultiplier * 100 / edits.time));
   }
 
+  function getLibraryLoopTempoRatio(track) {
+    if (!/\bloops?\b/i.test(track.family || "")) return 1;
+    const match = /(?:^|[^0-9])(\d{2,3}(?:\.\d+)?)\s*BPM/i.exec(track.name || "");
+    const sourceBpm = Number(match?.[1]);
+    return Number.isFinite(sourceBpm) && sourceBpm >= 40 && sourceBpm <= 240
+      ? state.bpm / sourceBpm
+      : 1;
+  }
+
   function getSoundTrimmedNote(track, time, duration) {
     const edits = getSoundProcessingEdits(track);
     const trimScale = (edits.trimEnd - edits.trimStart) / 100;
@@ -21376,13 +21385,14 @@ const DRIVE_SAMPLE_TRACKS = [
     const edits = getSoundProcessingEdits(track);
     const canPitchShift = state.masterPitchSupported !== false &&
       typeof window.AudioWorkletNode === "function";
-    const playbackRate = rate * (canPitchShift ? 1 : Math.pow(2, edits.pitch / 12));
+    const tempoRatio = getLibraryLoopTempoRatio(track);
+    const playbackRate = rate * tempoRatio * (canPitchShift ? 1 : Math.pow(2, edits.pitch / 12));
     const totalSourceDuration = maxOutputDuration === null
       ? sourceDuration
       : Math.min(sourceDuration, maxOutputDuration * playbackRate);
     const sliceCount = edits.arpeggiatorLength;
     const sliceDuration = totalSourceDuration / sliceCount;
-    const rateScale = getSoundPlaybackRateScale(track);
+    const rateScale = getSoundPlaybackRateScale(track) * tempoRatio;
     const pitchCorrection = canPitchShift
       ? Math.max(-36, Math.min(36, edits.pitch - 12 * Math.log2(rateScale)))
       : 0;
