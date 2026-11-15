@@ -469,9 +469,9 @@
     return !hasArrangementContent && !hasMelodicContent && !hasAudioMetadata && !getProjectKey(false);
   }
 
-  function getAudioClipProjectAdjustment(metadata) {
+  function getAudioClipProjectAdjustment(metadata, matchTempo = true) {
     const { bpm, key } = normalizeAudioMetadata(metadata);
-    const tempoRatio = bpm ? state.bpm / bpm : 1;
+    const tempoRatio = matchTempo && bpm ? state.bpm / bpm : 1;
     const projectKey = getProjectKey(false);
     let keyShiftSemitones = 0;
     if (key && projectKey) {
@@ -485,7 +485,7 @@
     if (Math.abs(tempoRatio - 1) < 0.001 && keyShiftSemitones === 0) return null;
     return {
       sourceBpm: bpm,
-      targetBpm: bpm && Math.abs(tempoRatio - 1) >= 0.001 ? state.bpm : null,
+      targetBpm: matchTempo && bpm && Math.abs(tempoRatio - 1) >= 0.001 ? state.bpm : null,
       sourceKey: key,
       targetKey: keyShiftSemitones ? projectKey : null,
       tempoRatio,

@@ -709,7 +709,7 @@
         (target.tagName === "INPUT" && !["button", "submit", "reset", "checkbox", "radio", "range", "color", "file", "hidden", "image"].includes(target.type))
       );
       const dialogOpen = $("#help-dialog").open || $("#project-dialog").open || $("#source-browser-dialog").open ||
-        $("#step-instrument-dialog").open || $("#step-track-mix-dialog").open;
+        $("#step-instrument-dialog").open || $("#step-track-mix-dialog").open || $("#audio-tempo-dialog").open;
       if (!isTextEntry && !dialogOpen && (event.ctrlKey || event.metaKey) && !event.altKey &&
         !event.shiftKey && event.key.toLowerCase() === "z") {
         event.preventDefault();

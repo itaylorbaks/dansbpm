@@ -56,6 +56,7 @@
 :root[data-theme="light"] .collaboration-dialog,
 :root[data-theme="light"] .help-dialog,
 :root[data-theme="light"] .settings-dialog,
+:root[data-theme="light"] .audio-tempo-dialog,
 :root[data-theme="light"] .audio-clip-edit-dialog { background-color: var(--panel); color: var(--text); }
 :root[data-theme="light"] .track-row:nth-child(even),
 :root[data-theme="light"] .timeline-lane { background-color: #f0f2f5; }
@@ -564,6 +565,14 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .audio-clip .clip-start-handle { top: 25%; right: auto; left: 0; border-right: 0; border-left: 2px solid currentColor; }
 .audio-clip-edit-dialog { width: min(360px, calc(100vw - 28px)); border: 1px solid #3a3b40; border-radius: 10px; background: #1b1c1f; padding: 18px; color: var(--text); box-shadow: 0 20px 60px #0009; }
 .audio-clip-edit-dialog::backdrop { background: #0009; backdrop-filter: blur(3px); }
+.audio-tempo-dialog { width: min(400px, calc(100vw - 28px)); border: 1px solid #3a3b40; border-radius: 10px; background: #1b1c1f; padding: 22px; color: var(--text); box-shadow: 0 20px 60px #0009; }
+.audio-tempo-dialog::backdrop { background: #0009; backdrop-filter: blur(3px); }
+.audio-tempo-dialog h2 { margin: 7px 0 0; font-size: 19px; }
+.audio-tempo-file { overflow: hidden; margin: 18px 0 6px; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
+.audio-tempo-detection { margin: 0; color: #929398; font-size: 12px; }
+.audio-tempo-options { display: grid; gap: 8px; margin-top: 20px; }
+.audio-tempo-options .quiet-button { justify-content: flex-start; min-height: 38px; }
+.audio-tempo-options .quiet-button:disabled { cursor: not-allowed; opacity: .45; }
 .audio-clip-edit-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
 .audio-clip-edit-heading h2 { margin: 4px 0; font-size: 17px; }
 .audio-clip-edit-heading p { max-width: 260px; overflow: hidden; margin: 0; color: #929398; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }

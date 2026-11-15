@@ -15626,9 +15626,9 @@ const DRIVE_SAMPLE_TRACKS = [
     return !hasArrangementContent && !hasMelodicContent && !hasAudioMetadata && !getProjectKey(false);
   }
 
-  function getAudioClipProjectAdjustment(metadata) {
+  function getAudioClipProjectAdjustment(metadata, matchTempo = true) {
     const { bpm, key } = normalizeAudioMetadata(metadata);
-    const tempoRatio = bpm ? state.bpm / bpm : 1;
+    const tempoRatio = matchTempo && bpm ? state.bpm / bpm : 1;
     const projectKey = getProjectKey(false);
     let keyShiftSemitones = 0;
     if (key && projectKey) {
@@ -15642,7 +15642,7 @@ const DRIVE_SAMPLE_TRACKS = [
     if (Math.abs(tempoRatio - 1) < 0.001 && keyShiftSemitones === 0) return null;
     return {
       sourceBpm: bpm,
-      targetBpm: bpm && Math.abs(tempoRatio - 1) >= 0.001 ? state.bpm : null,
+      targetBpm: matchTempo && bpm && Math.abs(tempoRatio - 1) >= 0.001 ? state.bpm : null,
       sourceKey: key,
       targetKey: keyShiftSemitones ? projectKey : null,
       tempoRatio,
@@ -19387,6 +19387,21 @@ const DRIVE_SAMPLE_TRACKS = [
     dialog.showModal();
   }
 
+  function askAudioTempoChoice(filename, detectedBpm) {
+    const dialog = $("#audio-tempo-dialog");
+    $("#audio-tempo-file").textContent = filename;
+    $("#audio-tempo-detection").textContent = detectedBpm === null
+      ? "Tempo could not be confidently detected. You can leave both tempos unchanged."
+      : `Detected audio tempo: ${detectedBpm} BPM.`;
+    $("#audio-tempo-audio-to-project").disabled = detectedBpm === null;
+    $("#audio-tempo-project-to-audio").disabled = detectedBpm === null;
+    dialog.returnValue = "";
+    return new Promise((resolve) => {
+      dialog.addEventListener("close", () => resolve(dialog.returnValue || "leave"), { once: true });
+      dialog.showModal();
+    });
+  }
+
   function updateAudioClipGainOutput(value) {
     $("#audio-clip-gain-value").textContent = `${value}%`;
   }
@@ -20407,17 +20422,19 @@ const DRIVE_SAMPLE_TRACKS = [
       const audioMetadata = detectAudioMetadata(buffer);
       const projectWasEmpty = isProjectEmptyForAudioImport();
       const detectedMetadata = normalizeAudioMetadata(audioMetadata);
+      const tempoChoice = await askAudioTempoChoice(file.name, detectedMetadata.bpm);
       const sourceOffsetSeconds = Number.isFinite(detectedMetadata.beatOffsetSeconds)
         ? Math.max(0, Math.min(buffer.duration - 0.01, detectedMetadata.beatOffsetSeconds))
         : 0;
       const alignmentNotice = sourceOffsetSeconds > 0.02
         ? ` Aligned the detected first beat; ${sourceOffsetSeconds.toFixed(2)} s of lead-in is trimmed. Drag the clip's left edge to restore it.`
         : "";
-      if (projectWasEmpty && detectedMetadata.bpm !== null) {
+      if (tempoChoice === "project-to-audio" && detectedMetadata.bpm !== null) {
+        if (state.isPlaying && isSongWorkspace()) stopPlayback();
         state.bpm = Math.max(60, Math.min(180, roundBpm(detectedMetadata.bpm)));
         tempoValue.textContent = String(state.bpm);
       }
-      let audioAdjustment = projectWasEmpty ? null : getAudioClipProjectAdjustment(audioMetadata);
+      let audioAdjustment = getAudioClipProjectAdjustment(audioMetadata, tempoChoice === "audio-to-project");
       const adjustmentBlocked = Boolean(audioAdjustment && state.masterPitchSupported === false);
       if (adjustmentBlocked) audioAdjustment = null;
       let track = state.arrangementTracks.find((item) => item.id === trackId);
@@ -20455,16 +20472,19 @@ const DRIVE_SAMPLE_TRACKS = [
           audioAdjustment.targetKey,
           audioAdjustment.targetBpm ? `${audioAdjustment.targetBpm} BPM` : null,
         ].filter(Boolean);
-        if (targets.length) showToast(`${file.name} matched to ${targets.join(" and ")}.${alignmentNotice}`);
+        const projectTempoNotice = tempoChoice === "project-to-audio" && detectedMetadata.bpm !== null
+          ? ` Project set to ${state.bpm} BPM.` : "";
+        if (targets.length) showToast(`${file.name} matched to ${targets.join(" and ")}.${projectTempoNotice}${alignmentNotice}`);
+        else if (projectTempoNotice) showToast(`${file.name} added.${projectTempoNotice}${alignmentNotice}`);
+      } else if (tempoChoice === "project-to-audio" && detectedMetadata.bpm !== null) {
+        showToast(`${file.name} added. Project set to ${state.bpm} BPM.${alignmentNotice}`);
       } else if (projectWasEmpty) {
-        const detected = [
-          detectedMetadata.bpm === null ? null :
-            `${state.bpm} BPM${state.bpm !== detectedMetadata.bpm ? ` (detected ${detectedMetadata.bpm} BPM)` : ""}`,
-          detectedMetadata.key,
-        ].filter(Boolean);
-        showToast(detected.length
-          ? `Project set to ${detected.join(" / ")} from ${file.name}.${alignmentNotice}`
-          : `Added ${file.name}; tempo and key could not be confidently detected.${alignmentNotice}`);
+        const message = tempoChoice === "project-to-audio" && detectedMetadata.bpm !== null
+          ? `Project set to ${state.bpm} BPM from ${file.name}.`
+          : tempoChoice === "audio-to-project" && detectedMetadata.bpm !== null
+            ? `Added ${file.name} at ${state.bpm} BPM.`
+            : `Added ${file.name} without changing tempo.`;
+        showToast(`${message}${alignmentNotice}`);
       } else if (alignmentNotice) {
         showToast(`${file.name}.${alignmentNotice}`);
       }
@@ -27301,7 +27321,7 @@ const DRIVE_SAMPLE_TRACKS = [
         (target.tagName === "INPUT" && !["button", "submit", "reset", "checkbox", "radio", "range", "color", "file", "hidden", "image"].includes(target.type))
       );
       const dialogOpen = $("#help-dialog").open || $("#project-dialog").open || $("#source-browser-dialog").open ||
-        $("#step-instrument-dialog").open || $("#step-track-mix-dialog").open;
+        $("#step-instrument-dialog").open || $("#step-track-mix-dialog").open || $("#audio-tempo-dialog").open;
       if (!isTextEntry && !dialogOpen && (event.ctrlKey || event.metaKey) && !event.altKey &&
         !event.shiftKey && event.key.toLowerCase() === "z") {
         event.preventDefault();
