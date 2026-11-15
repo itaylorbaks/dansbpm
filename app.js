@@ -15289,9 +15289,11 @@ const DRIVE_SAMPLE_TRACKS = [
       }
     }
     if (bestScore <= averageOnset * 1.15) return null;
-    const phaseSeconds = bestPhase / frameRate;
-    if (phaseSeconds <= 1 / frameRate) return 0;
-    return Math.round((phaseSeconds + onsetCenterOffsetSeconds) * 1000) / 1000;
+    const beatSeconds = 60 / bpm;
+    const phaseSeconds = (bestPhase / frameRate + onsetCenterOffsetSeconds) % beatSeconds;
+    const phaseTolerance = 2 / frameRate;
+    if (phaseSeconds <= phaseTolerance || beatSeconds - phaseSeconds <= phaseTolerance) return 0;
+    return Math.round(phaseSeconds * 1000) / 1000;
   }
 
   function detectAudioMetadata(buffer) {
@@ -15407,10 +15409,12 @@ const DRIVE_SAMPLE_TRACKS = [
         const curvature = leftScore - 2 * bestScore + rightScore;
         const fractionalLag = bestLag + (curvature ? 0.5 * (leftScore - rightScore) / curvature : 0);
         let detected = 60 * frameRate / fractionalLag;
-        if (detected < 85 && detected * 2 <= 200 &&
+        if (detected < 100 && detected * 2 <= 200 &&
           correlationAt(Math.round(bestLag / 2)) >= bestScore * 0.8) detected *= 2;
         bpm = roundBpm(detected);
-        beatOffsetSeconds = detectAudioBeatOffset(onsets, frameRate, bpm, frameSize / (2 * sampleRate));
+        // Overlapping Hann-window frames make the flux peak lead the transient.
+        const onsetPhaseCorrection = frameSize * 0.7 / sampleRate;
+        beatOffsetSeconds = detectAudioBeatOffset(onsets, frameRate, bpm, onsetPhaseCorrection);
       }
     }
     return { bpm, key: getKeyFromChroma(chroma), beatOffsetSeconds };
