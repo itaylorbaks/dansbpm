@@ -9043,7 +9043,7 @@ const DRIVE_SAMPLE_TRACKS = [
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.mjs");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
