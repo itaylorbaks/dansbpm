@@ -704,9 +704,18 @@
           <p class="audio-tempo-file" id="audio-tempo-file"></p>
           <p class="audio-tempo-detection" id="audio-tempo-detection"></p>
           <form class="audio-tempo-options" method="dialog">
-            <button class="quiet-button" id="audio-tempo-audio-to-project" value="audio-to-project" type="submit">Fit audio BPM to project</button>
-            <button class="quiet-button" id="audio-tempo-project-to-audio" value="project-to-audio" type="submit">Fit project BPM to audio</button>
-            <button class="quiet-button" value="leave" type="submit">Leave both as they are</button>
+            <div class="audio-tempo-option-list" id="audio-tempo-main-options">
+              <button class="quiet-button" id="audio-tempo-audio-to-project" type="button">Fit audio BPM to project…</button>
+              <button class="quiet-button" id="audio-tempo-project-to-audio" value="project-to-audio" type="submit">Fit project BPM to audio</button>
+              <button class="quiet-button" value="leave" type="submit">Leave both as they are</button>
+            </div>
+            <div class="audio-tempo-option-list" id="audio-tempo-interpretations" hidden>
+              <p class="audio-tempo-detection" id="audio-tempo-interpretation-description"></p>
+              <button class="quiet-button" id="audio-tempo-actual" value="audio-to-project" type="submit"></button>
+              <button class="quiet-button" id="audio-tempo-double" value="audio-to-project:double" type="submit"></button>
+              <button class="quiet-button" id="audio-tempo-half" value="audio-to-project:half" type="submit"></button>
+              <button class="quiet-button" id="audio-tempo-back" type="button">Back</button>
+            </div>
           </form>
         </dialog>
 
@@ -1092,6 +1101,6 @@
       </div>
     </section>
     <script src="assets/vendor/lame.min.js"></script>
-    <script src="app.js?v=11ae904a3610"></script>
+    <script src="app.js?v=0df25bef2f3b"></script>
   </body>
 </html>

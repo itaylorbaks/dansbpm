@@ -355,15 +355,50 @@
 
   function askAudioTempoChoice(filename, detectedBpm) {
     const dialog = $("#audio-tempo-dialog");
+    const mainOptions = $("#audio-tempo-main-options");
+    const interpretations = $("#audio-tempo-interpretations");
+    const adjustAudioButton = $("#audio-tempo-audio-to-project");
+    const interpretationDescription = $("#audio-tempo-interpretation-description");
+    const actualBpm = detectedBpm === null ? null : roundBpm(detectedBpm);
+    const doubleBpm = actualBpm === null ? null : roundBpm(actualBpm * 2);
+    const halfBpm = actualBpm === null ? null : roundBpm(actualBpm / 2);
     $("#audio-tempo-file").textContent = filename;
     $("#audio-tempo-detection").textContent = detectedBpm === null
       ? "Tempo could not be confidently detected. You can leave both tempos unchanged."
       : `Detected audio tempo: ${detectedBpm} BPM.`;
-    $("#audio-tempo-audio-to-project").disabled = detectedBpm === null;
+    adjustAudioButton.disabled = detectedBpm === null;
     $("#audio-tempo-project-to-audio").disabled = detectedBpm === null;
+    $("#audio-tempo-actual").textContent = `Use actual tempo (${actualBpm} BPM)`;
+    $("#audio-tempo-double").textContent = `Use double tempo (${doubleBpm} BPM)`;
+    $("#audio-tempo-half").textContent = `Use half tempo (${halfBpm} BPM)`;
+    $("#audio-tempo-actual").disabled = actualBpm === null;
+    $("#audio-tempo-double").disabled = doubleBpm === null || doubleBpm > 360;
+    $("#audio-tempo-half").disabled = halfBpm === null || halfBpm < 30;
+    interpretationDescription.textContent =
+      `Choose how to interpret the detected ${actualBpm} BPM tempo.`;
+    mainOptions.hidden = false;
+    interpretations.hidden = true;
     dialog.returnValue = "";
     return new Promise((resolve) => {
-      dialog.addEventListener("close", () => resolve(dialog.returnValue || "leave"), { once: true });
+      const controller = new AbortController();
+      adjustAudioButton.addEventListener("click", () => {
+        mainOptions.hidden = true;
+        interpretations.hidden = false;
+        $("#audio-tempo-actual").focus();
+      }, { signal: controller.signal });
+      $("#audio-tempo-back").addEventListener("click", () => {
+        interpretations.hidden = true;
+        mainOptions.hidden = false;
+        adjustAudioButton.focus();
+      }, { signal: controller.signal });
+      dialog.addEventListener("close", () => {
+        const [action, interpretation] = (dialog.returnValue || "leave").split(":");
+        resolve({
+          action,
+          bpmMultiplier: interpretation === "double" ? 2 : interpretation === "half" ? 0.5 : 1,
+        });
+        controller.abort();
+      }, { once: true, signal: controller.signal });
       dialog.showModal();
     });
   }
@@ -1395,12 +1430,13 @@
       const alignmentNotice = sourceOffsetSeconds > 0.02
         ? ` Aligned the detected first beat; ${sourceOffsetSeconds.toFixed(2)} s of lead-in is trimmed. Drag the clip's left edge to restore it.`
         : "";
-      if (tempoChoice === "project-to-audio" && detectedMetadata.bpm !== null) {
+      if (tempoChoice.action === "project-to-audio" && detectedMetadata.bpm !== null) {
         if (state.isPlaying && isSongWorkspace()) stopPlayback();
         state.bpm = Math.max(60, Math.min(180, roundBpm(detectedMetadata.bpm)));
         tempoValue.textContent = String(state.bpm);
       }
-      const audioAdjustment = getAudioClipProjectAdjustment(audioMetadata, tempoChoice === "audio-to-project");
+      const audioAdjustment = getAudioClipProjectAdjustment(audioMetadata,
+        tempoChoice.action === "audio-to-project", tempoChoice.bpmMultiplier);
       let track = state.arrangementTracks.find((item) => item.id === trackId);
       if (!track) track = createArrangementTrack(file.name);
       else if (!track.clips.length && /^Track \d+$/.test(track.name)) track.name = file.name;
@@ -1436,16 +1472,16 @@
           audioAdjustment.targetKey,
           audioAdjustment.targetBpm ? `${audioAdjustment.targetBpm} BPM` : null,
         ].filter(Boolean);
-        const projectTempoNotice = tempoChoice === "project-to-audio" && detectedMetadata.bpm !== null
+        const projectTempoNotice = tempoChoice.action === "project-to-audio" && detectedMetadata.bpm !== null
           ? ` Project set to ${state.bpm} BPM.` : "";
         if (targets.length) showToast(`${file.name} matched to ${targets.join(" and ")}.${projectTempoNotice}${alignmentNotice}`);
         else if (projectTempoNotice) showToast(`${file.name} added.${projectTempoNotice}${alignmentNotice}`);
-      } else if (tempoChoice === "project-to-audio" && detectedMetadata.bpm !== null) {
+      } else if (tempoChoice.action === "project-to-audio" && detectedMetadata.bpm !== null) {
         showToast(`${file.name} added. Project set to ${state.bpm} BPM.${alignmentNotice}`);
       } else if (projectWasEmpty) {
-        const message = tempoChoice === "project-to-audio" && detectedMetadata.bpm !== null
+        const message = tempoChoice.action === "project-to-audio" && detectedMetadata.bpm !== null
           ? `Project set to ${state.bpm} BPM from ${file.name}.`
-          : tempoChoice === "audio-to-project" && detectedMetadata.bpm !== null
+          : tempoChoice.action === "audio-to-project" && detectedMetadata.bpm !== null
             ? `Added ${file.name} at ${state.bpm} BPM.`
             : `Added ${file.name} without changing tempo.`;
         showToast(`${message}${alignmentNotice}`);

@@ -431,11 +431,12 @@
     const keyShiftSemitones = Number.isInteger(adjustment.keyShiftSemitones) &&
       adjustment.keyShiftSemitones >= -6 && adjustment.keyShiftSemitones <= 6
       ? adjustment.keyShiftSemitones : 0;
-    if (tempoRatio === 1 && keyShiftSemitones === 0) return null;
     const isKey = (value) => typeof value === "string" && /^[A-G]#? (major|minor)$/.test(value);
     const isBpm = (value) => Number.isFinite(value) && value >= 40 && value <= 240;
+    const isSourceBpm = (value) => Number.isFinite(value) && value >= 30 && value <= 360;
+    if (tempoRatio === 1 && keyShiftSemitones === 0 && !isSourceBpm(adjustment.sourceBpm)) return null;
     return {
-      sourceBpm: isBpm(adjustment.sourceBpm) ? adjustment.sourceBpm : null,
+      sourceBpm: isSourceBpm(adjustment.sourceBpm) ? adjustment.sourceBpm : null,
       targetBpm: isBpm(adjustment.targetBpm) ? adjustment.targetBpm : null,
       sourceKey: isKey(adjustment.sourceKey) ? adjustment.sourceKey : null,
       targetKey: isKey(adjustment.targetKey) ? adjustment.targetKey : null,
@@ -451,7 +452,7 @@
   }
 
   function getAudioClipTempoRatio(clip) {
-    const sourceBpm = normalizeAudioMetadata(clip.audioMetadata).bpm ?? clip.audioAdjustment?.sourceBpm;
+    const sourceBpm = clip.audioAdjustment?.sourceBpm ?? normalizeAudioMetadata(clip.audioMetadata).bpm;
     if (Number.isFinite(sourceBpm) && sourceBpm > 0) return state.bpm / sourceBpm;
     const ratio = clip.audioAdjustment?.tempoRatio;
     return Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
@@ -473,8 +474,9 @@
     return !hasArrangementContent && !hasMelodicContent && !hasAudioMetadata && !getProjectKey(false);
   }
 
-  function getAudioClipProjectAdjustment(metadata, matchTempo = true) {
-    const { bpm, key } = normalizeAudioMetadata(metadata);
+  function getAudioClipProjectAdjustment(metadata, matchTempo = true, bpmMultiplier = 1) {
+    const { bpm: detectedBpm, key } = normalizeAudioMetadata(metadata);
+    const bpm = detectedBpm === null ? null : roundBpm(detectedBpm * bpmMultiplier);
     const tempoRatio = matchTempo && bpm ? state.bpm / bpm : 1;
     const projectKey = getProjectKey(false);
     let keyShiftSemitones = 0;
@@ -486,7 +488,7 @@
         if (keyShiftSemitones > 6) keyShiftSemitones -= 12;
       }
     }
-    if (Math.abs(tempoRatio - 1) < 0.001 && keyShiftSemitones === 0) return null;
+    if (Math.abs(tempoRatio - 1) < 0.001 && keyShiftSemitones === 0 && bpm === detectedBpm) return null;
     return {
       sourceBpm: bpm,
       targetBpm: matchTempo && bpm && Math.abs(tempoRatio - 1) >= 0.001 ? state.bpm : null,

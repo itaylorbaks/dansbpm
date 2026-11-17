@@ -571,6 +571,9 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .audio-tempo-file { overflow: hidden; margin: 18px 0 6px; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
 .audio-tempo-detection { margin: 0; color: #929398; font-size: 12px; }
 .audio-tempo-options { display: grid; gap: 8px; margin-top: 20px; }
+.audio-tempo-option-list { display: grid; gap: 8px; }
+.audio-tempo-option-list[hidden] { display: none; }
+.audio-tempo-option-list p { margin: 0 0 4px; }
 .audio-tempo-options .quiet-button { justify-content: flex-start; min-height: 38px; }
 .audio-tempo-options .quiet-button:disabled { cursor: not-allowed; opacity: .45; }
 .audio-clip-edit-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
