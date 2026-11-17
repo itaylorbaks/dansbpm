@@ -111,28 +111,36 @@
     return reversed;
   }
 
-  function getAudioClipStretchSettings(clip) {
+  function getAudioClipStretchSettings(clip, { ignoreReverse = false } = {}) {
     const tempoRatio = getAudioClipTempoRatio(clip);
     const pitchSemitones = Number.isFinite(clip.audioAdjustment?.keyShiftSemitones)
       ? clip.audioAdjustment.keyShiftSemitones : 0;
+    const reversed = clip.reversed === true && !ignoreReverse;
     return {
       tempoRatio,
       pitchSemitones,
-      key: `${tempoRatio}:${pitchSemitones}:${clip.reversed === true}`,
+      reversed,
+      key: `${tempoRatio}:${pitchSemitones}:${reversed}`,
     };
   }
 
-  async function prepareAudioClipPlaybackBuffer(context, clip) {
-    const { tempoRatio, pitchSemitones, key } = getAudioClipStretchSettings(clip);
+  async function prepareAudioClipPlaybackBuffer(context, clip, { ignoreReverse = false } = {}) {
+    const { tempoRatio, pitchSemitones, reversed, key } =
+      getAudioClipStretchSettings(clip, { ignoreReverse });
     if (Math.abs(tempoRatio - 1) < 0.001 && Math.abs(pitchSemitones) < 0.001) return;
 
-    let cached = stretchedAudioClipBuffers.get(clip);
+    let clipBuffers = stretchedAudioClipBuffers.get(clip);
+    if (!clipBuffers) {
+      clipBuffers = new Map();
+      stretchedAudioClipBuffers.set(clip, clipBuffers);
+    }
+    let cached = clipBuffers.get(key);
     if (cached?.key === key && cached.sourceBuffer === clip.buffer) {
       await cached.promise;
       return;
     }
 
-    const sourceBuffer = clip.reversed ? getReversedAudioClipBuffer(context, clip.buffer) : clip.buffer;
+    const sourceBuffer = reversed ? getReversedAudioClipBuffer(context, clip.buffer) : clip.buffer;
     if (!audioStretchModulePromise) audioStretchModulePromise = import("./app/audio-stretch.js");
     const entry = {
       key,
@@ -141,21 +149,23 @@
       promise: audioStretchModulePromise.then(({ stretchAudioBuffer }) =>
         stretchAudioBuffer(context, sourceBuffer, tempoRatio, pitchSemitones)),
     };
-    stretchedAudioClipBuffers.set(clip, entry);
+    clipBuffers.set(key, entry);
     try {
       entry.buffer = await entry.promise;
     } catch (error) {
-      if (stretchedAudioClipBuffers.get(clip) === entry) stretchedAudioClipBuffers.delete(clip);
+      if (clipBuffers.get(key) === entry) clipBuffers.delete(key);
+      if (!clipBuffers.size) stretchedAudioClipBuffers.delete(clip);
       throw new Error(`Could not time-stretch ${clip.name}: ${error.message || "audio processing failed"}`);
     }
   }
 
-  function getAudioClipPlaybackBuffer(context, clip) {
-    const { tempoRatio, pitchSemitones, key } = getAudioClipStretchSettings(clip);
+  function getAudioClipPlaybackBuffer(context, clip, { ignoreReverse = false } = {}) {
+    const { tempoRatio, pitchSemitones, reversed, key } =
+      getAudioClipStretchSettings(clip, { ignoreReverse });
     if (Math.abs(tempoRatio - 1) < 0.001 && Math.abs(pitchSemitones) < 0.001) {
-      return clip.reversed ? getReversedAudioClipBuffer(context, clip.buffer) : clip.buffer;
+      return reversed ? getReversedAudioClipBuffer(context, clip.buffer) : clip.buffer;
     }
-    const cached = stretchedAudioClipBuffers.get(clip);
+    const cached = stretchedAudioClipBuffers.get(clip)?.get(key);
     if (cached?.key !== key || cached.sourceBuffer !== clip.buffer || !cached.buffer) {
       throw new Error(`The time-stretched audio for ${clip.name} is not ready.`);
     }
@@ -168,7 +178,22 @@
         const clipEndBar = clip.startBar + getArrangementClipDuration("audio", clip);
         if (clipEndBar <= startBar || clip.startBar >= endBar) continue;
         await prepareAudioClipPlaybackBuffer(state.audioContext, clip);
+        if (clip.reversed) {
+          await prepareAudioClipPlaybackBuffer(state.audioContext, clip, { ignoreReverse: true });
+        }
       }
+    }
+  }
+
+  async function preparePianoAudioSliceBuffers(notes) {
+    const clips = new Set();
+    for (const note of notes || []) {
+      if (note.audioSlice?.pitchEdited !== true) continue;
+      const clip = getPianoRollAudioClipById(note.audioSlice.clipId);
+      if (clip?.buffer) clips.add(clip);
+    }
+    for (const clip of clips) {
+      await prepareAudioClipPlaybackBuffer(state.audioContext, clip, { ignoreReverse: true });
     }
   }
 

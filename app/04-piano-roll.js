@@ -827,6 +827,10 @@
     state.pianoRollAudioClipId = clip.id;
     const mode = $("#piano-audio-mode-select").value === "audio" ? "audio" : "instrument";
     try {
+      if (mode === "audio") {
+        await ensureAudio();
+        await prepareAudioClipPlaybackBuffer(state.audioContext, clip, { ignoreReverse: true });
+      }
       const tempoRatio = getAudioClipTempoRatio(clip);
       const detectedNotes = estimateAudioPitchNotes(clip.buffer, clip.sourceOffsetSeconds || 0,
         clip.durationSeconds ?? clip.buffer.duration);
@@ -846,7 +850,7 @@
           velocity: note.velocity,
         }));
       const notes = sourceNotes
-        .map((note) => {
+        .map((note, index) => {
           const startTick = note.startSeconds / tempoRatio / secondsPerBar * PIANO_TICKS_PER_BAR;
           if (startTick >= maxTicks) return null;
           const midi = Math.max(PIANO_BOTTOM_MIDI, Math.min(PIANO_TOP_MIDI, note.midi));
@@ -866,6 +870,8 @@
                 offsetSeconds: Math.max(0, clip.sourceOffsetSeconds || 0) + startSeconds,
                 durationSeconds: endSeconds - startSeconds,
                 dropOff: 10,
+                ...(index > 0 ? { crossfadeInSeconds: 0.006 } : {}),
+                ...(index < sourceNotes.length - 1 ? { crossfadeOutSeconds: 0.006 } : {}),
                 rootMidi: note.pitchEditable ? midi : 60,
                 pitchEdited: true,
                 pitchEditable: note.pitchEditable === true,

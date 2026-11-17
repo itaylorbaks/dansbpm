@@ -272,24 +272,33 @@
     const tempoRatio = getAudioClipTempoRatio(clip);
     const keyShiftSemitones = Number.isFinite(clip.audioAdjustment?.keyShiftSemitones)
       ? clip.audioAdjustment.keyShiftSemitones : 0;
-    const rate = tempoRatio * Math.pow(2,
-      (midi - rootMidi + keyShiftSemitones + detune / 100) / 12);
     const pitchEdited = audioSlice.pitchEdited === true;
-    const requestedOutputDuration = Math.max(0.005, duration);
+    const noteRate = Math.pow(2, (midi - rootMidi + detune / 100) / 12);
+    const rate = pitchEdited
+      ? noteRate
+      : tempoRatio * Math.pow(2, (midi - rootMidi + keyShiftSemitones + detune / 100) / 12);
+    const playbackBuffer = pitchEdited
+      ? getAudioClipPlaybackBuffer(state.audioContext, clip, { ignoreReverse: true })
+      : clip.buffer;
+    const playbackOffset = pitchEdited ? offset / tempoRatio : offset;
+    const requestedOutputDuration = Math.max(0.005, duration +
+      Math.max(0, audioSlice.crossfadeOutSeconds || 0));
     const bufferDuration = pitchEdited
-      ? Math.min(clip.buffer.duration - offset, requestedOutputDuration * rate)
+      ? Math.min(playbackBuffer.duration - playbackOffset, requestedOutputDuration * rate)
       : Math.min(sourceDuration, requestedOutputDuration);
     const outputDuration = bufferDuration / rate;
     const dropOff = Math.max(0, Math.min(90, audioSlice.dropOff ?? 10)) / 100;
+    const crossfadeOut = Math.max(0, audioSlice.crossfadeOutSeconds || 0);
+    const crossfadeIn = Math.max(0, audioSlice.crossfadeInSeconds || 0);
     const fadeDuration = pitchEdited
-      ? Math.min(outputDuration, Math.max(0.001, Math.min(0.005, outputDuration * dropOff)))
+      ? Math.min(outputDuration, crossfadeOut || Math.max(0.001, Math.min(0.005, outputDuration * dropOff)))
       : Math.min(outputDuration, Math.max(0.003, outputDuration * dropOff));
     const fadeStart = Math.max(0, outputDuration - fadeDuration);
-    const attack = Math.max(0, Math.min(pitchEdited ? 0.002
+    const attack = Math.max(0, Math.min(pitchEdited ? (crossfadeIn || 0.002)
       : Number.isFinite(noteOptions.attack) ? noteOptions.attack : 0, fadeStart));
     const source = state.audioContext.createBufferSource();
     registerArrangementPlaybackSource(source);
-    source.buffer = clip.buffer;
+    source.buffer = playbackBuffer;
     source.playbackRate.setValueAtTime(rate, time);
     const envelope = state.audioContext.createGain();
     envelope.gain.setValueAtTime(0.0001, time);
@@ -298,7 +307,7 @@
     envelope.gain.linearRampToValueAtTime(0.0001, time + outputDuration);
     let pitchNode = null;
     const pitchCorrection = -12 * Math.log2(tempoRatio);
-    if (Math.abs(pitchCorrection) >= 0.001 && state.masterPitchSupported !== false) {
+    if (!pitchEdited && Math.abs(pitchCorrection) >= 0.001 && state.masterPitchSupported !== false) {
       pitchNode = new window.AudioWorkletNode(state.audioContext, "dansbpm-master-pitch");
       pitchNode.parameters.get("semitones").setValueAtTime(pitchCorrection, time);
       source.connect(pitchNode);
@@ -336,7 +345,7 @@
       pitchNode?.disconnect();
       clipGainNode?.disconnect();
     };
-    source.start(time, offset, bufferDuration);
+    source.start(time, playbackOffset, bufferDuration);
   }
 
   function playDansBpmSynthVoice(track, time, midi, duration, velocity, outputNode, noteOptions = {}) {
@@ -726,6 +735,10 @@
       if (requestId !== state.playbackRequestId) return;
       await loadLibrarySamplesForPlayback(mode);
       if (requestId !== state.playbackRequestId) return;
+      if (mode === "piano-roll") {
+        await preparePianoAudioSliceBuffers(getPianoPlaybackSource().notes);
+        if (requestId !== state.playbackRequestId) return;
+      }
       const arrangementPlayback = mode === "arrangement";
       const { startBar: loopStartBar, endBar: loopEndBar } = getArrangementLoopRange();
       const startBar = arrangementPlayback
@@ -840,7 +853,9 @@
               const keyShiftSemitones = Number.isFinite(sourceClip.audioAdjustment?.keyShiftSemitones)
                 ? sourceClip.audioAdjustment.keyShiftSemitones : 0;
               const sourceRate = getAudioClipTempoRatio(sourceClip) * Math.pow(2,
-                (note.midi - sourceRootMidi + keyShiftSemitones + (note.detune || 0) / 100) / 12);
+                (note.midi - sourceRootMidi +
+                  (audioSlice.pitchEdited ? 0 : keyShiftSemitones) +
+                  (note.detune || 0) / 100) / 12);
               const sourceAdvance = elapsedSeconds * sourceRate;
               audioSlice.offsetSeconds += sourceAdvance;
               audioSlice.durationSeconds = Math.max(0, audioSlice.durationSeconds - sourceAdvance);

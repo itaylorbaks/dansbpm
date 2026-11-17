@@ -7,6 +7,10 @@
       offsetSeconds: Math.max(0, slice.offsetSeconds),
       durationSeconds: Math.max(0.001, slice.durationSeconds),
       dropOff: Number.isFinite(slice.dropOff) ? Math.max(0, Math.min(90, slice.dropOff)) : 10,
+      ...(Number.isFinite(slice.crossfadeInSeconds)
+        ? { crossfadeInSeconds: Math.max(0, Math.min(0.02, slice.crossfadeInSeconds)) } : {}),
+      ...(Number.isFinite(slice.crossfadeOutSeconds)
+        ? { crossfadeOutSeconds: Math.max(0, Math.min(0.02, slice.crossfadeOutSeconds)) } : {}),
       sliceNumber: Number.isInteger(slice.sliceNumber) ? Math.max(1, Math.min(4096, slice.sliceNumber)) : 1,
       rootMidi: Number.isInteger(slice.rootMidi)
         ? Math.max(PIANO_BOTTOM_MIDI, Math.min(PIANO_TOP_MIDI, slice.rootMidi)) : 60,

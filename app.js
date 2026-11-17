@@ -8326,6 +8326,10 @@ const DRIVE_SAMPLE_TRACKS = [
     state.pianoRollAudioClipId = clip.id;
     const mode = $("#piano-audio-mode-select").value === "audio" ? "audio" : "instrument";
     try {
+      if (mode === "audio") {
+        await ensureAudio();
+        await prepareAudioClipPlaybackBuffer(state.audioContext, clip, { ignoreReverse: true });
+      }
       const tempoRatio = getAudioClipTempoRatio(clip);
       const detectedNotes = estimateAudioPitchNotes(clip.buffer, clip.sourceOffsetSeconds || 0,
         clip.durationSeconds ?? clip.buffer.duration);
@@ -8345,7 +8349,7 @@ const DRIVE_SAMPLE_TRACKS = [
           velocity: note.velocity,
         }));
       const notes = sourceNotes
-        .map((note) => {
+        .map((note, index) => {
           const startTick = note.startSeconds / tempoRatio / secondsPerBar * PIANO_TICKS_PER_BAR;
           if (startTick >= maxTicks) return null;
           const midi = Math.max(PIANO_BOTTOM_MIDI, Math.min(PIANO_TOP_MIDI, note.midi));
@@ -8365,6 +8369,8 @@ const DRIVE_SAMPLE_TRACKS = [
                 offsetSeconds: Math.max(0, clip.sourceOffsetSeconds || 0) + startSeconds,
                 durationSeconds: endSeconds - startSeconds,
                 dropOff: 10,
+                ...(index > 0 ? { crossfadeInSeconds: 0.006 } : {}),
+                ...(index < sourceNotes.length - 1 ? { crossfadeOutSeconds: 0.006 } : {}),
                 rootMidi: note.pitchEditable ? midi : 60,
                 pitchEdited: true,
                 pitchEditable: note.pitchEditable === true,
@@ -19330,28 +19336,36 @@ const DRIVE_SAMPLE_TRACKS = [
     return reversed;
   }
 
-  function getAudioClipStretchSettings(clip) {
+  function getAudioClipStretchSettings(clip, { ignoreReverse = false } = {}) {
     const tempoRatio = getAudioClipTempoRatio(clip);
     const pitchSemitones = Number.isFinite(clip.audioAdjustment?.keyShiftSemitones)
       ? clip.audioAdjustment.keyShiftSemitones : 0;
+    const reversed = clip.reversed === true && !ignoreReverse;
     return {
       tempoRatio,
       pitchSemitones,
-      key: `${tempoRatio}:${pitchSemitones}:${clip.reversed === true}`,
+      reversed,
+      key: `${tempoRatio}:${pitchSemitones}:${reversed}`,
     };
   }
 
-  async function prepareAudioClipPlaybackBuffer(context, clip) {
-    const { tempoRatio, pitchSemitones, key } = getAudioClipStretchSettings(clip);
+  async function prepareAudioClipPlaybackBuffer(context, clip, { ignoreReverse = false } = {}) {
+    const { tempoRatio, pitchSemitones, reversed, key } =
+      getAudioClipStretchSettings(clip, { ignoreReverse });
     if (Math.abs(tempoRatio - 1) < 0.001 && Math.abs(pitchSemitones) < 0.001) return;
 
-    let cached = stretchedAudioClipBuffers.get(clip);
+    let clipBuffers = stretchedAudioClipBuffers.get(clip);
+    if (!clipBuffers) {
+      clipBuffers = new Map();
+      stretchedAudioClipBuffers.set(clip, clipBuffers);
+    }
+    let cached = clipBuffers.get(key);
     if (cached?.key === key && cached.sourceBuffer === clip.buffer) {
       await cached.promise;
       return;
     }
 
-    const sourceBuffer = clip.reversed ? getReversedAudioClipBuffer(context, clip.buffer) : clip.buffer;
+    const sourceBuffer = reversed ? getReversedAudioClipBuffer(context, clip.buffer) : clip.buffer;
     if (!audioStretchModulePromise) audioStretchModulePromise = import("./app/audio-stretch.js");
     const entry = {
       key,
@@ -19360,21 +19374,23 @@ const DRIVE_SAMPLE_TRACKS = [
       promise: audioStretchModulePromise.then(({ stretchAudioBuffer }) =>
         stretchAudioBuffer(context, sourceBuffer, tempoRatio, pitchSemitones)),
     };
-    stretchedAudioClipBuffers.set(clip, entry);
+    clipBuffers.set(key, entry);
     try {
       entry.buffer = await entry.promise;
     } catch (error) {
-      if (stretchedAudioClipBuffers.get(clip) === entry) stretchedAudioClipBuffers.delete(clip);
+      if (clipBuffers.get(key) === entry) clipBuffers.delete(key);
+      if (!clipBuffers.size) stretchedAudioClipBuffers.delete(clip);
       throw new Error(`Could not time-stretch ${clip.name}: ${error.message || "audio processing failed"}`);
     }
   }
 
-  function getAudioClipPlaybackBuffer(context, clip) {
-    const { tempoRatio, pitchSemitones, key } = getAudioClipStretchSettings(clip);
+  function getAudioClipPlaybackBuffer(context, clip, { ignoreReverse = false } = {}) {
+    const { tempoRatio, pitchSemitones, reversed, key } =
+      getAudioClipStretchSettings(clip, { ignoreReverse });
     if (Math.abs(tempoRatio - 1) < 0.001 && Math.abs(pitchSemitones) < 0.001) {
-      return clip.reversed ? getReversedAudioClipBuffer(context, clip.buffer) : clip.buffer;
+      return reversed ? getReversedAudioClipBuffer(context, clip.buffer) : clip.buffer;
     }
-    const cached = stretchedAudioClipBuffers.get(clip);
+    const cached = stretchedAudioClipBuffers.get(clip)?.get(key);
     if (cached?.key !== key || cached.sourceBuffer !== clip.buffer || !cached.buffer) {
       throw new Error(`The time-stretched audio for ${clip.name} is not ready.`);
     }
@@ -19387,7 +19403,22 @@ const DRIVE_SAMPLE_TRACKS = [
         const clipEndBar = clip.startBar + getArrangementClipDuration("audio", clip);
         if (clipEndBar <= startBar || clip.startBar >= endBar) continue;
         await prepareAudioClipPlaybackBuffer(state.audioContext, clip);
+        if (clip.reversed) {
+          await prepareAudioClipPlaybackBuffer(state.audioContext, clip, { ignoreReverse: true });
+        }
       }
+    }
+  }
+
+  async function preparePianoAudioSliceBuffers(notes) {
+    const clips = new Set();
+    for (const note of notes || []) {
+      if (note.audioSlice?.pitchEdited !== true) continue;
+      const clip = getPianoRollAudioClipById(note.audioSlice.clipId);
+      if (clip?.buffer) clips.add(clip);
+    }
+    for (const clip of clips) {
+      await prepareAudioClipPlaybackBuffer(state.audioContext, clip, { ignoreReverse: true });
     }
   }
 
@@ -21624,24 +21655,33 @@ const DRIVE_SAMPLE_TRACKS = [
     const tempoRatio = getAudioClipTempoRatio(clip);
     const keyShiftSemitones = Number.isFinite(clip.audioAdjustment?.keyShiftSemitones)
       ? clip.audioAdjustment.keyShiftSemitones : 0;
-    const rate = tempoRatio * Math.pow(2,
-      (midi - rootMidi + keyShiftSemitones + detune / 100) / 12);
     const pitchEdited = audioSlice.pitchEdited === true;
-    const requestedOutputDuration = Math.max(0.005, duration);
+    const noteRate = Math.pow(2, (midi - rootMidi + detune / 100) / 12);
+    const rate = pitchEdited
+      ? noteRate
+      : tempoRatio * Math.pow(2, (midi - rootMidi + keyShiftSemitones + detune / 100) / 12);
+    const playbackBuffer = pitchEdited
+      ? getAudioClipPlaybackBuffer(state.audioContext, clip, { ignoreReverse: true })
+      : clip.buffer;
+    const playbackOffset = pitchEdited ? offset / tempoRatio : offset;
+    const requestedOutputDuration = Math.max(0.005, duration +
+      Math.max(0, audioSlice.crossfadeOutSeconds || 0));
     const bufferDuration = pitchEdited
-      ? Math.min(clip.buffer.duration - offset, requestedOutputDuration * rate)
+      ? Math.min(playbackBuffer.duration - playbackOffset, requestedOutputDuration * rate)
       : Math.min(sourceDuration, requestedOutputDuration);
     const outputDuration = bufferDuration / rate;
     const dropOff = Math.max(0, Math.min(90, audioSlice.dropOff ?? 10)) / 100;
+    const crossfadeOut = Math.max(0, audioSlice.crossfadeOutSeconds || 0);
+    const crossfadeIn = Math.max(0, audioSlice.crossfadeInSeconds || 0);
     const fadeDuration = pitchEdited
-      ? Math.min(outputDuration, Math.max(0.001, Math.min(0.005, outputDuration * dropOff)))
+      ? Math.min(outputDuration, crossfadeOut || Math.max(0.001, Math.min(0.005, outputDuration * dropOff)))
       : Math.min(outputDuration, Math.max(0.003, outputDuration * dropOff));
     const fadeStart = Math.max(0, outputDuration - fadeDuration);
-    const attack = Math.max(0, Math.min(pitchEdited ? 0.002
+    const attack = Math.max(0, Math.min(pitchEdited ? (crossfadeIn || 0.002)
       : Number.isFinite(noteOptions.attack) ? noteOptions.attack : 0, fadeStart));
     const source = state.audioContext.createBufferSource();
     registerArrangementPlaybackSource(source);
-    source.buffer = clip.buffer;
+    source.buffer = playbackBuffer;
     source.playbackRate.setValueAtTime(rate, time);
     const envelope = state.audioContext.createGain();
     envelope.gain.setValueAtTime(0.0001, time);
@@ -21650,7 +21690,7 @@ const DRIVE_SAMPLE_TRACKS = [
     envelope.gain.linearRampToValueAtTime(0.0001, time + outputDuration);
     let pitchNode = null;
     const pitchCorrection = -12 * Math.log2(tempoRatio);
-    if (Math.abs(pitchCorrection) >= 0.001 && state.masterPitchSupported !== false) {
+    if (!pitchEdited && Math.abs(pitchCorrection) >= 0.001 && state.masterPitchSupported !== false) {
       pitchNode = new window.AudioWorkletNode(state.audioContext, "dansbpm-master-pitch");
       pitchNode.parameters.get("semitones").setValueAtTime(pitchCorrection, time);
       source.connect(pitchNode);
@@ -21688,7 +21728,7 @@ const DRIVE_SAMPLE_TRACKS = [
       pitchNode?.disconnect();
       clipGainNode?.disconnect();
     };
-    source.start(time, offset, bufferDuration);
+    source.start(time, playbackOffset, bufferDuration);
   }
 
   function playDansBpmSynthVoice(track, time, midi, duration, velocity, outputNode, noteOptions = {}) {
@@ -22078,6 +22118,10 @@ const DRIVE_SAMPLE_TRACKS = [
       if (requestId !== state.playbackRequestId) return;
       await loadLibrarySamplesForPlayback(mode);
       if (requestId !== state.playbackRequestId) return;
+      if (mode === "piano-roll") {
+        await preparePianoAudioSliceBuffers(getPianoPlaybackSource().notes);
+        if (requestId !== state.playbackRequestId) return;
+      }
       const arrangementPlayback = mode === "arrangement";
       const { startBar: loopStartBar, endBar: loopEndBar } = getArrangementLoopRange();
       const startBar = arrangementPlayback
@@ -22192,7 +22236,9 @@ const DRIVE_SAMPLE_TRACKS = [
               const keyShiftSemitones = Number.isFinite(sourceClip.audioAdjustment?.keyShiftSemitones)
                 ? sourceClip.audioAdjustment.keyShiftSemitones : 0;
               const sourceRate = getAudioClipTempoRatio(sourceClip) * Math.pow(2,
-                (note.midi - sourceRootMidi + keyShiftSemitones + (note.detune || 0) / 100) / 12);
+                (note.midi - sourceRootMidi +
+                  (audioSlice.pitchEdited ? 0 : keyShiftSemitones) +
+                  (note.detune || 0) / 100) / 12);
               const sourceAdvance = elapsedSeconds * sourceRate;
               audioSlice.offsetSeconds += sourceAdvance;
               audioSlice.durationSeconds = Math.max(0, audioSlice.durationSeconds - sourceAdvance);
@@ -24621,6 +24667,10 @@ const DRIVE_SAMPLE_TRACKS = [
       offsetSeconds: Math.max(0, slice.offsetSeconds),
       durationSeconds: Math.max(0.001, slice.durationSeconds),
       dropOff: Number.isFinite(slice.dropOff) ? Math.max(0, Math.min(90, slice.dropOff)) : 10,
+      ...(Number.isFinite(slice.crossfadeInSeconds)
+        ? { crossfadeInSeconds: Math.max(0, Math.min(0.02, slice.crossfadeInSeconds)) } : {}),
+      ...(Number.isFinite(slice.crossfadeOutSeconds)
+        ? { crossfadeOutSeconds: Math.max(0, Math.min(0.02, slice.crossfadeOutSeconds)) } : {}),
       sliceNumber: Number.isInteger(slice.sliceNumber) ? Math.max(1, Math.min(4096, slice.sliceNumber)) : 1,
       rootMidi: Number.isInteger(slice.rootMidi)
         ? Math.max(PIANO_BOTTOM_MIDI, Math.min(PIANO_TOP_MIDI, slice.rootMidi)) : 60,
