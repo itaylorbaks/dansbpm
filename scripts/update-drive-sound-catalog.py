@@ -95,6 +95,7 @@ def clean_category(value):
 
 
 def classify_sample(path, filename):
+    path = list(path)
     words = " ".join(path + [filename]).lower()
     if "foley" in words:
         family, category = "Foley", "One-Shots"
@@ -108,18 +109,21 @@ def classify_sample(path, filename):
             category = "Hi-Hats"
     elif "ambience" in words or any(word in words for word in ("guitar", "mallet", "piano", "pad", "string")):
         family = "Ambient Loops"
-        category = clean_category(path[-1]) if len(path) > 1 else "Ambience"
+        category = clean_category(path[-1]) if len(path) > 1 else (clean_category(path[0]) if path else "Ambience")
     elif "loop" in words and any(word in words for word in ("drum", "kick", "bongo", "808", "trap")):
         family = "Drum Loops"
-        category = clean_category(path[-1]) if len(path) > 1 else clean_category(path[0])
+        category = clean_category(path[-1]) if len(path) > 1 else (clean_category(path[0]) if path else "Loops")
     elif any(word in words for word in ("drum", "kick", "bongo", "808")):
-        family, category = "Drums", clean_category(path[-1]) if len(path) > 1 else "One-Shots"
+        family = "Drums"
+        category = clean_category(path[-1]) if len(path) > 1 else (clean_category(path[0]) if path else "One-Shots")
     elif "loop" in words:
-        family, category = "Loops", clean_category(path[-1]) if len(path) > 1 else clean_category(path[0])
+        family = "Loops"
+        category = clean_category(path[-1]) if len(path) > 1 else (clean_category(path[0]) if path else "Loops")
     else:
-        family, category = "Samples", clean_category(path[-1]) if len(path) > 1 else clean_category(path[0])
+        family = "Samples"
+        category = clean_category(path[-1]) if len(path) > 1 else (clean_category(path[0]) if path else "Samples")
 
-    if category.lower() == clean_category(path[0]).lower():
+    if path and category.lower() == clean_category(path[0]).lower():
         pack = clean_category(path[0])
         if "foley" in words:
             category = "One-Shots"
@@ -168,6 +172,7 @@ def read_drive_catalog():
             filename = item_path[-1]
             folders = item_path[:-1]
             family, category = classify_sample(folders, filename)
+            folder_label = clean_category(folders[0]) if folders else "Samples"
             samples.append({
                 "id": f"drive-{item['id']}",
                 "name": display_name(filename),
@@ -177,7 +182,7 @@ def read_drive_catalog():
                 "sampleUrl": DOWNLOAD_URL.format(item["id"]),
                 "sampleRootMidi": 60,
                 "sampleOneShot": True,
-                "subtitle": f"{ROOT_FOLDER_NAME} · {clean_category(folders[0])}",
+                "subtitle": f"{ROOT_FOLDER_NAME} · {folder_label}",
                 "searchTerms": " ".join(item_path),
                 "color": COLORS[family],
                 "volume": 0.68,
