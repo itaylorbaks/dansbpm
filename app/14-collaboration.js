@@ -467,10 +467,10 @@
       markCollaborationConflict(revision, sender);
       return;
     }
-    if (saveState.timeout) {
+    if (saveState.timeout || saveState.pending) {
       collaboration.applyingRemote = true;
       try {
-        if (!flushSaveState()) {
+        if (!await flushSaveState()) {
           markCollaborationConflict(revision, sender);
           return;
         }
@@ -554,7 +554,7 @@
       saveCollaborationSession();
     }
     if (Number.isInteger(revision)) collaboration.revision = Math.max(collaboration.revision, revision);
-    if (saveState.timeout) flushSaveState();
+    if (saveState.timeout || saveState.pending) void flushSaveState();
     renderCollaborationStatus();
     showToast(collaboration.conflictMessage);
   }
@@ -853,7 +853,7 @@
         return;
       }
       const roomRevision = Number.isInteger(message.revision) ? message.revision : 0;
-      if (collaboration.localDirty || collaboration.assetsDirty || saveState.timeout) {
+      if (collaboration.localDirty || collaboration.assetsDirty || saveState.timeout || saveState.pending) {
         if (roomRevision > collaboration.revision) {
           collaboration.applyQueue = collaboration.applyQueue.then(() =>
             reconcileCollaborationSnapshot(message.snapshot, message.assets, roomRevision, message.sender, message.scope),
@@ -918,7 +918,7 @@
       if (collaboration.session && revision > collaboration.revision) {
         collaboration.applyQueue = collaboration.applyQueue.then(async () => {
           if (revision <= collaboration.revision) return;
-          if (saveState.timeout || collaboration.localDirty || state.mediaRecorder?.state === "recording") {
+          if (saveState.timeout || saveState.pending || collaboration.localDirty || state.mediaRecorder?.state === "recording") {
             await reconcileCollaborationSnapshot(
               message.snapshot,
               message.assets,
@@ -987,7 +987,7 @@
     });
   }
 
-  function startCollaborationRoom(action) {
+  async function startCollaborationRoom(action) {
     if (!state.currentUser) {
       showToast("Choose a profile before starting collaboration.");
       return;
@@ -1011,7 +1011,7 @@
       renderCollaborationStatus("A room connection is already in progress.");
       return;
     }
-    if (!flushSaveState()) {
+    if (!await flushSaveState()) {
       renderCollaborationStatus("Could not save the current project; collaboration was not started.");
       return;
     }
@@ -1063,9 +1063,9 @@
     });
   }
 
-  function leaveCollaborationRoom() {
+  async function leaveCollaborationRoom() {
     if (!collaboration.session) return;
-    flushSaveState();
+    await flushSaveState();
     collaboration.manualLeave = true;
     if (!sendCollaborationMessage({ type: "leave" })) {
       finishLeavingCollaborationRoom();
@@ -1104,61 +1104,78 @@
     renderCollaborationStatus("Room left. This project's local copy is saved.");
   }
 
-  function persistStateSnapshot(snapshot, projectId = state.projectId) {
+  async function persistStateSnapshot(snapshot, projectId = state.projectId) {
     if (!state.currentUser) {
       saveState.lastError = "No active profile is selected.";
       return false;
     }
-    if (!state.projects.some((project) => project.id === projectId && project.ownerId === state.currentUser)) {
+    const project = state.projects.find((item) => item.id === projectId && item.ownerId === state.currentUser);
+    if (!project) {
       saveState.lastError = "The active project is not available for this profile.";
       return false;
     }
+    let snapshotStoredInIndexedDb = false;
     try {
       if (getCloudToken()) saveCloudProjectSnapshot(projectId, snapshot);
       else window.localStorage.setItem(getProjectStorageKey(projectId), JSON.stringify(snapshot));
     } catch (error) {
-      saveState.lastError = error?.name === "QuotaExceededError"
-        ? "localStorage quota exceeded."
-        : error?.message || "browser storage is unavailable.";
-      $("#save-state").textContent = "Session-only changes";
-      $(".save-dot").style.background = "#d3a34b";
-      return false;
+      if (error?.name !== "QuotaExceededError") {
+        saveState.lastError = error?.message || "browser storage is unavailable.";
+        $("#save-state").textContent = "Session-only changes";
+        $(".save-dot").style.background = "#d3a34b";
+        return false;
+      }
+      try {
+        await writeCachedProjectSnapshot(projectId, snapshot, project.cloudRevision ?? null);
+        window.localStorage.removeItem(getProjectStorageKey(projectId));
+        snapshotStoredInIndexedDb = true;
+      } catch (fallbackError) {
+        saveState.lastError = `localStorage could not store the project snapshot; IndexedDB fallback failed: ${
+          fallbackError?.message || "browser storage is unavailable."
+        }`;
+        $("#save-state").textContent = "Session-only changes";
+        $(".save-dot").style.background = "#d3a34b";
+        return false;
+      }
     }
     saveState.lastError = "";
-    const project = state.projects.find((item) => item.id === projectId);
-    if (project) {
-      if (project.localSnapshotStorage === "indexedDB") {
-        project.localSnapshotStorage = null;
-        void deleteCachedProjectSnapshot(projectId).catch((error) => {
-          showToast(`Could not remove the outdated IndexedDB cache: ${error.message || "browser storage is unavailable"}`);
-        });
-      }
-      project.updatedAt = Date.now();
-      if (getCloudToken()) project.localDirty = true;
-      try {
-        writeProjectCatalog();
-      } catch {
-        showToast("Project saved, but its saved-project list could not be updated.");
-      }
-      if (collaboration.session && !collaboration.applyingRemote && projectId === state.projectId) {
-        collaboration.localDirty = true;
-        collaboration.session.localDirty = true;
-        saveCollaborationSession();
-      }
+    if (snapshotStoredInIndexedDb) {
+      project.localSnapshotStorage = "indexedDB";
+      project.localCloudRevision = project.cloudRevision ?? null;
+    } else if (project.localSnapshotStorage === "indexedDB") {
+      project.localSnapshotStorage = null;
+      void deleteCachedProjectSnapshot(projectId).catch((error) => {
+        showToast(`Could not remove the outdated IndexedDB cache: ${error.message || "browser storage is unavailable"}`);
+      });
+    }
+    project.updatedAt = Date.now();
+    if (getCloudToken()) project.localDirty = true;
+    try {
+      writeProjectCatalog();
+    } catch {
+      showToast("Project saved, but its saved-project list could not be updated.");
+    }
+    if (collaboration.session && !collaboration.applyingRemote && projectId === state.projectId) {
+      collaboration.localDirty = true;
+      collaboration.session.localDirty = true;
+      saveCollaborationSession();
     }
     const cloudPending = Boolean(project && getCloudToken());
-    $("#save-state").textContent = cloudPending ? "Local save · click Save to sync" : "All changes saved";
+    $("#save-state").textContent = snapshotStoredInIndexedDb
+      ? cloudPending ? "IndexedDB save · click Save to sync" : "All changes saved · IndexedDB"
+      : cloudPending ? "Local save · click Save to sync" : "All changes saved";
     $(".save-dot").style.background = cloudPending ? "#c8a95a" : "#7f9d43";
     return true;
   }
 
-  function flushSaveState() {
+  async function flushSaveState() {
     window.clearTimeout(saveState.timeout);
     saveState.timeout = null;
     if (!state.currentUser) {
       saveState.lastError = "No active profile is selected.";
       return false;
     }
+    if (saveState.pending) await saveState.pending;
     return persistStateSnapshot(createStateSnapshot(), state.projectId);
   }
 
@@ -1174,7 +1191,12 @@
     const projectId = state.projectId;
     window.clearTimeout(saveState.timeout);
     saveState.timeout = window.setTimeout(() => {
-      persistStateSnapshot(snapshot, projectId);
+      const previousSave = saveState.pending || Promise.resolve(true);
+      const pendingSave = previousSave.then(() => persistStateSnapshot(snapshot, projectId));
+      saveState.pending = pendingSave;
+      void pendingSave.then(() => {
+        if (saveState.pending === pendingSave) saveState.pending = null;
+      });
     }, 250);
   }
 
@@ -1547,7 +1569,7 @@
       return;
     }
     if (!window.confirm(`Permanently delete "${project.name}" and its saved audio?`)) return;
-    if (isCurrentProject && !flushSaveState()) {
+    if (isCurrentProject && !await flushSaveState()) {
       showToast("Could not save this project; deletion was cancelled.");
       return;
     }
@@ -1659,8 +1681,8 @@
       showToast("Stop audio recording before switching projects.");
       return;
     }
-    if (!flushSaveState()) {
-      if (!getCloudToken() || saveState.lastError !== "localStorage quota exceeded.") {
+    if (!await flushSaveState()) {
+      if (!getCloudToken() || !saveState.lastError.startsWith("localStorage could not store the project snapshot")) {
         showToast("Could not save this project; switching was cancelled.");
         return;
       }
@@ -1697,7 +1719,7 @@
       showToast("Stop audio recording before creating a project.");
       return;
     }
-    if (!flushSaveState()) {
+    if (!await flushSaveState()) {
       showToast("Could not save this project; a new project was not created.");
       return;
     }

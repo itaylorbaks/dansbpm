@@ -23270,10 +23270,10 @@ const DRIVE_SAMPLE_TRACKS = [
       markCollaborationConflict(revision, sender);
       return;
     }
-    if (saveState.timeout) {
+    if (saveState.timeout || saveState.pending) {
       collaboration.applyingRemote = true;
       try {
-        if (!flushSaveState()) {
+        if (!await flushSaveState()) {
           markCollaborationConflict(revision, sender);
           return;
         }
@@ -23357,7 +23357,7 @@ const DRIVE_SAMPLE_TRACKS = [
       saveCollaborationSession();
     }
     if (Number.isInteger(revision)) collaboration.revision = Math.max(collaboration.revision, revision);
-    if (saveState.timeout) flushSaveState();
+    if (saveState.timeout || saveState.pending) void flushSaveState();
     renderCollaborationStatus();
     showToast(collaboration.conflictMessage);
   }
@@ -23656,7 +23656,7 @@ const DRIVE_SAMPLE_TRACKS = [
         return;
       }
       const roomRevision = Number.isInteger(message.revision) ? message.revision : 0;
-      if (collaboration.localDirty || collaboration.assetsDirty || saveState.timeout) {
+      if (collaboration.localDirty || collaboration.assetsDirty || saveState.timeout || saveState.pending) {
         if (roomRevision > collaboration.revision) {
           collaboration.applyQueue = collaboration.applyQueue.then(() =>
             reconcileCollaborationSnapshot(message.snapshot, message.assets, roomRevision, message.sender, message.scope),
@@ -23721,7 +23721,7 @@ const DRIVE_SAMPLE_TRACKS = [
       if (collaboration.session && revision > collaboration.revision) {
         collaboration.applyQueue = collaboration.applyQueue.then(async () => {
           if (revision <= collaboration.revision) return;
-          if (saveState.timeout || collaboration.localDirty || state.mediaRecorder?.state === "recording") {
+          if (saveState.timeout || saveState.pending || collaboration.localDirty || state.mediaRecorder?.state === "recording") {
             await reconcileCollaborationSnapshot(
               message.snapshot,
               message.assets,
@@ -23790,7 +23790,7 @@ const DRIVE_SAMPLE_TRACKS = [
     });
   }
 
-  function startCollaborationRoom(action) {
+  async function startCollaborationRoom(action) {
     if (!state.currentUser) {
       showToast("Choose a profile before starting collaboration.");
       return;
@@ -23814,7 +23814,7 @@ const DRIVE_SAMPLE_TRACKS = [
       renderCollaborationStatus("A room connection is already in progress.");
       return;
     }
-    if (!flushSaveState()) {
+    if (!await flushSaveState()) {
       renderCollaborationStatus("Could not save the current project; collaboration was not started.");
       return;
     }
@@ -23866,9 +23866,9 @@ const DRIVE_SAMPLE_TRACKS = [
     });
   }
 
-  function leaveCollaborationRoom() {
+  async function leaveCollaborationRoom() {
     if (!collaboration.session) return;
-    flushSaveState();
+    await flushSaveState();
     collaboration.manualLeave = true;
     if (!sendCollaborationMessage({ type: "leave" })) {
       finishLeavingCollaborationRoom();
@@ -23907,61 +23907,78 @@ const DRIVE_SAMPLE_TRACKS = [
     renderCollaborationStatus("Room left. This project's local copy is saved.");
   }
 
-  function persistStateSnapshot(snapshot, projectId = state.projectId) {
+  async function persistStateSnapshot(snapshot, projectId = state.projectId) {
     if (!state.currentUser) {
       saveState.lastError = "No active profile is selected.";
       return false;
     }
-    if (!state.projects.some((project) => project.id === projectId && project.ownerId === state.currentUser)) {
+    const project = state.projects.find((item) => item.id === projectId && item.ownerId === state.currentUser);
+    if (!project) {
       saveState.lastError = "The active project is not available for this profile.";
       return false;
     }
+    let snapshotStoredInIndexedDb = false;
     try {
       if (getCloudToken()) saveCloudProjectSnapshot(projectId, snapshot);
       else window.localStorage.setItem(getProjectStorageKey(projectId), JSON.stringify(snapshot));
     } catch (error) {
-      saveState.lastError = error?.name === "QuotaExceededError"
-        ? "localStorage quota exceeded."
-        : error?.message || "browser storage is unavailable.";
-      $("#save-state").textContent = "Session-only changes";
-      $(".save-dot").style.background = "#d3a34b";
-      return false;
+      if (error?.name !== "QuotaExceededError") {
+        saveState.lastError = error?.message || "browser storage is unavailable.";
+        $("#save-state").textContent = "Session-only changes";
+        $(".save-dot").style.background = "#d3a34b";
+        return false;
+      }
+      try {
+        await writeCachedProjectSnapshot(projectId, snapshot, project.cloudRevision ?? null);
+        window.localStorage.removeItem(getProjectStorageKey(projectId));
+        snapshotStoredInIndexedDb = true;
+      } catch (fallbackError) {
+        saveState.lastError = `localStorage could not store the project snapshot; IndexedDB fallback failed: ${
+          fallbackError?.message || "browser storage is unavailable."
+        }`;
+        $("#save-state").textContent = "Session-only changes";
+        $(".save-dot").style.background = "#d3a34b";
+        return false;
+      }
     }
     saveState.lastError = "";
-    const project = state.projects.find((item) => item.id === projectId);
-    if (project) {
-      if (project.localSnapshotStorage === "indexedDB") {
-        project.localSnapshotStorage = null;
-        void deleteCachedProjectSnapshot(projectId).catch((error) => {
-          showToast(`Could not remove the outdated IndexedDB cache: ${error.message || "browser storage is unavailable"}`);
-        });
-      }
-      project.updatedAt = Date.now();
-      if (getCloudToken()) project.localDirty = true;
-      try {
-        writeProjectCatalog();
-      } catch {
-        showToast("Project saved, but its saved-project list could not be updated.");
-      }
-      if (collaboration.session && !collaboration.applyingRemote && projectId === state.projectId) {
-        collaboration.localDirty = true;
-        collaboration.session.localDirty = true;
-        saveCollaborationSession();
-      }
+    if (snapshotStoredInIndexedDb) {
+      project.localSnapshotStorage = "indexedDB";
+      project.localCloudRevision = project.cloudRevision ?? null;
+    } else if (project.localSnapshotStorage === "indexedDB") {
+      project.localSnapshotStorage = null;
+      void deleteCachedProjectSnapshot(projectId).catch((error) => {
+        showToast(`Could not remove the outdated IndexedDB cache: ${error.message || "browser storage is unavailable"}`);
+      });
+    }
+    project.updatedAt = Date.now();
+    if (getCloudToken()) project.localDirty = true;
+    try {
+      writeProjectCatalog();
+    } catch {
+      showToast("Project saved, but its saved-project list could not be updated.");
+    }
+    if (collaboration.session && !collaboration.applyingRemote && projectId === state.projectId) {
+      collaboration.localDirty = true;
+      collaboration.session.localDirty = true;
+      saveCollaborationSession();
     }
     const cloudPending = Boolean(project && getCloudToken());
-    $("#save-state").textContent = cloudPending ? "Local save · click Save to sync" : "All changes saved";
+    $("#save-state").textContent = snapshotStoredInIndexedDb
+      ? cloudPending ? "IndexedDB save · click Save to sync" : "All changes saved · IndexedDB"
+      : cloudPending ? "Local save · click Save to sync" : "All changes saved";
     $(".save-dot").style.background = cloudPending ? "#c8a95a" : "#7f9d43";
     return true;
   }
 
-  function flushSaveState() {
+  async function flushSaveState() {
     window.clearTimeout(saveState.timeout);
     saveState.timeout = null;
     if (!state.currentUser) {
       saveState.lastError = "No active profile is selected.";
       return false;
     }
+    if (saveState.pending) await saveState.pending;
     return persistStateSnapshot(createStateSnapshot(), state.projectId);
   }
 
@@ -23977,7 +23994,12 @@ const DRIVE_SAMPLE_TRACKS = [
     const projectId = state.projectId;
     window.clearTimeout(saveState.timeout);
     saveState.timeout = window.setTimeout(() => {
-      persistStateSnapshot(snapshot, projectId);
+      const previousSave = saveState.pending || Promise.resolve(true);
+      const pendingSave = previousSave.then(() => persistStateSnapshot(snapshot, projectId));
+      saveState.pending = pendingSave;
+      void pendingSave.then(() => {
+        if (saveState.pending === pendingSave) saveState.pending = null;
+      });
     }, 250);
   }
 
@@ -24350,7 +24372,7 @@ const DRIVE_SAMPLE_TRACKS = [
       return;
     }
     if (!window.confirm(`Permanently delete "${project.name}" and its saved audio?`)) return;
-    if (isCurrentProject && !flushSaveState()) {
+    if (isCurrentProject && !await flushSaveState()) {
       showToast("Could not save this project; deletion was cancelled.");
       return;
     }
@@ -24462,8 +24484,8 @@ const DRIVE_SAMPLE_TRACKS = [
       showToast("Stop audio recording before switching projects.");
       return;
     }
-    if (!flushSaveState()) {
-      if (!getCloudToken() || saveState.lastError !== "localStorage quota exceeded.") {
+    if (!await flushSaveState()) {
+      if (!getCloudToken() || !saveState.lastError.startsWith("localStorage could not store the project snapshot")) {
         showToast("Could not save this project; switching was cancelled.");
         return;
       }
@@ -24500,7 +24522,7 @@ const DRIVE_SAMPLE_TRACKS = [
       showToast("Stop audio recording before creating a project.");
       return;
     }
-    if (!flushSaveState()) {
+    if (!await flushSaveState()) {
       showToast("Could not save this project; a new project was not created.");
       return;
     }
@@ -24590,11 +24612,11 @@ const DRIVE_SAMPLE_TRACKS = [
   }
 
   async function saveProjectNow() {
-    const locallySaved = flushSaveState();
+    const locallySaved = await flushSaveState();
     void updateStorageIndicator();
     const cloudToken = getCloudToken();
     const localStorageQuotaExceeded = !locallySaved &&
-      saveState.lastError === "localStorage quota exceeded.";
+      saveState.lastError.startsWith("localStorage could not store the project snapshot");
     if (!locallySaved && !(cloudToken && localStorageQuotaExceeded)) {
       showToast(`Could not save this project: ${saveState.lastError || "storage is unavailable."}`);
       return false;
@@ -24611,7 +24633,7 @@ const DRIVE_SAMPLE_TRACKS = [
       }
       const projectFile = await createCloudProjectFile();
       const remote = await uploadCloudProject(project.id, projectFile);
-      let snapshotStoredInIndexedDb = false;
+      let snapshotStoredInIndexedDb = project.localSnapshotStorage === "indexedDB";
       let localCacheError = null;
       if (!locallySaved) {
         try {
@@ -24621,6 +24643,13 @@ const DRIVE_SAMPLE_TRACKS = [
           snapshotStoredInIndexedDb = true;
         } catch (error) {
           localCacheError = error;
+        }
+      } else if (snapshotStoredInIndexedDb) {
+        try {
+          await writeCachedProjectSnapshot(project.id, projectFile.project.snapshot, remote.revision);
+        } catch (error) {
+          localCacheError = error;
+          snapshotStoredInIndexedDb = false;
         }
       }
       Object.assign(project, remote, {
@@ -24653,7 +24682,7 @@ const DRIVE_SAMPLE_TRACKS = [
       renderProjectList();
       showToast(locallySaved
         ? `${state.projectName} saved in this browser, but cloud save failed: ${error.message || "the server is unavailable"}`
-        : `Could not save ${state.projectName} to the cloud: ${error.message || "the server is unavailable"}. This browser also reached its localStorage limit, so its cached copy could not be updated.`);
+        : `Could not save ${state.projectName} to the cloud: ${error.message || "the server is unavailable"}. Local save also failed: ${saveState.lastError || "browser storage is unavailable"}`);
       return false;
     }
   }
@@ -24844,8 +24873,8 @@ const DRIVE_SAMPLE_TRACKS = [
       return;
     }
 
-    if (!flushSaveState()) {
-      if (!getCloudToken() || saveState.lastError !== "localStorage quota exceeded.") {
+    if (!await flushSaveState()) {
+      if (!getCloudToken() || !saveState.lastError.startsWith("localStorage could not store the project snapshot")) {
         showToast("Could not save the current project; import was cancelled.");
         return;
       }
@@ -24859,9 +24888,18 @@ const DRIVE_SAMPLE_TRACKS = [
     const projectName = projectFile.project.name.trim().slice(0, 64) || "Imported project";
     const project = { id: projectId, name: projectName, ownerId: state.currentUser, updatedAt: Date.now() };
     let snapshotSaved = false;
+    let snapshotSavedInIndexedDb = false;
     try {
       getNextProjectNumber(state.currentUser);
-      window.localStorage.setItem(getProjectStorageKey(projectId), JSON.stringify(snapshot));
+      try {
+        window.localStorage.setItem(getProjectStorageKey(projectId), JSON.stringify(snapshot));
+      } catch (error) {
+        if (error?.name !== "QuotaExceededError") throw error;
+        await writeCachedProjectSnapshot(projectId, snapshot, null);
+        project.localSnapshotStorage = "indexedDB";
+        project.localCloudRevision = null;
+        snapshotSavedInIndexedDb = true;
+      }
       snapshotSaved = true;
       state.projects.unshift(project);
       state.projectId = projectId;
@@ -24877,7 +24915,8 @@ const DRIVE_SAMPLE_TRACKS = [
       state.activeProjectIds = previousActiveProjectIds;
       state.projectCreationCounts = previousProjectCreationCounts;
       try {
-        if (snapshotSaved) window.localStorage.removeItem(getProjectStorageKey(projectId));
+        if (snapshotSavedInIndexedDb) await deleteCachedProjectSnapshot(projectId);
+        else if (snapshotSaved) window.localStorage.removeItem(getProjectStorageKey(projectId));
         writeProjectCatalog();
       } catch (rollbackError) {
         showToast(`Project import failed and cleanup was incomplete: ${rollbackError.message || "browser storage is unavailable"}`);
@@ -24887,12 +24926,12 @@ const DRIVE_SAMPLE_TRACKS = [
     }
   }
 
-  function switchUser() {
+  async function switchUser() {
     if (state.mediaRecorder?.state === "recording") {
       showToast("Stop audio recording before switching users.");
       return;
     }
-    if (!flushSaveState()) {
+    if (!await flushSaveState()) {
       showToast("Could not save this project; switching users was cancelled.");
       return;
     }
@@ -27193,7 +27232,7 @@ const DRIVE_SAMPLE_TRACKS = [
         input.value = "";
       }
     });
-    $("#switch-user-button").addEventListener("click", switchUser);
+    $("#switch-user-button").addEventListener("click", () => { void switchUser(); });
     bindCloudAccountSettings();
     $("#collaborate-button").addEventListener("click", () => {
       $("#project-dialog").close();
@@ -27209,8 +27248,8 @@ const DRIVE_SAMPLE_TRACKS = [
       $("#collaboration-dialog").showModal();
     });
     $("#collaboration-dialog-close").addEventListener("click", () => $("#collaboration-dialog").close());
-    $("#collaboration-create-room").addEventListener("click", () => startCollaborationRoom("create"));
-    $("#collaboration-join-room").addEventListener("click", () => startCollaborationRoom("join"));
+    $("#collaboration-create-room").addEventListener("click", () => { void startCollaborationRoom("create"); });
+    $("#collaboration-join-room").addEventListener("click", () => { void startCollaborationRoom("join"); });
     $("#collaboration-copy-code").addEventListener("click", async () => {
       if (!collaboration.session) return;
       try {
@@ -27228,7 +27267,7 @@ const DRIVE_SAMPLE_TRACKS = [
         showToast(`Could not enable audio: ${error.message || "audio is unavailable"}`);
       }
     });
-    $("#collaboration-leave-room").addEventListener("click", leaveCollaborationRoom);
+    $("#collaboration-leave-room").addEventListener("click", () => { void leaveCollaborationRoom(); });
     document.querySelectorAll(".collaboration-workspace-action").forEach((button) => {
       button.addEventListener("click", () => {
         const target = button.dataset.collaborationScope;
@@ -27479,17 +27518,23 @@ const DRIVE_SAMPLE_TRACKS = [
       }
       if (project?.localSnapshotStorage === "indexedDB" && !hasLocalSnapshot) {
         let cachedSnapshotRestored = false;
+        let cacheRestoreError = null;
         try {
           const cached = await readCachedProjectSnapshot(state.projectId);
-          if (cached?.revision === project.localCloudRevision &&
-            cached.revision === project.cloudRevision) {
+          if (cached?.revision === (project.localCloudRevision ?? null) &&
+            (project.localDirty === true || cached.revision === (project.cloudRevision ?? null))) {
             cachedSnapshot = cached.snapshot;
             cachedSnapshotRestored = true;
           }
         } catch (error) {
-          showToast(`Could not restore the IndexedDB project cache: ${error.message || "browser storage is unavailable"}`);
+          cacheRestoreError = error;
         }
         if (!cachedSnapshotRestored) {
+          if (!project.cloudBacked || project.localDirty) {
+            throw new Error(`Could not restore the local project snapshot: ${
+              cacheRestoreError?.message || "the IndexedDB snapshot was not found."
+            }`);
+          }
           project.localSnapshotStorage = null;
           project.localCloudRevision = null;
           try {

@@ -577,7 +577,7 @@
         input.value = "";
       }
     });
-    $("#switch-user-button").addEventListener("click", switchUser);
+    $("#switch-user-button").addEventListener("click", () => { void switchUser(); });
     bindCloudAccountSettings();
     $("#collaborate-button").addEventListener("click", () => {
       $("#project-dialog").close();
@@ -593,8 +593,8 @@
       $("#collaboration-dialog").showModal();
     });
     $("#collaboration-dialog-close").addEventListener("click", () => $("#collaboration-dialog").close());
-    $("#collaboration-create-room").addEventListener("click", () => startCollaborationRoom("create"));
-    $("#collaboration-join-room").addEventListener("click", () => startCollaborationRoom("join"));
+    $("#collaboration-create-room").addEventListener("click", () => { void startCollaborationRoom("create"); });
+    $("#collaboration-join-room").addEventListener("click", () => { void startCollaborationRoom("join"); });
     $("#collaboration-copy-code").addEventListener("click", async () => {
       if (!collaboration.session) return;
       try {
@@ -612,7 +612,7 @@
         showToast(`Could not enable audio: ${error.message || "audio is unavailable"}`);
       }
     });
-    $("#collaboration-leave-room").addEventListener("click", leaveCollaborationRoom);
+    $("#collaboration-leave-room").addEventListener("click", () => { void leaveCollaborationRoom(); });
     document.querySelectorAll(".collaboration-workspace-action").forEach((button) => {
       button.addEventListener("click", () => {
         const target = button.dataset.collaborationScope;
@@ -863,17 +863,23 @@
       }
       if (project?.localSnapshotStorage === "indexedDB" && !hasLocalSnapshot) {
         let cachedSnapshotRestored = false;
+        let cacheRestoreError = null;
         try {
           const cached = await readCachedProjectSnapshot(state.projectId);
-          if (cached?.revision === project.localCloudRevision &&
-            cached.revision === project.cloudRevision) {
+          if (cached?.revision === (project.localCloudRevision ?? null) &&
+            (project.localDirty === true || cached.revision === (project.cloudRevision ?? null))) {
             cachedSnapshot = cached.snapshot;
             cachedSnapshotRestored = true;
           }
         } catch (error) {
-          showToast(`Could not restore the IndexedDB project cache: ${error.message || "browser storage is unavailable"}`);
+          cacheRestoreError = error;
         }
         if (!cachedSnapshotRestored) {
+          if (!project.cloudBacked || project.localDirty) {
+            throw new Error(`Could not restore the local project snapshot: ${
+              cacheRestoreError?.message || "the IndexedDB snapshot was not found."
+            }`);
+          }
           project.localSnapshotStorage = null;
           project.localCloudRevision = null;
           try {

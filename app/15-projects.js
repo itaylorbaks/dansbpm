@@ -52,11 +52,11 @@
   }
 
   async function saveProjectNow() {
-    const locallySaved = flushSaveState();
+    const locallySaved = await flushSaveState();
     void updateStorageIndicator();
     const cloudToken = getCloudToken();
     const localStorageQuotaExceeded = !locallySaved &&
-      saveState.lastError === "localStorage quota exceeded.";
+      saveState.lastError.startsWith("localStorage could not store the project snapshot");
     if (!locallySaved && !(cloudToken && localStorageQuotaExceeded)) {
       showToast(`Could not save this project: ${saveState.lastError || "storage is unavailable."}`);
       return false;
@@ -73,7 +73,7 @@
       }
       const projectFile = await createCloudProjectFile();
       const remote = await uploadCloudProject(project.id, projectFile);
-      let snapshotStoredInIndexedDb = false;
+      let snapshotStoredInIndexedDb = project.localSnapshotStorage === "indexedDB";
       let localCacheError = null;
       if (!locallySaved) {
         try {
@@ -83,6 +83,13 @@
           snapshotStoredInIndexedDb = true;
         } catch (error) {
           localCacheError = error;
+        }
+      } else if (snapshotStoredInIndexedDb) {
+        try {
+          await writeCachedProjectSnapshot(project.id, projectFile.project.snapshot, remote.revision);
+        } catch (error) {
+          localCacheError = error;
+          snapshotStoredInIndexedDb = false;
         }
       }
       Object.assign(project, remote, {
@@ -115,7 +122,7 @@
       renderProjectList();
       showToast(locallySaved
         ? `${state.projectName} saved in this browser, but cloud save failed: ${error.message || "the server is unavailable"}`
-        : `Could not save ${state.projectName} to the cloud: ${error.message || "the server is unavailable"}. This browser also reached its localStorage limit, so its cached copy could not be updated.`);
+        : `Could not save ${state.projectName} to the cloud: ${error.message || "the server is unavailable"}. Local save also failed: ${saveState.lastError || "browser storage is unavailable"}`);
       return false;
     }
   }
@@ -306,8 +313,8 @@
       return;
     }
 
-    if (!flushSaveState()) {
-      if (!getCloudToken() || saveState.lastError !== "localStorage quota exceeded.") {
+    if (!await flushSaveState()) {
+      if (!getCloudToken() || !saveState.lastError.startsWith("localStorage could not store the project snapshot")) {
         showToast("Could not save the current project; import was cancelled.");
         return;
       }
@@ -321,9 +328,18 @@
     const projectName = projectFile.project.name.trim().slice(0, 64) || "Imported project";
     const project = { id: projectId, name: projectName, ownerId: state.currentUser, updatedAt: Date.now() };
     let snapshotSaved = false;
+    let snapshotSavedInIndexedDb = false;
     try {
       getNextProjectNumber(state.currentUser);
-      window.localStorage.setItem(getProjectStorageKey(projectId), JSON.stringify(snapshot));
+      try {
+        window.localStorage.setItem(getProjectStorageKey(projectId), JSON.stringify(snapshot));
+      } catch (error) {
+        if (error?.name !== "QuotaExceededError") throw error;
+        await writeCachedProjectSnapshot(projectId, snapshot, null);
+        project.localSnapshotStorage = "indexedDB";
+        project.localCloudRevision = null;
+        snapshotSavedInIndexedDb = true;
+      }
       snapshotSaved = true;
       state.projects.unshift(project);
       state.projectId = projectId;
@@ -339,7 +355,8 @@
       state.activeProjectIds = previousActiveProjectIds;
       state.projectCreationCounts = previousProjectCreationCounts;
       try {
-        if (snapshotSaved) window.localStorage.removeItem(getProjectStorageKey(projectId));
+        if (snapshotSavedInIndexedDb) await deleteCachedProjectSnapshot(projectId);
+        else if (snapshotSaved) window.localStorage.removeItem(getProjectStorageKey(projectId));
         writeProjectCatalog();
       } catch (rollbackError) {
         showToast(`Project import failed and cleanup was incomplete: ${rollbackError.message || "browser storage is unavailable"}`);
@@ -349,12 +366,12 @@
     }
   }
 
-  function switchUser() {
+  async function switchUser() {
     if (state.mediaRecorder?.state === "recording") {
       showToast("Stop audio recording before switching users.");
       return;
     }
-    if (!flushSaveState()) {
+    if (!await flushSaveState()) {
       showToast("Could not save this project; switching users was cancelled.");
       return;
     }
