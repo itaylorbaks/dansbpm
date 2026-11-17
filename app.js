@@ -9048,7 +9048,7 @@ const DRIVE_SAMPLE_TRACKS = [
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=551d013022b0");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=11ae904a3610");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -22086,17 +22086,21 @@ const DRIVE_SAMPLE_TRACKS = [
       playDansBpmSynthVoice(track, time, midi, duration, velocity, outputNode, noteOptions);
       return;
     }
+    const patchValue = (key, fallback) => {
+      const value = Number(patch[key]);
+      return Number.isFinite(value) && value !== 0 ? value : fallback;
+    };
     const frequency = 440 * Math.pow(2, (midi - 69) / 12);
-    const noteAttack = Number.isFinite(noteOptions.attack) ? noteOptions.attack : Number(patch.attack) || 0.005;
+    const noteAttack = Number.isFinite(noteOptions.attack) ? noteOptions.attack : patchValue("attack", 0.005);
     const attack = Math.min(Math.max(0, noteAttack), Math.max(0.002, duration * 0.7));
-    const decay = Math.min(Number(patch.decay) || 0.1, Math.max(0.005, duration - attack));
+    const decay = Math.min(patchValue("decay", 0.1), Math.max(0.005, duration - attack));
     const soundDurationScale = Number.isFinite(noteOptions.soundDurationScale)
       ? Math.max(0.01, Math.min(1, noteOptions.soundDurationScale))
       : 1;
     const release = Math.max(0.01, Number.isFinite(noteOptions.soundFadeOut)
       ? noteOptions.soundFadeOut
-      : (Number(patch.release) || 0.1) * soundDurationScale);
-    const sustain = Math.max(0.04, Math.min(0.9, Number(patch.sustain) || 0.3));
+      : patchValue("release", 0.1) * soundDurationScale);
+    const sustain = Math.max(0.04, Math.min(0.9, patchValue("sustain", 0.3)));
     const gateEnd = time + Math.max(0.02, duration);
     const envelope = context.createGain();
     const filter = context.createBiquadFilter();
@@ -22104,11 +22108,11 @@ const DRIVE_SAMPLE_TRACKS = [
     registerArrangementPlaybackSource(oscillator);
     const peak = velocity * 0.42;
     filter.type = "lowpass";
-    filter.frequency.setValueAtTime(Math.max(100, Number(patch.cutoff) || 5000), time);
+    filter.frequency.setValueAtTime(Math.max(100, patchValue("cutoff", 5000)), time);
     filter.Q.value = 0.7;
     oscillator.type = patch.wave || "triangle";
     oscillator.frequency.setValueAtTime(frequency, time);
-    oscillator.detune.setValueAtTime((Number(patch.detune) || 0) + (Number(noteOptions.detune) || 0), time);
+    oscillator.detune.setValueAtTime(patchValue("detune", 0) + (Number(noteOptions.detune) || 0), time);
     envelope.gain.setValueAtTime(0.0001, time);
     envelope.gain.linearRampToValueAtTime(peak, time + attack);
     envelope.gain.linearRampToValueAtTime(peak * sustain, time + attack + decay);
@@ -22119,14 +22123,15 @@ const DRIVE_SAMPLE_TRACKS = [
     envelope.connect(outputNode);
     oscillator.start(time);
     oscillator.stop(gateEnd + release + 0.02);
-    if (patch.harmonic) {
+    const harmonic = patchValue("harmonic", 0);
+    if (harmonic > 0) {
       const overtone = context.createOscillator();
       registerArrangementPlaybackSource(overtone);
       const overtoneGain = context.createGain();
       overtone.type = patch.wave || "sine";
-      overtone.frequency.setValueAtTime(frequency * patch.harmonic, time);
-      overtone.detune.setValueAtTime((Number(patch.detune) || 0) + (Number(noteOptions.detune) || 0), time);
-      overtoneGain.gain.setValueAtTime(Math.max(0, Math.min(0.6, Number(patch.harmonicLevel) || 0.15)), time);
+      overtone.frequency.setValueAtTime(frequency * harmonic, time);
+      overtone.detune.setValueAtTime(patchValue("detune", 0) + (Number(noteOptions.detune) || 0), time);
+      overtoneGain.gain.setValueAtTime(Math.max(0, Math.min(0.6, patchValue("harmonicLevel", 0.15))), time);
       overtone.connect(overtoneGain);
       overtoneGain.connect(filter);
       overtone.start(time);
