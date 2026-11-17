@@ -122,6 +122,11 @@
       if (event.currentTarget.value) await transcribeSelectedPianoAudio();
     });
     $("#piano-audio-transcribe-button").addEventListener("click", transcribeSelectedPianoAudio);
+    $("#piano-audio-scan-button").addEventListener("click", scanSelectedPianoAudio);
+    $("#piano-audio-stems").addEventListener("change", (event) => {
+      const input = event.target.closest("[data-audio-stem]");
+      if (input) updatePianoAudioStemSelection(input.dataset.audioStem, input.checked);
+    });
     $("#piano-audio-chop-button").addEventListener("click", openPianoAudioChopper);
     $("#piano-chopper-close").addEventListener("click", () => $("#piano-chopper-dialog").close());
     $("#piano-chopper-cancel").addEventListener("click", () => $("#piano-chopper-dialog").close());

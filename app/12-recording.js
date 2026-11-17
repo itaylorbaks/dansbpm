@@ -378,6 +378,9 @@
         reversed: clip.reversed === true,
         audioMetadata: normalizeAudioMetadata(clip.audioMetadata),
         audioAdjustment: normalizeAudioAdjustment(clip.audioAdjustment),
+        audioStemGroupId: typeof clip.audioStemGroupId === "string" ? clip.audioStemGroupId : null,
+        audioStemSelection: clip.audioStemSelection
+          ? normalizeAudioStemSelection(clip.audioStemSelection) : null,
         volume: track.volume,
         muted: track.muted,
         blob: clip.blob,
@@ -573,6 +576,10 @@
             fadeOutSeconds: Number.isFinite(record.fadeOutSeconds)
               ? Math.max(0, Math.min(10, record.fadeOutSeconds)) : 0,
             reversed: record.reversed === true,
+            audioStemGroupId: typeof record.audioStemGroupId === "string"
+              ? record.audioStemGroupId : makeId(),
+            ...(record.audioStemSelection
+              ? { audioStemSelection: normalizeAudioStemSelection(record.audioStemSelection) } : {}),
             buffer,
             blob: record.blob,
             audioMetadata: record.audioMetadata

@@ -7497,6 +7497,9 @@ const DRIVE_SAMPLE_TRACKS = [
     $("#grid-resolution-select").value = getPatternGridResolution(selected);
   }
 
+  let pianoAudioScanBusy = false;
+  let pianoAudioScanStatus = { clipId: null, text: "" };
+
   function getPianoTrack(trackId = state.selectedPianoTrackId) {
     return state.tracks.find((track) => track.id === trackId) || null;
   }
@@ -8962,6 +8965,44 @@ const DRIVE_SAMPLE_TRACKS = [
     return getPianoRollAudioClipById(state.pianoRollAudioClipId);
   }
 
+  function renderPianoAudioStemControls() {
+    const clip = getPianoRollAudioClip();
+    const scanButton = $("#piano-audio-scan-button");
+    const stemPanel = $("#piano-audio-stem-panel");
+    const stemControls = $("#piano-audio-stems");
+    const status = $("#piano-audio-scan-status");
+    scanButton.disabled = !clip?.buffer || pianoAudioScanBusy || Boolean(state.stepPianoEditContext);
+    stemPanel.hidden = !clip?.buffer;
+    stemControls.hidden = !hasAudioClipStemSeparation(clip);
+    if (!clip) {
+      status.textContent = "Choose or import audio to scan. First use downloads an approximately 180 MB model; audio stays in this browser.";
+      return;
+    }
+
+    if (pianoAudioScanStatus.clipId === clip.id && pianoAudioScanStatus.text) {
+      status.textContent = pianoAudioScanStatus.text;
+    } else if (hasAudioClipStemSeparation(clip)) {
+      status.textContent = "Uncheck stems to silence them. Melody / other includes non-vocal, non-bass, non-percussion instruments.";
+    } else if (clip.audioStemSelection) {
+      status.textContent = "Saved stem choices need a new scan to restore the separated audio for this session.";
+    } else {
+      status.textContent = "First scan downloads an approximately 180 MB model; audio stays local. Scans support audio up to 5 minutes.";
+    }
+
+    if (!hasAudioClipStemSeparation(clip)) return;
+    const selection = normalizeAudioStemSelection(clip.audioStemSelection);
+    const presence = getAudioClipStemPresence(clip);
+    stemControls.querySelectorAll("[data-audio-stem]").forEach((input) => {
+      const key = input.dataset.audioStem;
+      input.checked = selection[key];
+      input.disabled = pianoAudioScanBusy;
+      const label = input.closest(".piano-audio-stem-toggle");
+      const found = presence?.[key] === true;
+      label.dataset.present = String(found);
+      label.querySelector("small").textContent = found ? "found" : "quiet";
+    });
+  }
+
   function renderPianoAudioSourceOptions() {
     const select = $("#piano-audio-source-select");
     const selectedId = state.pianoRollAudioClipId || "";
@@ -8980,6 +9021,103 @@ const DRIVE_SAMPLE_TRACKS = [
       });
     });
     select.value = selectedId;
+    renderPianoAudioStemControls();
+  }
+
+  async function scanSelectedPianoAudio() {
+    if (state.stepPianoEditContext) {
+      showToast("Return to the Piano Roll before scanning imported audio.");
+      return;
+    }
+    const clip = getPianoRollAudioClip();
+    if (!clip?.buffer) {
+      showToast("Choose or import an audio clip before scanning.");
+      return;
+    }
+    if (pianoAudioScanBusy) return;
+
+    pianoAudioScanBusy = true;
+    stopAllWorkspacePlayers();
+    if (state.isPlaying || state.isStartingPlayback) stopPlayback();
+    pianoAudioScanStatus = { clipId: clip.id, text: "Preparing browser audio…" };
+    renderPianoAudioStemControls();
+    try {
+      await ensureAudio();
+      const { separateAudioBuffer } = await import("./app/audio-separation.mjs");
+      const result = await separateAudioBuffer(clip.buffer, (progress) => {
+        if (progress.stage === "download") {
+          const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
+          const total = progress.total
+            ? ` of ${(progress.total / 1024 / 1024).toFixed(0)} MB`
+            : " MB";
+          pianoAudioScanStatus = {
+            clipId: clip.id,
+            text: `Downloading separation model: ${loaded}${total}…`,
+          };
+        } else {
+          pianoAudioScanStatus = {
+            clipId: clip.id,
+            text: `Separating audio: ${Math.round(Math.max(0, Math.min(1, progress.progress)) * 100)}% (${progress.currentSegment}/${progress.totalSegments})…`,
+          };
+        }
+        if (getPianoRollAudioClip()?.id === clip.id) renderPianoAudioStemControls();
+      });
+      const siblingClips = registerAudioClipStemSeparation(clip, result.stems, result.sampleRate);
+      pianoAudioScanStatus = {
+        clipId: clip.id,
+        text: "Scan complete. Audio was processed locally; uncheck any stem to silence it.",
+      };
+      saveState();
+      let saveFailed = false;
+      for (const sibling of siblingClips) {
+        const track = state.arrangementTracks.find((item) => item.clips.includes(sibling));
+        if (!track || !sibling.blob) continue;
+        try {
+          await persistClip(track, sibling);
+        } catch {
+          saveFailed = true;
+        }
+      }
+      if (saveFailed) {
+        showToast("Audio stems are ready for this session, but their saved mix settings could not be stored.");
+      } else {
+        showToast("Audio scan complete. Choose which stems to hear.");
+      }
+    } catch (error) {
+      pianoAudioScanStatus = {
+        clipId: clip.id,
+        text: `Scan failed: ${error.message || "audio separation is unavailable"}`,
+      };
+      showToast(pianoAudioScanStatus.text);
+    } finally {
+      pianoAudioScanBusy = false;
+      renderPianoAudioStemControls();
+    }
+  }
+
+  function updatePianoAudioStemSelection(stem, enabled) {
+    const clip = getPianoRollAudioClip();
+    if (!clip || !hasAudioClipStemSeparation(clip) ||
+      !["melody", "vocals", "percussion", "bass"].includes(stem)) return;
+    const selection = normalizeAudioStemSelection(clip.audioStemSelection);
+    selection[stem] = enabled;
+    const siblingClips = setAudioClipStemSelection(clip, selection);
+    stopAllWorkspacePlayers();
+    if (state.isPlaying || state.isStartingPlayback) stopPlayback();
+    pianoAudioScanStatus = {
+      clipId: clip.id,
+      text: "Stem mix updated. Press Play to hear the new mix.",
+    };
+    renderPianoAudioStemControls();
+    renderArrangement();
+    saveState();
+    siblingClips.forEach((sibling) => {
+      const track = state.arrangementTracks.find((item) => item.clips.includes(sibling));
+      if (track && sibling.blob) {
+        void persistClip(track, sibling).catch(() =>
+          showToast("The audio mix changed, but its settings could not be saved."));
+      }
+    });
   }
 
   function renderPianoAudioWaveform(grid, width, height, totalTicks) {
@@ -19226,7 +19364,109 @@ const DRIVE_SAMPLE_TRACKS = [
   let arrangementSliceMode = false;
   const reversedAudioClipBuffers = new WeakMap();
   const stretchedAudioClipBuffers = new WeakMap();
+  const audioClipStemSeparations = new Map();
   let audioStretchModulePromise = null;
+
+  function normalizeAudioStemSelection(selection) {
+    return {
+      melody: selection?.melody !== false,
+      vocals: selection?.vocals !== false,
+      percussion: selection?.percussion !== false,
+      bass: selection?.bass !== false,
+    };
+  }
+
+  function getAudioClipStemGroup(clip) {
+    if (!clip.audioStemGroupId) clip.audioStemGroupId = makeId();
+    const siblings = state.arrangementTracks.flatMap((track) => track.clips).filter((candidate) =>
+      candidate === clip || candidate.audioStemGroupId === clip.audioStemGroupId ||
+      candidate.buffer === clip.buffer || (clip.blob && candidate.blob === clip.blob));
+    siblings.forEach((sibling) => { sibling.audioStemGroupId = clip.audioStemGroupId; });
+    return siblings;
+  }
+
+  function registerAudioClipStemSeparation(clip, stems, sampleRate) {
+    const siblings = getAudioClipStemGroup(clip);
+    const selection = normalizeAudioStemSelection(clip.audioStemSelection);
+    siblings.forEach((sibling) => { sibling.audioStemSelection = { ...selection }; });
+    audioClipStemSeparations.set(clip.audioStemGroupId, {
+      stems,
+      sampleRate,
+      mixedBuffer: null,
+      mixedSelection: "",
+    });
+    return siblings;
+  }
+
+  function hasAudioClipStemSeparation(clip) {
+    return Boolean(clip?.audioStemGroupId && audioClipStemSeparations.has(clip.audioStemGroupId));
+  }
+
+  function getAudioClipStemPresence(clip) {
+    const separation = audioClipStemSeparations.get(clip?.audioStemGroupId);
+    if (!separation) return null;
+    const rms = (stem) => {
+      const sampleCount = stem.left.length;
+      const stride = Math.max(1, Math.floor(sampleCount / 2048));
+      let sum = 0;
+      let samples = 0;
+      for (let index = 0; index < sampleCount; index += stride) {
+        sum += stem.left[index] ** 2 + stem.right[index] ** 2;
+        samples += 2;
+      }
+      return samples ? Math.sqrt(sum / samples) : 0;
+    };
+    return {
+      melody: rms(separation.stems.other) > 0.0001,
+      vocals: rms(separation.stems.vocals) > 0.0001,
+      percussion: rms(separation.stems.drums) > 0.0001,
+      bass: rms(separation.stems.bass) > 0.0001,
+    };
+  }
+
+  function setAudioClipStemSelection(clip, selection) {
+    if (!hasAudioClipStemSeparation(clip)) return [];
+    const siblings = getAudioClipStemGroup(clip);
+    const normalized = normalizeAudioStemSelection(selection);
+    siblings.forEach((sibling) => { sibling.audioStemSelection = { ...normalized }; });
+    const separation = audioClipStemSeparations.get(clip.audioStemGroupId);
+    if (separation) {
+      separation.mixedBuffer = null;
+      separation.mixedSelection = "";
+    }
+    return siblings;
+  }
+
+  function getAudioClipContentBuffer(context, clip) {
+    const separation = audioClipStemSeparations.get(clip.audioStemGroupId);
+    if (!separation) return clip.buffer;
+    const selection = normalizeAudioStemSelection(clip.audioStemSelection);
+    if (Object.values(selection).every(Boolean)) return clip.buffer;
+    const selectionKey = `${selection.melody}:${selection.vocals}:${selection.percussion}:${selection.bass}`;
+    if (separation.mixedBuffer && separation.mixedSelection === selectionKey) {
+      return separation.mixedBuffer;
+    }
+
+    const frameCount = separation.stems.other.left.length;
+    const mixed = context.createBuffer(2, frameCount, separation.sampleRate);
+    const left = mixed.getChannelData(0);
+    const right = mixed.getChannelData(1);
+    const includedStems = [
+      selection.melody ? separation.stems.other : null,
+      selection.vocals ? separation.stems.vocals : null,
+      selection.percussion ? separation.stems.drums : null,
+      selection.bass ? separation.stems.bass : null,
+    ].filter(Boolean);
+    for (const stem of includedStems) {
+      for (let index = 0; index < frameCount; index += 1) {
+        left[index] += stem.left[index];
+        right[index] += stem.right[index];
+      }
+    }
+    separation.mixedBuffer = mixed;
+    separation.mixedSelection = selectionKey;
+    return mixed;
+  }
 
   function setArrangementSliceMode(enabled) {
     arrangementSliceMode = enabled;
@@ -19354,22 +19594,23 @@ const DRIVE_SAMPLE_TRACKS = [
       getAudioClipStretchSettings(clip, { ignoreReverse });
     if (Math.abs(tempoRatio - 1) < 0.001 && Math.abs(pitchSemitones) < 0.001) return;
 
+    const contentBuffer = getAudioClipContentBuffer(context, clip);
     let clipBuffers = stretchedAudioClipBuffers.get(clip);
     if (!clipBuffers) {
       clipBuffers = new Map();
       stretchedAudioClipBuffers.set(clip, clipBuffers);
     }
     let cached = clipBuffers.get(key);
-    if (cached?.key === key && cached.sourceBuffer === clip.buffer) {
+    if (cached?.key === key && cached.sourceBuffer === contentBuffer) {
       await cached.promise;
       return;
     }
 
-    const sourceBuffer = reversed ? getReversedAudioClipBuffer(context, clip.buffer) : clip.buffer;
+    const sourceBuffer = reversed ? getReversedAudioClipBuffer(context, contentBuffer) : contentBuffer;
     if (!audioStretchModulePromise) audioStretchModulePromise = import("./app/audio-stretch.js");
     const entry = {
       key,
-      sourceBuffer: clip.buffer,
+      sourceBuffer: contentBuffer,
       buffer: null,
       promise: audioStretchModulePromise.then(({ stretchAudioBuffer }) =>
         stretchAudioBuffer(context, sourceBuffer, tempoRatio, pitchSemitones)),
@@ -19387,11 +19628,12 @@ const DRIVE_SAMPLE_TRACKS = [
   function getAudioClipPlaybackBuffer(context, clip, { ignoreReverse = false } = {}) {
     const { tempoRatio, pitchSemitones, reversed, key } =
       getAudioClipStretchSettings(clip, { ignoreReverse });
+    const contentBuffer = getAudioClipContentBuffer(context, clip);
     if (Math.abs(tempoRatio - 1) < 0.001 && Math.abs(pitchSemitones) < 0.001) {
-      return reversed ? getReversedAudioClipBuffer(context, clip.buffer) : clip.buffer;
+      return reversed ? getReversedAudioClipBuffer(context, contentBuffer) : contentBuffer;
     }
     const cached = stretchedAudioClipBuffers.get(clip)?.get(key);
-    if (cached?.key !== key || cached.sourceBuffer !== clip.buffer || !cached.buffer) {
+    if (cached?.key !== key || cached.sourceBuffer !== contentBuffer || !cached.buffer) {
       throw new Error(`The time-stretched audio for ${clip.name} is not ready.`);
     }
     return cached.buffer;
@@ -20527,7 +20769,8 @@ const DRIVE_SAMPLE_TRACKS = [
       else if (!track.clips.length && /^Track \d+$/.test(track.name)) track.name = file.name;
       const clip = {
         id: makeId(), name: file.name, buffer,
-          repeatCount: 1,
+        audioStemGroupId: makeId(),
+        repeatCount: 1,
         durationSeconds: buffer.duration - sourceOffsetSeconds,
         sourceOffsetSeconds,
         startBar: 0,
@@ -21136,6 +21379,9 @@ const DRIVE_SAMPLE_TRACKS = [
         reversed: clip.reversed === true,
         audioMetadata: normalizeAudioMetadata(clip.audioMetadata),
         audioAdjustment: normalizeAudioAdjustment(clip.audioAdjustment),
+        audioStemGroupId: typeof clip.audioStemGroupId === "string" ? clip.audioStemGroupId : null,
+        audioStemSelection: clip.audioStemSelection
+          ? normalizeAudioStemSelection(clip.audioStemSelection) : null,
         volume: track.volume,
         muted: track.muted,
         blob: clip.blob,
@@ -21331,6 +21577,10 @@ const DRIVE_SAMPLE_TRACKS = [
             fadeOutSeconds: Number.isFinite(record.fadeOutSeconds)
               ? Math.max(0, Math.min(10, record.fadeOutSeconds)) : 0,
             reversed: record.reversed === true,
+            audioStemGroupId: typeof record.audioStemGroupId === "string"
+              ? record.audioStemGroupId : makeId(),
+            ...(record.audioStemSelection
+              ? { audioStemSelection: normalizeAudioStemSelection(record.audioStemSelection) } : {}),
             buffer,
             blob: record.blob,
             audioMetadata: record.audioMetadata
@@ -26882,6 +27132,11 @@ const DRIVE_SAMPLE_TRACKS = [
       if (event.currentTarget.value) await transcribeSelectedPianoAudio();
     });
     $("#piano-audio-transcribe-button").addEventListener("click", transcribeSelectedPianoAudio);
+    $("#piano-audio-scan-button").addEventListener("click", scanSelectedPianoAudio);
+    $("#piano-audio-stems").addEventListener("change", (event) => {
+      const input = event.target.closest("[data-audio-stem]");
+      if (input) updatePianoAudioStemSelection(input.dataset.audioStem, input.checked);
+    });
     $("#piano-audio-chop-button").addEventListener("click", openPianoAudioChopper);
     $("#piano-chopper-close").addEventListener("click", () => $("#piano-chopper-dialog").close());
     $("#piano-chopper-cancel").addEventListener("click", () => $("#piano-chopper-dialog").close());

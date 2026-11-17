@@ -612,6 +612,15 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .piano-roll-toolbar #piano-draw-mode-button[aria-pressed="true"] { border-color: #687641; background: var(--accent-soft); color: var(--accent); }
 .piano-roll-toolbar #piano-audio-chop-button:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .piano-audio-source-label { max-width: 180px; overflow: hidden; color: #91b4ca; font-family: var(--mono); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.piano-audio-stem-panel { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; gap: 5px 10px; border: 1px solid var(--stroke-soft); border-radius: 6px; background: rgba(32, 33, 37, .42); padding: 6px 8px; }
+.piano-audio-stem-panel[hidden] { display: none; }
+.piano-audio-scan-status { flex: 1 1 100%; color: var(--muted); font: 9px var(--mono); }
+.piano-audio-stems { display: flex; flex: 1 1 100%; flex-wrap: wrap; gap: 6px; }
+.piano-audio-stems[hidden] { display: none; }
+.piano-audio-stem-toggle { min-height: 28px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--stroke-soft); border-radius: 5px; padding: 3px 7px; color: var(--text); font-size: 9px; cursor: pointer; }
+.piano-audio-stem-toggle input { margin: 0; accent-color: var(--accent); }
+.piano-audio-stem-toggle small { color: var(--muted); font: 8px var(--mono); }
+.piano-audio-stem-toggle[data-present="false"] { color: var(--muted); }
 .piano-chopper-dialog { width: min(440px, calc(100vw - 28px)); max-height: min(620px, calc(100dvh - 28px)); overflow: auto; border: 1px solid #3a3b40; border-radius: 10px; background: #1b1c1f; padding: 22px; color: var(--text); box-shadow: 0 20px 60px #0009; }
 .piano-chopper-dialog::backdrop { background: #0009; backdrop-filter: blur(3px); }
 .piano-chopper-source { overflow: hidden; margin: 16px 0; color: var(--accent); font: 10px var(--mono); text-overflow: ellipsis; white-space: nowrap; }

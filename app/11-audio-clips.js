@@ -1,7 +1,109 @@
   let arrangementSliceMode = false;
   const reversedAudioClipBuffers = new WeakMap();
   const stretchedAudioClipBuffers = new WeakMap();
+  const audioClipStemSeparations = new Map();
   let audioStretchModulePromise = null;
+
+  function normalizeAudioStemSelection(selection) {
+    return {
+      melody: selection?.melody !== false,
+      vocals: selection?.vocals !== false,
+      percussion: selection?.percussion !== false,
+      bass: selection?.bass !== false,
+    };
+  }
+
+  function getAudioClipStemGroup(clip) {
+    if (!clip.audioStemGroupId) clip.audioStemGroupId = makeId();
+    const siblings = state.arrangementTracks.flatMap((track) => track.clips).filter((candidate) =>
+      candidate === clip || candidate.audioStemGroupId === clip.audioStemGroupId ||
+      candidate.buffer === clip.buffer || (clip.blob && candidate.blob === clip.blob));
+    siblings.forEach((sibling) => { sibling.audioStemGroupId = clip.audioStemGroupId; });
+    return siblings;
+  }
+
+  function registerAudioClipStemSeparation(clip, stems, sampleRate) {
+    const siblings = getAudioClipStemGroup(clip);
+    const selection = normalizeAudioStemSelection(clip.audioStemSelection);
+    siblings.forEach((sibling) => { sibling.audioStemSelection = { ...selection }; });
+    audioClipStemSeparations.set(clip.audioStemGroupId, {
+      stems,
+      sampleRate,
+      mixedBuffer: null,
+      mixedSelection: "",
+    });
+    return siblings;
+  }
+
+  function hasAudioClipStemSeparation(clip) {
+    return Boolean(clip?.audioStemGroupId && audioClipStemSeparations.has(clip.audioStemGroupId));
+  }
+
+  function getAudioClipStemPresence(clip) {
+    const separation = audioClipStemSeparations.get(clip?.audioStemGroupId);
+    if (!separation) return null;
+    const rms = (stem) => {
+      const sampleCount = stem.left.length;
+      const stride = Math.max(1, Math.floor(sampleCount / 2048));
+      let sum = 0;
+      let samples = 0;
+      for (let index = 0; index < sampleCount; index += stride) {
+        sum += stem.left[index] ** 2 + stem.right[index] ** 2;
+        samples += 2;
+      }
+      return samples ? Math.sqrt(sum / samples) : 0;
+    };
+    return {
+      melody: rms(separation.stems.other) > 0.0001,
+      vocals: rms(separation.stems.vocals) > 0.0001,
+      percussion: rms(separation.stems.drums) > 0.0001,
+      bass: rms(separation.stems.bass) > 0.0001,
+    };
+  }
+
+  function setAudioClipStemSelection(clip, selection) {
+    if (!hasAudioClipStemSeparation(clip)) return [];
+    const siblings = getAudioClipStemGroup(clip);
+    const normalized = normalizeAudioStemSelection(selection);
+    siblings.forEach((sibling) => { sibling.audioStemSelection = { ...normalized }; });
+    const separation = audioClipStemSeparations.get(clip.audioStemGroupId);
+    if (separation) {
+      separation.mixedBuffer = null;
+      separation.mixedSelection = "";
+    }
+    return siblings;
+  }
+
+  function getAudioClipContentBuffer(context, clip) {
+    const separation = audioClipStemSeparations.get(clip.audioStemGroupId);
+    if (!separation) return clip.buffer;
+    const selection = normalizeAudioStemSelection(clip.audioStemSelection);
+    if (Object.values(selection).every(Boolean)) return clip.buffer;
+    const selectionKey = `${selection.melody}:${selection.vocals}:${selection.percussion}:${selection.bass}`;
+    if (separation.mixedBuffer && separation.mixedSelection === selectionKey) {
+      return separation.mixedBuffer;
+    }
+
+    const frameCount = separation.stems.other.left.length;
+    const mixed = context.createBuffer(2, frameCount, separation.sampleRate);
+    const left = mixed.getChannelData(0);
+    const right = mixed.getChannelData(1);
+    const includedStems = [
+      selection.melody ? separation.stems.other : null,
+      selection.vocals ? separation.stems.vocals : null,
+      selection.percussion ? separation.stems.drums : null,
+      selection.bass ? separation.stems.bass : null,
+    ].filter(Boolean);
+    for (const stem of includedStems) {
+      for (let index = 0; index < frameCount; index += 1) {
+        left[index] += stem.left[index];
+        right[index] += stem.right[index];
+      }
+    }
+    separation.mixedBuffer = mixed;
+    separation.mixedSelection = selectionKey;
+    return mixed;
+  }
 
   function setArrangementSliceMode(enabled) {
     arrangementSliceMode = enabled;
@@ -129,22 +231,23 @@
       getAudioClipStretchSettings(clip, { ignoreReverse });
     if (Math.abs(tempoRatio - 1) < 0.001 && Math.abs(pitchSemitones) < 0.001) return;
 
+    const contentBuffer = getAudioClipContentBuffer(context, clip);
     let clipBuffers = stretchedAudioClipBuffers.get(clip);
     if (!clipBuffers) {
       clipBuffers = new Map();
       stretchedAudioClipBuffers.set(clip, clipBuffers);
     }
     let cached = clipBuffers.get(key);
-    if (cached?.key === key && cached.sourceBuffer === clip.buffer) {
+    if (cached?.key === key && cached.sourceBuffer === contentBuffer) {
       await cached.promise;
       return;
     }
 
-    const sourceBuffer = reversed ? getReversedAudioClipBuffer(context, clip.buffer) : clip.buffer;
+    const sourceBuffer = reversed ? getReversedAudioClipBuffer(context, contentBuffer) : contentBuffer;
     if (!audioStretchModulePromise) audioStretchModulePromise = import("./app/audio-stretch.js");
     const entry = {
       key,
-      sourceBuffer: clip.buffer,
+      sourceBuffer: contentBuffer,
       buffer: null,
       promise: audioStretchModulePromise.then(({ stretchAudioBuffer }) =>
         stretchAudioBuffer(context, sourceBuffer, tempoRatio, pitchSemitones)),
@@ -162,11 +265,12 @@
   function getAudioClipPlaybackBuffer(context, clip, { ignoreReverse = false } = {}) {
     const { tempoRatio, pitchSemitones, reversed, key } =
       getAudioClipStretchSettings(clip, { ignoreReverse });
+    const contentBuffer = getAudioClipContentBuffer(context, clip);
     if (Math.abs(tempoRatio - 1) < 0.001 && Math.abs(pitchSemitones) < 0.001) {
-      return reversed ? getReversedAudioClipBuffer(context, clip.buffer) : clip.buffer;
+      return reversed ? getReversedAudioClipBuffer(context, contentBuffer) : contentBuffer;
     }
     const cached = stretchedAudioClipBuffers.get(clip)?.get(key);
-    if (cached?.key !== key || cached.sourceBuffer !== clip.buffer || !cached.buffer) {
+    if (cached?.key !== key || cached.sourceBuffer !== contentBuffer || !cached.buffer) {
       throw new Error(`The time-stretched audio for ${clip.name} is not ready.`);
     }
     return cached.buffer;
@@ -1302,7 +1406,8 @@
       else if (!track.clips.length && /^Track \d+$/.test(track.name)) track.name = file.name;
       const clip = {
         id: makeId(), name: file.name, buffer,
-          repeatCount: 1,
+        audioStemGroupId: makeId(),
+        repeatCount: 1,
         durationSeconds: buffer.duration - sourceOffsetSeconds,
         sourceOffsetSeconds,
         startBar: 0,

@@ -1,3 +1,6 @@
+  let pianoAudioScanBusy = false;
+  let pianoAudioScanStatus = { clipId: null, text: "" };
+
   function getPianoTrack(trackId = state.selectedPianoTrackId) {
     return state.tracks.find((track) => track.id === trackId) || null;
   }
@@ -1463,6 +1466,44 @@
     return getPianoRollAudioClipById(state.pianoRollAudioClipId);
   }
 
+  function renderPianoAudioStemControls() {
+    const clip = getPianoRollAudioClip();
+    const scanButton = $("#piano-audio-scan-button");
+    const stemPanel = $("#piano-audio-stem-panel");
+    const stemControls = $("#piano-audio-stems");
+    const status = $("#piano-audio-scan-status");
+    scanButton.disabled = !clip?.buffer || pianoAudioScanBusy || Boolean(state.stepPianoEditContext);
+    stemPanel.hidden = !clip?.buffer;
+    stemControls.hidden = !hasAudioClipStemSeparation(clip);
+    if (!clip) {
+      status.textContent = "Choose or import audio to scan. First use downloads an approximately 180 MB model; audio stays in this browser.";
+      return;
+    }
+
+    if (pianoAudioScanStatus.clipId === clip.id && pianoAudioScanStatus.text) {
+      status.textContent = pianoAudioScanStatus.text;
+    } else if (hasAudioClipStemSeparation(clip)) {
+      status.textContent = "Uncheck stems to silence them. Melody / other includes non-vocal, non-bass, non-percussion instruments.";
+    } else if (clip.audioStemSelection) {
+      status.textContent = "Saved stem choices need a new scan to restore the separated audio for this session.";
+    } else {
+      status.textContent = "First scan downloads an approximately 180 MB model; audio stays local. Scans support audio up to 5 minutes.";
+    }
+
+    if (!hasAudioClipStemSeparation(clip)) return;
+    const selection = normalizeAudioStemSelection(clip.audioStemSelection);
+    const presence = getAudioClipStemPresence(clip);
+    stemControls.querySelectorAll("[data-audio-stem]").forEach((input) => {
+      const key = input.dataset.audioStem;
+      input.checked = selection[key];
+      input.disabled = pianoAudioScanBusy;
+      const label = input.closest(".piano-audio-stem-toggle");
+      const found = presence?.[key] === true;
+      label.dataset.present = String(found);
+      label.querySelector("small").textContent = found ? "found" : "quiet";
+    });
+  }
+
   function renderPianoAudioSourceOptions() {
     const select = $("#piano-audio-source-select");
     const selectedId = state.pianoRollAudioClipId || "";
@@ -1481,6 +1522,103 @@
       });
     });
     select.value = selectedId;
+    renderPianoAudioStemControls();
+  }
+
+  async function scanSelectedPianoAudio() {
+    if (state.stepPianoEditContext) {
+      showToast("Return to the Piano Roll before scanning imported audio.");
+      return;
+    }
+    const clip = getPianoRollAudioClip();
+    if (!clip?.buffer) {
+      showToast("Choose or import an audio clip before scanning.");
+      return;
+    }
+    if (pianoAudioScanBusy) return;
+
+    pianoAudioScanBusy = true;
+    stopAllWorkspacePlayers();
+    if (state.isPlaying || state.isStartingPlayback) stopPlayback();
+    pianoAudioScanStatus = { clipId: clip.id, text: "Preparing browser audio…" };
+    renderPianoAudioStemControls();
+    try {
+      await ensureAudio();
+      const { separateAudioBuffer } = await import("./app/audio-separation.mjs");
+      const result = await separateAudioBuffer(clip.buffer, (progress) => {
+        if (progress.stage === "download") {
+          const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
+          const total = progress.total
+            ? ` of ${(progress.total / 1024 / 1024).toFixed(0)} MB`
+            : " MB";
+          pianoAudioScanStatus = {
+            clipId: clip.id,
+            text: `Downloading separation model: ${loaded}${total}…`,
+          };
+        } else {
+          pianoAudioScanStatus = {
+            clipId: clip.id,
+            text: `Separating audio: ${Math.round(Math.max(0, Math.min(1, progress.progress)) * 100)}% (${progress.currentSegment}/${progress.totalSegments})…`,
+          };
+        }
+        if (getPianoRollAudioClip()?.id === clip.id) renderPianoAudioStemControls();
+      });
+      const siblingClips = registerAudioClipStemSeparation(clip, result.stems, result.sampleRate);
+      pianoAudioScanStatus = {
+        clipId: clip.id,
+        text: "Scan complete. Audio was processed locally; uncheck any stem to silence it.",
+      };
+      saveState();
+      let saveFailed = false;
+      for (const sibling of siblingClips) {
+        const track = state.arrangementTracks.find((item) => item.clips.includes(sibling));
+        if (!track || !sibling.blob) continue;
+        try {
+          await persistClip(track, sibling);
+        } catch {
+          saveFailed = true;
+        }
+      }
+      if (saveFailed) {
+        showToast("Audio stems are ready for this session, but their saved mix settings could not be stored.");
+      } else {
+        showToast("Audio scan complete. Choose which stems to hear.");
+      }
+    } catch (error) {
+      pianoAudioScanStatus = {
+        clipId: clip.id,
+        text: `Scan failed: ${error.message || "audio separation is unavailable"}`,
+      };
+      showToast(pianoAudioScanStatus.text);
+    } finally {
+      pianoAudioScanBusy = false;
+      renderPianoAudioStemControls();
+    }
+  }
+
+  function updatePianoAudioStemSelection(stem, enabled) {
+    const clip = getPianoRollAudioClip();
+    if (!clip || !hasAudioClipStemSeparation(clip) ||
+      !["melody", "vocals", "percussion", "bass"].includes(stem)) return;
+    const selection = normalizeAudioStemSelection(clip.audioStemSelection);
+    selection[stem] = enabled;
+    const siblingClips = setAudioClipStemSelection(clip, selection);
+    stopAllWorkspacePlayers();
+    if (state.isPlaying || state.isStartingPlayback) stopPlayback();
+    pianoAudioScanStatus = {
+      clipId: clip.id,
+      text: "Stem mix updated. Press Play to hear the new mix.",
+    };
+    renderPianoAudioStemControls();
+    renderArrangement();
+    saveState();
+    siblingClips.forEach((sibling) => {
+      const track = state.arrangementTracks.find((item) => item.clips.includes(sibling));
+      if (track && sibling.blob) {
+        void persistClip(track, sibling).catch(() =>
+          showToast("The audio mix changed, but its settings could not be saved."));
+      }
+    });
   }
 
   function renderPianoAudioWaveform(grid, width, height, totalTicks) {

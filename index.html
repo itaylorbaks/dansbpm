@@ -264,6 +264,7 @@
                               </select>
                             </label>
                             <button class="quiet-button" id="piano-audio-transcribe-button" type="button">Transcribe</button>
+                            <button class="quiet-button" id="piano-audio-scan-button" type="button" title="First scan downloads an approximately 180 MB model; audio stays in this browser">Scan audio</button>
                             <button class="quiet-button" id="piano-audio-chop-button" type="button" disabled>Chop audio</button>
                             <span class="piano-audio-source-label" id="piano-audio-source-label">No audio source</span>
                           </div>
@@ -356,6 +357,15 @@
                           <span class="piano-toolbar-group-title">MIDI</span>
                           <button class="quiet-button" id="import-midi-button" type="button">Import MIDI</button>
                           <button class="quiet-button" id="export-midi-button" type="button">Export MIDI</button>
+                        </div>
+                      </div>
+                      <div class="piano-audio-stem-panel" id="piano-audio-stem-panel" hidden>
+                        <span class="piano-audio-scan-status" id="piano-audio-scan-status" role="status" aria-live="polite"></span>
+                        <div class="piano-audio-stems" id="piano-audio-stems" role="group" aria-label="Audio stems" hidden>
+                          <label class="piano-audio-stem-toggle" data-stem="melody" title="The model's other stem includes melody and instruments outside the other groups"><input type="checkbox" data-audio-stem="melody"><span>Melody / other</span><small></small></label>
+                          <label class="piano-audio-stem-toggle" data-stem="vocals"><input type="checkbox" data-audio-stem="vocals"><span>Vocals</span><small></small></label>
+                          <label class="piano-audio-stem-toggle" data-stem="percussion"><input type="checkbox" data-audio-stem="percussion"><span>Percussion</span><small></small></label>
+                          <label class="piano-audio-stem-toggle" data-stem="bass"><input type="checkbox" data-audio-stem="bass"><span>Bass</span><small></small></label>
                         </div>
                       </div>
                       <div class="piano-roll-ruler-spacer" id="piano-roll-ruler-placeholder"></div>
@@ -1082,6 +1092,6 @@
       </div>
     </section>
     <script src="assets/vendor/lame.min.js"></script>
-    <script src="app.js?v=4864b66e7114"></script>
+    <script src="app.js?v=8763234af7b0"></script>
   </body>
 </html>
