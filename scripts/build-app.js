@@ -32,7 +32,19 @@ const output = `(() => {\n  "use strict";\n${body}})();\n`;
 const appPath = join(root, "app.js");
 const indexPath = join(root, "index.html");
 const index = await readFile(indexPath, "utf8");
-const appVersion = createHash("sha256").update(output).digest("hex").slice(0, 12);
+const audioModuleFiles = ["audio-separation.js", "audio-separation-worker.js"];
+const audioModuleSources = await Promise.all(
+  audioModuleFiles.map((file) => readFile(join(root, "app", file), "utf8")),
+);
+const appVersion = createHash("sha256")
+  .update(output)
+  .update(audioModuleSources.join("\0"))
+  .digest("hex")
+  .slice(0, 12);
+const versionedOutput = output.replaceAll(
+  './app/audio-separation.js"',
+  `./app/audio-separation.js?v=${appVersion}"`,
+);
 const appScriptPattern = /<script src="app\.js(?:\?v=[^"]*)?"><\/script>/g;
 const appScripts = index.match(appScriptPattern) || [];
 if (appScripts.length !== 1) {
@@ -42,14 +54,14 @@ const versionedIndex = index.replace(appScriptPattern, `<script src="app.js?v=${
 
 if (process.argv.includes("--check")) {
   const [currentApp, currentIndex] = await Promise.all([readFile(appPath, "utf8"), readFile(indexPath, "utf8")]);
-  if (currentApp !== output || currentIndex !== versionedIndex) {
+  if (currentApp !== versionedOutput || currentIndex !== versionedIndex) {
     console.error("app.js or its cache-busted script reference is out of date; run node scripts/build-app.js.");
     process.exitCode = 1;
   } else {
     console.log("app.js and its cache-busted script reference match app source files.");
   }
 } else {
-  await writeFile(appPath, output);
+  await writeFile(appPath, versionedOutput);
   await writeFile(indexPath, versionedIndex);
   console.log("Built app.js from app source files.");
 }

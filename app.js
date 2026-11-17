@@ -9048,7 +9048,7 @@ const DRIVE_SAMPLE_TRACKS = [
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=551d013022b0");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -9059,10 +9059,22 @@ const DRIVE_SAMPLE_TRACKS = [
             clipId: clip.id,
             text: `Downloading separation model: ${loaded}${total}…`,
           };
+        } else if (progress.stage === "separating") {
+          const current = Number(progress.currentSegment);
+          const total = Number(progress.totalSegments);
+          const percentage = Number(progress.progress);
+          const progressText = Number.isFinite(current) && Number.isFinite(total) && total > 0 &&
+            Number.isFinite(percentage)
+            ? `${Math.round(Math.max(0, Math.min(1, percentage)) * 100)}% (${current}/${total})`
+            : "in progress";
+          pianoAudioScanStatus = {
+            clipId: clip.id,
+            text: `Separating audio: ${progressText}…`,
+          };
         } else {
           pianoAudioScanStatus = {
             clipId: clip.id,
-            text: `Separating audio: ${Math.round(Math.max(0, Math.min(1, progress.progress)) * 100)}% (${progress.currentSegment}/${progress.totalSegments})…`,
+            text: "Preparing audio separation…",
           };
         }
         if (getPianoRollAudioClip()?.id === clip.id) renderPianoAudioStemControls();

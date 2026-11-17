@@ -1560,10 +1560,22 @@
             clipId: clip.id,
             text: `Downloading separation model: ${loaded}${total}…`,
           };
+        } else if (progress.stage === "separating") {
+          const current = Number(progress.currentSegment);
+          const total = Number(progress.totalSegments);
+          const percentage = Number(progress.progress);
+          const progressText = Number.isFinite(current) && Number.isFinite(total) && total > 0 &&
+            Number.isFinite(percentage)
+            ? `${Math.round(Math.max(0, Math.min(1, percentage)) * 100)}% (${current}/${total})`
+            : "in progress";
+          pianoAudioScanStatus = {
+            clipId: clip.id,
+            text: `Separating audio: ${progressText}…`,
+          };
         } else {
           pianoAudioScanStatus = {
             clipId: clip.id,
-            text: `Separating audio: ${Math.round(Math.max(0, Math.min(1, progress.progress)) * 100)}% (${progress.currentSegment}/${progress.totalSegments})…`,
+            text: "Preparing audio separation…",
           };
         }
         if (getPianoRollAudioClip()?.id === clip.id) renderPianoAudioStemControls();

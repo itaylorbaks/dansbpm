@@ -15,14 +15,24 @@ const ortRuntimePromises = new Map();
 let demucsProcessorPromise = null;
 
 function loadOnnxRuntime(scriptUrl) {
-  if (window.ort) return Promise.resolve(window.ort);
+  if (globalThis.ort) return Promise.resolve(globalThis.ort);
   if (ortRuntimePromises.has(scriptUrl)) return ortRuntimePromises.get(scriptUrl);
   const runtimePromise = new Promise((resolve, reject) => {
+    if (typeof document === "undefined") {
+      try {
+        importScripts(scriptUrl);
+        if (globalThis.ort) resolve(globalThis.ort);
+        else reject(new Error("ONNX Runtime loaded without its worker API."));
+      } catch {
+        reject(new Error("Could not load the audio separation runtime."));
+      }
+      return;
+    }
     const script = document.createElement("script");
     script.src = scriptUrl;
     script.crossOrigin = "anonymous";
     script.onload = () => {
-      if (window.ort) resolve(window.ort);
+      if (globalThis.ort) resolve(globalThis.ort);
       else reject(new Error("ONNX Runtime loaded without its browser API."));
     };
     script.onerror = () => reject(new Error("Could not load the audio separation runtime."));
@@ -96,7 +106,7 @@ async function getDemucsProcessor(onProgress) {
     }
     const { DemucsProcessor } = await import(DEMUCS_MODULE);
     ort.env.wasm.wasmPaths = ONNX_RUNTIME_WASM_PATH;
-    ort.env.wasm.numThreads = window.crossOriginIsolated
+    ort.env.wasm.numThreads = globalThis.crossOriginIsolated
       ? Math.max(1, Math.min(4, navigator.hardwareConcurrency || 1))
       : 1;
     const executionProviders = useWebGPU ? ["webgpu", "wasm"] : ["wasm"];
@@ -109,7 +119,7 @@ async function getDemucsProcessor(onProgress) {
         enableCpuMemArena: false,
         enableMemPattern: false,
       },
-      onProgress,
+      onProgress: (progress) => onProgress({ stage: "separating", ...progress }),
     });
     const model = await fetchModel((loaded, total) => onProgress({
       stage: "download",
@@ -117,7 +127,7 @@ async function getDemucsProcessor(onProgress) {
       total,
     }));
     onProgress({ stage: "loading-model" });
-    await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    await new Promise((resolve) => setTimeout(resolve, 0));
     await processor.loadModel(model);
     return processor;
   })().catch((error) => {
@@ -142,7 +152,7 @@ async function toStereo44100(audioBuffer) {
     return { left: channel, right: channel };
   }
 
-  const OfflineAudioContext = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  const OfflineAudioContext = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
   if (!OfflineAudioContext) throw new Error("This browser cannot resample audio for separation.");
   const frameCount = Math.max(1, Math.round(audioBuffer.duration * SAMPLE_RATE));
   const offlineContext = new OfflineAudioContext(2, frameCount, SAMPLE_RATE);
@@ -157,9 +167,47 @@ async function toStereo44100(audioBuffer) {
   };
 }
 
-export async function separateAudioBuffer(audioBuffer, onProgress = () => {}) {
-  const { left, right } = await toStereo44100(audioBuffer);
+export async function separateAudioChannels(left, right, onProgress = () => {}) {
   const processor = await getDemucsProcessor(onProgress);
   const stems = await processor.separate(left, right);
   return { stems, sampleRate: SAMPLE_RATE };
+}
+
+export async function separateAudioBuffer(audioBuffer, onProgress = () => {}) {
+  const { left, right } = await toStereo44100(audioBuffer);
+  const workerLeft = left.slice();
+  const workerRight = right.slice();
+  const workerUrl = new URL("./audio-separation-worker.js", import.meta.url);
+  workerUrl.search = new URL(import.meta.url).search;
+  const worker = new Worker(workerUrl);
+  return new Promise((resolve, reject) => {
+    let finished = false;
+    const finish = (callback, value) => {
+      if (finished) return;
+      finished = true;
+      worker.terminate();
+      callback(value);
+    };
+    worker.onmessage = ({ data }) => {
+      if (data.type === "progress") {
+        onProgress(data.progress);
+      } else if (data.type === "result") {
+        finish(resolve, data.result);
+      } else if (data.type === "error") {
+        finish(reject, new Error(data.message));
+      }
+    };
+    worker.onerror = (event) => {
+      event.preventDefault();
+      finish(reject, new Error(event.message || "Audio separation worker failed."));
+    };
+    try {
+      worker.postMessage(
+        { type: "separate", left: workerLeft, right: workerRight },
+        [workerLeft.buffer, workerRight.buffer],
+      );
+    } catch (error) {
+      finish(reject, error);
+    }
+  });
 }
