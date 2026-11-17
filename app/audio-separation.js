@@ -43,28 +43,34 @@ async function fetchModel(onDownloadProgress) {
   });
   if (!response.ok) throw new Error(`Could not download the separation model (HTTP ${response.status}).`);
   const total = Number(response.headers.get("content-length")) || 0;
-  if (!response.body) {
+  if (!response.body || !Number.isSafeInteger(total) || total <= 0) {
     const buffer = await response.arrayBuffer();
-    onDownloadProgress(buffer.byteLength, total || buffer.byteLength);
+    onDownloadProgress(buffer.byteLength, buffer.byteLength);
     return buffer;
   }
 
+  const bytes = new Uint8Array(total);
   const reader = response.body.getReader();
-  const chunks = [];
   let loaded = 0;
+  let lastProgressAt = 0;
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    chunks.push(value);
+    if (loaded + value.byteLength > total) {
+      throw new Error("The separation model download exceeded its expected size.");
+    }
+    bytes.set(value, loaded);
     loaded += value.byteLength;
-    onDownloadProgress(loaded, total);
+    const now = performance.now();
+    if (now - lastProgressAt >= 200) {
+      onDownloadProgress(loaded, total);
+      lastProgressAt = now;
+    }
   }
-  const bytes = new Uint8Array(loaded);
-  let offset = 0;
-  chunks.forEach((chunk) => {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  });
+  if (loaded !== total) {
+    throw new Error(`The separation model download was incomplete (${loaded} of ${total} bytes).`);
+  }
+  onDownloadProgress(loaded, total);
   return bytes.buffer;
 }
 
@@ -110,6 +116,8 @@ async function getDemucsProcessor(onProgress) {
       loaded,
       total,
     }));
+    onProgress({ stage: "loading-model" });
+    await new Promise((resolve) => window.requestAnimationFrame(resolve));
     await processor.loadModel(model);
     return processor;
   })().catch((error) => {

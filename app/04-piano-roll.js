@@ -373,6 +373,11 @@
     }
     if (dialog.open) {
       preview.animationFrame = window.requestAnimationFrame(() => drawDansBpmSynthVisualizer(dialog));
+    } else if (progress.stage === "loading-model") {
+      pianoAudioScanStatus = {
+        clipId: clip.id,
+        text: "Initializing the separation model in your browser…",
+      };
     } else {
       preview.animationFrame = null;
     }
