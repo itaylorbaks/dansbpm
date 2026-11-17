@@ -19219,6 +19219,8 @@ const DRIVE_SAMPLE_TRACKS = [
 
   let arrangementSliceMode = false;
   const reversedAudioClipBuffers = new WeakMap();
+  const stretchedAudioClipBuffers = new WeakMap();
+  let audioStretchModulePromise = null;
 
   function setArrangementSliceMode(enabled) {
     arrangementSliceMode = enabled;
@@ -19328,26 +19330,76 @@ const DRIVE_SAMPLE_TRACKS = [
     return reversed;
   }
 
+  function getAudioClipStretchSettings(clip) {
+    const tempoRatio = getAudioClipTempoRatio(clip);
+    const pitchSemitones = Number.isFinite(clip.audioAdjustment?.keyShiftSemitones)
+      ? clip.audioAdjustment.keyShiftSemitones : 0;
+    return {
+      tempoRatio,
+      pitchSemitones,
+      key: `${tempoRatio}:${pitchSemitones}:${clip.reversed === true}`,
+    };
+  }
+
+  async function prepareAudioClipPlaybackBuffer(context, clip) {
+    const { tempoRatio, pitchSemitones, key } = getAudioClipStretchSettings(clip);
+    if (Math.abs(tempoRatio - 1) < 0.001 && Math.abs(pitchSemitones) < 0.001) return;
+
+    let cached = stretchedAudioClipBuffers.get(clip);
+    if (cached?.key === key && cached.sourceBuffer === clip.buffer) {
+      await cached.promise;
+      return;
+    }
+
+    const sourceBuffer = clip.reversed ? getReversedAudioClipBuffer(context, clip.buffer) : clip.buffer;
+    if (!audioStretchModulePromise) audioStretchModulePromise = import("./app/audio-stretch.js");
+    const entry = {
+      key,
+      sourceBuffer: clip.buffer,
+      buffer: null,
+      promise: audioStretchModulePromise.then(({ stretchAudioBuffer }) =>
+        stretchAudioBuffer(context, sourceBuffer, tempoRatio, pitchSemitones)),
+    };
+    stretchedAudioClipBuffers.set(clip, entry);
+    try {
+      entry.buffer = await entry.promise;
+    } catch (error) {
+      if (stretchedAudioClipBuffers.get(clip) === entry) stretchedAudioClipBuffers.delete(clip);
+      throw new Error(`Could not time-stretch ${clip.name}: ${error.message || "audio processing failed"}`);
+    }
+  }
+
+  function getAudioClipPlaybackBuffer(context, clip) {
+    const { tempoRatio, pitchSemitones, key } = getAudioClipStretchSettings(clip);
+    if (Math.abs(tempoRatio - 1) < 0.001 && Math.abs(pitchSemitones) < 0.001) {
+      return clip.reversed ? getReversedAudioClipBuffer(context, clip.buffer) : clip.buffer;
+    }
+    const cached = stretchedAudioClipBuffers.get(clip);
+    if (cached?.key !== key || cached.sourceBuffer !== clip.buffer || !cached.buffer) {
+      throw new Error(`The time-stretched audio for ${clip.name} is not ready.`);
+    }
+    return cached.buffer;
+  }
+
+  async function prepareAudioClipPlaybackBuffers(startBar, endBar) {
+    for (const track of state.arrangementTracks) {
+      for (const clip of track.clips) {
+        const clipEndBar = clip.startBar + getArrangementClipDuration("audio", clip);
+        if (clipEndBar <= startBar || clip.startBar >= endBar) continue;
+        await prepareAudioClipPlaybackBuffer(state.audioContext, clip);
+      }
+    }
+  }
+
   function createAudioClipPlaybackSource(context, track, clip, segment, when, secondsPerBar) {
     const source = context.createBufferSource();
-    const buffer = clip.reversed ? getReversedAudioClipBuffer(context, clip.buffer) : clip.buffer;
+    const buffer = getAudioClipPlaybackBuffer(context, clip);
     const envelope = context.createGain();
     const tempoRatio = getAudioClipTempoRatio(clip);
-    const keyShiftSemitones = Number.isFinite(clip.audioAdjustment?.keyShiftSemitones)
-      ? clip.audioAdjustment.keyShiftSemitones : 0;
-    const pitchCorrection = keyShiftSemitones - 12 * Math.log2(tempoRatio);
-    let pitchNode = null;
     source.buffer = buffer;
-    if (Math.abs(pitchCorrection) >= 0.001 && state.masterPitchSupported !== false) {
-      pitchNode = new window.AudioWorkletNode(context, "dansbpm-master-pitch");
-      pitchNode.parameters.get("semitones").setValueAtTime(pitchCorrection, when);
-      source.connect(pitchNode);
-      pitchNode.connect(envelope);
-    } else {
-      source.connect(envelope);
-    }
+    source.connect(envelope);
     envelope.connect(track.gainNode);
-    source.playbackRate.setValueAtTime(tempoRatio, when);
+    source.playbackRate.setValueAtTime(1, when);
 
     const clipDuration = getArrangementClipDuration("audio", clip) * secondsPerBar;
     const segmentOffset = Math.max(0, (segment.startBar - clip.startBar) * secondsPerBar);
@@ -19368,11 +19420,11 @@ const DRIVE_SAMPLE_TRACKS = [
       envelope.gain.value = clipGain;
     }
 
-    const sourceOffset = clip.reversed
+    const sourceOffset = (clip.reversed
       ? clip.buffer.duration - segment.sourceOffsetSeconds - segment.durationSeconds
-      : segment.sourceOffsetSeconds;
-    source.start(when, Math.max(0, sourceOffset), segment.durationSeconds);
-    return { source, envelope, pitchNode };
+      : segment.sourceOffsetSeconds) / tempoRatio;
+    source.start(when, Math.max(0, sourceOffset), segment.durationSeconds / tempoRatio);
+    return { source, envelope };
   }
 
   function openAudioClipEditor(track, clip) {
@@ -20438,9 +20490,7 @@ const DRIVE_SAMPLE_TRACKS = [
         state.bpm = Math.max(60, Math.min(180, roundBpm(detectedMetadata.bpm)));
         tempoValue.textContent = String(state.bpm);
       }
-      let audioAdjustment = getAudioClipProjectAdjustment(audioMetadata, tempoChoice === "audio-to-project");
-      const adjustmentBlocked = Boolean(audioAdjustment && state.masterPitchSupported === false);
-      if (adjustmentBlocked) audioAdjustment = null;
+      const audioAdjustment = getAudioClipProjectAdjustment(audioMetadata, tempoChoice === "audio-to-project");
       let track = state.arrangementTracks.find((item) => item.id === trackId);
       if (!track) track = createArrangementTrack(file.name);
       else if (!track.clips.length && /^Track \d+$/.test(track.name)) track.name = file.name;
@@ -20469,9 +20519,8 @@ const DRIVE_SAMPLE_TRACKS = [
       } catch {
         showToast("Recording added for this session, but browser storage is unavailable.");
       }
-      if (adjustmentBlocked) {
-        showToast(`${file.name} was added without key or tempo matching because pitch-preserving adjustment is unavailable.${alignmentNotice}`);
-      } else if (audioAdjustment) {
+      void prepareAudioClipPlaybackBuffer(state.audioContext, clip).catch((error) => showToast(error.message));
+      if (audioAdjustment) {
         const targets = [
           audioAdjustment.targetKey,
           audioAdjustment.targetBpm ? `${audioAdjustment.targetBpm} BPM` : null,
@@ -22029,14 +22078,6 @@ const DRIVE_SAMPLE_TRACKS = [
       if (requestId !== state.playbackRequestId) return;
       await loadLibrarySamplesForPlayback(mode);
       if (requestId !== state.playbackRequestId) return;
-      state.isStartingPlayback = false;
-      if (startAtMs === null && !remote && collaboration.session &&
-        collaboration.socket?.readyState === WebSocket.OPEN) {
-        startAtMs = Date.now() + 1500;
-        sendCollaborationMessage({ type: "transport", action: "play", mode, startAtMs });
-      }
-      state.isPlaying = true;
-      state.playbackMode = mode;
       const arrangementPlayback = mode === "arrangement";
       const { startBar: loopStartBar, endBar: loopEndBar } = getArrangementLoopRange();
       const startBar = arrangementPlayback
@@ -22045,6 +22086,19 @@ const DRIVE_SAMPLE_TRACKS = [
           ? loopStartBar
           : Math.min(state.arrangementCursor, state.arrangementBars - 1)
         : 0;
+      if (arrangementPlayback) {
+        await prepareAudioClipPlaybackBuffers(startBar,
+          state.arrangementLoopEnabled ? loopEndBar : state.arrangementBars);
+        if (requestId !== state.playbackRequestId) return;
+      }
+      state.isStartingPlayback = false;
+      if (startAtMs === null && !remote && collaboration.session &&
+        collaboration.socket?.readyState === WebSocket.OPEN) {
+        startAtMs = Date.now() + 1500;
+        sendCollaborationMessage({ type: "transport", action: "play", mode, startAtMs });
+      }
+      state.isPlaying = true;
+      state.playbackMode = mode;
       state.playbackStartBar = startBar;
       const scheduledStartTime = state.audioContext.currentTime + Math.max(
         0.04,
@@ -25468,6 +25522,7 @@ const DRIVE_SAMPLE_TRACKS = [
       state.masterLimiter = createMasterLimiter(context);
       await connectMasterPitchProcessor(context);
       state.noiseBuffer = createNoiseBuffer(context);
+      await prepareAudioClipPlaybackBuffers(0, duration / secondsPerBar);
       const hasSolo = [...state.tracks, ...state.arrangementTracks].some((track) => track.solo);
       const arrangementPatternTrackIds = getArrangementPatternTrackIds();
       const hasArrangementSolo = [

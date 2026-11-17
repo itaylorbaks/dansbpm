@@ -726,14 +726,6 @@
       if (requestId !== state.playbackRequestId) return;
       await loadLibrarySamplesForPlayback(mode);
       if (requestId !== state.playbackRequestId) return;
-      state.isStartingPlayback = false;
-      if (startAtMs === null && !remote && collaboration.session &&
-        collaboration.socket?.readyState === WebSocket.OPEN) {
-        startAtMs = Date.now() + 1500;
-        sendCollaborationMessage({ type: "transport", action: "play", mode, startAtMs });
-      }
-      state.isPlaying = true;
-      state.playbackMode = mode;
       const arrangementPlayback = mode === "arrangement";
       const { startBar: loopStartBar, endBar: loopEndBar } = getArrangementLoopRange();
       const startBar = arrangementPlayback
@@ -742,6 +734,19 @@
           ? loopStartBar
           : Math.min(state.arrangementCursor, state.arrangementBars - 1)
         : 0;
+      if (arrangementPlayback) {
+        await prepareAudioClipPlaybackBuffers(startBar,
+          state.arrangementLoopEnabled ? loopEndBar : state.arrangementBars);
+        if (requestId !== state.playbackRequestId) return;
+      }
+      state.isStartingPlayback = false;
+      if (startAtMs === null && !remote && collaboration.session &&
+        collaboration.socket?.readyState === WebSocket.OPEN) {
+        startAtMs = Date.now() + 1500;
+        sendCollaborationMessage({ type: "transport", action: "play", mode, startAtMs });
+      }
+      state.isPlaying = true;
+      state.playbackMode = mode;
       state.playbackStartBar = startBar;
       const scheduledStartTime = state.audioContext.currentTime + Math.max(
         0.04,

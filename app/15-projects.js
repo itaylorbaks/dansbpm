@@ -908,6 +908,7 @@
       state.masterLimiter = createMasterLimiter(context);
       await connectMasterPitchProcessor(context);
       state.noiseBuffer = createNoiseBuffer(context);
+      await prepareAudioClipPlaybackBuffers(0, duration / secondsPerBar);
       const hasSolo = [...state.tracks, ...state.arrangementTracks].some((track) => track.solo);
       const arrangementPatternTrackIds = getArrangementPatternTrackIds();
       const hasArrangementSolo = [
