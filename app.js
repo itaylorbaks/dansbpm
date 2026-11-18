@@ -9800,7 +9800,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=aa675fdfb3e6");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=19b0423f1442");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -30252,6 +30252,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
 
     const trackList = document.createElement("div");
     trackList.className = "quick-mixer-track-list";
+    trackList.setAttribute("aria-label", "Mixer lanes; scroll vertically from Master");
+    trackList.tabIndex = 0;
     getMixerTracks().forEach(({ track, type }) => {
       ensureTrackMixerState(track);
       const lane = document.createElement("section");

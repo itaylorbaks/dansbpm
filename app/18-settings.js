@@ -857,6 +857,8 @@
 
     const trackList = document.createElement("div");
     trackList.className = "quick-mixer-track-list";
+    trackList.setAttribute("aria-label", "Mixer lanes; scroll vertically from Master");
+    trackList.tabIndex = 0;
     getMixerTracks().forEach(({ track, type }) => {
       ensureTrackMixerState(track);
       const lane = document.createElement("section");

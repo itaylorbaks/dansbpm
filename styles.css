@@ -1309,8 +1309,9 @@ body:has(#arrangement-view:not([hidden])) .workspace-tabs {
 .quick-piano-cell.is-on { background: var(--accent); }
 .quick-piano-row.is-black .quick-piano-cell { background-color: color-mix(in srgb, var(--panel-raised), black 20%); }
 .quick-piano-row.is-black .quick-piano-cell.is-on { background-color: var(--accent); }
-.quick-mixer-track-list { min-width: 0; min-height: 0; flex: 1; display: flex; align-items: stretch; gap: 7px; overflow: auto; padding: 7px; scrollbar-width: thin; }
-.quick-mixer-lane { width: 175px; min-width: 155px; min-height: 0; flex: 0 0 175px; display: grid; align-content: start; justify-items: center; gap: calc(8px * var(--density-scale)); overflow: auto; border: 1px solid var(--stroke); border-radius: 5px; background: var(--panel-raised); padding: calc(8px * var(--density-scale)); }
+.quick-mixer-track-list { min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; align-items: stretch; gap: 0; overflow-x: hidden; overflow-y: auto; padding: 5px; scroll-padding-block: 5px; scroll-snap-type: y mandatory; scrollbar-width: thin; overscroll-behavior-y: contain; }
+.quick-mixer-track-list:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.quick-mixer-lane { box-sizing: border-box; width: 70%; min-width: 0; min-height: 100%; height: 100%; flex: 0 0 100%; align-self: center; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); align-content: stretch; justify-items: stretch; gap: calc(6px * var(--density-scale)); overflow: hidden; border: 1px solid var(--stroke); border-radius: 5px; background: var(--panel-raised); padding: calc(8px * var(--density-scale)); scroll-snap-align: start; scroll-snap-stop: always; }
 .quick-mixer-title-group { width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
 .quick-mixer-title-group .quick-action-menu-button { height: 19px; padding: 0 4px; font-size: 7px; }
 .quick-mixer-preset-controls { width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
@@ -1319,8 +1320,8 @@ body:has(#arrangement-view:not([hidden])) .workspace-tabs {
 .quick-mixer-knobs { width: 100%; display: flex; align-items: center; justify-content: space-around; gap: 4px; }
 .quick-mixer-knobs .mixer-track-knob { font-size: 7px; }
 .quick-mixer-knobs .mixer-volume-knob { width: 32px; height: 32px; }
-.quick-mixer-effects { width: 100%; max-height: 120px; overflow-y: auto; padding: 5px; }
-.quick-mixer-effects .mixer-effect-slots { display: grid; grid-template-columns: minmax(0, 1fr); }
+.quick-mixer-effects { width: 100%; min-height: 0; max-height: none; display: flex; flex-direction: column; overflow: hidden; padding: 5px; }
+.quick-mixer-effects .mixer-effect-slots { min-height: 0; flex: 1 1 auto; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .quick-mixer-effects .mixer-effect-slot { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .quick-action-content > .settings-note { padding: 6px 2px; }
 .quick-action-panel.is-floating { position: fixed; z-index: 200; min-width: 250px; min-height: 190px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow: visible; border: 1px solid #45464c; border-radius: 6px; box-shadow: 0 12px 36px #000b; }
