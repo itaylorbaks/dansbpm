@@ -177,10 +177,11 @@
     }
     const favorites = instruments.filter(isFavoriteSound);
     if (favorites.length) {
-      const familyGroup = document.createElement("section");
+      const familyGroup = document.createElement("details");
       familyGroup.className = "instrument-family-group";
       familyGroup.dataset.family = "Favorites";
-      const heading = document.createElement("h3");
+      familyGroup.open = Boolean(query);
+      const heading = document.createElement("summary");
       heading.className = "instrument-family-heading";
       heading.textContent = "Favorites";
       familyGroup.append(heading);
@@ -192,10 +193,11 @@
       const family = track.family || (track.kind === "sample" ? "Imported Sounds" : "Drums");
       let familyGroup = families.get(family);
       if (!familyGroup) {
-        familyGroup = document.createElement("section");
+        familyGroup = document.createElement("details");
         familyGroup.className = "instrument-family-group";
         familyGroup.dataset.family = family;
-        const heading = document.createElement("h3");
+        familyGroup.open = Boolean(query);
+        const heading = document.createElement("summary");
         heading.className = "instrument-family-heading";
         heading.textContent = family;
         familyGroup.append(heading);
@@ -209,11 +211,12 @@
         const subsectionKey = `drum-kind-${kind.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
         let subsection = familyGroup.querySelector(`[data-subsection="${subsectionKey}"]`);
         if (!subsection) {
-          subsection = document.createElement("section");
+          subsection = document.createElement("details");
           subsection.className = "instrument-kind-group";
           subsection.dataset.subsection = subsectionKey;
           subsection.dataset.category = kind;
-          const heading = document.createElement("h4");
+          subsection.open = Boolean(query);
+          const heading = document.createElement("summary");
           heading.className = "instrument-kind-heading";
           heading.textContent = kind;
           subsection.append(heading);

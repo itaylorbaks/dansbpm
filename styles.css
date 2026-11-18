@@ -305,7 +305,10 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .sound-library-attribution { margin: 10px 0 0; color: #85868b; font-size: 9px; line-height: 1.5; }
 .sound-library-attribution a { color: #aaaeb2; }
 .step-instrument-group { margin-top: 15px; }
-.step-instrument-group h3, .step-mix-group h3 { margin: 0 0 8px; color: #96979c; font-family: var(--mono); font-size: 9px; font-weight: 500; letter-spacing: .7px; text-transform: uppercase; }
+.step-instrument-group-heading { display: flex; align-items: center; justify-content: space-between; margin: 0 0 8px; color: #96979c; font-family: var(--mono); font-size: 9px; font-weight: 500; letter-spacing: .7px; text-transform: uppercase; cursor: pointer; list-style: none; }
+.step-instrument-group-heading::-webkit-details-marker, .instrument-family-heading::-webkit-details-marker, .instrument-kind-heading::-webkit-details-marker { display: none; }
+.step-instrument-group-heading::after, .instrument-family-heading::after, .instrument-kind-heading::after { color: var(--accent); content: "+"; font-size: 12px; }
+.step-instrument-group[open] > .step-instrument-group-heading::after, .instrument-family-group[open] > .instrument-family-heading::after, .instrument-kind-group[open] > .instrument-kind-heading::after { content: "−"; }
 .step-instrument-choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .step-instrument-choice { min-width: 0; min-height: 36px; overflow: hidden; border: 1px solid #34353a; border-radius: 5px; background: #222327; padding: 0 9px; color: #d2d3cf; font-size: 10px; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .step-instrument-choice::before { display: inline-block; width: 6px; height: 6px; margin-right: 7px; border-radius: 2px; background: var(--instrument-color); content: ""; vertical-align: 1px; }
@@ -452,10 +455,10 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .instrument-section-label span { color: #9a9ba0; }
 .instrument-browser { display: flex; flex-direction: column; gap: 5px; }
 .instrument-family-group { display: flex; flex-direction: column; gap: 4px; }
-.instrument-family-heading { margin: 8px 0 2px; border-bottom: 1px solid #303136; padding: 0 0 5px; color: #aeb0b3; font-family: var(--mono); font-size: 8px; font-weight: 600; letter-spacing: .65px; text-transform: uppercase; }
+.instrument-family-heading { display: flex; align-items: center; justify-content: space-between; margin: 8px 0 2px; border-bottom: 1px solid #303136; padding: 0 0 5px; color: #aeb0b3; font-family: var(--mono); font-size: 8px; font-weight: 600; letter-spacing: .65px; text-transform: uppercase; cursor: pointer; list-style: none; }
 .instrument-family-group:first-child .instrument-family-heading { margin-top: 2px; }
 .instrument-kind-group { display: flex; flex-direction: column; gap: 4px; padding-left: 5px; }
-.instrument-kind-heading { margin: 4px 0 1px; color: #818287; font-family: var(--mono); font-size: 7px; font-weight: 500; letter-spacing: .55px; text-transform: uppercase; }
+.instrument-kind-heading { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 1px; color: #818287; font-family: var(--mono); font-size: 7px; font-weight: 500; letter-spacing: .55px; text-transform: uppercase; cursor: pointer; list-style: none; }
 .instrument-source { min-width: 0; display: grid; grid-template-columns: 6px minmax(38px, 1fr) minmax(66px, 100px); align-items: center; gap: 6px; }
 .instrument-source[draggable="true"] { cursor: grab; }
 .instrument-source[draggable="true"]:active { cursor: grabbing; }

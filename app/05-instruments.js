@@ -60,10 +60,12 @@
       groups.get(groupName).push(track);
     });
     const addGroup = (groupName, groupInstruments) => {
-      const group = document.createElement("section");
+      const group = document.createElement("details");
       group.className = "step-instrument-group";
       group.dataset.instrumentGroup = groupName;
-      const heading = document.createElement("h3");
+      group.open = Boolean(query);
+      const heading = document.createElement("summary");
+      heading.className = "step-instrument-group-heading";
       heading.textContent = groupName;
       const choices = document.createElement("div");
       choices.className = "step-instrument-choices";
