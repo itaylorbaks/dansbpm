@@ -73,8 +73,8 @@
       const audioSource = event.dataTransfer?.getData("application/x-pulsegrid-audio-source");
       if (audioSource) {
         try {
-          const { sourceTrackId, clipId } = JSON.parse(audioSource);
-          addAudioAssetClip(sourceTrackId, clipId, trackId, startBar);
+          const { sourceTrackId, clipId, fullSource } = JSON.parse(audioSource);
+          addAudioAssetClip(sourceTrackId, clipId, trackId, startBar, fullSource === true);
         } catch {
           showToast("That audio asset could not be added.");
         }

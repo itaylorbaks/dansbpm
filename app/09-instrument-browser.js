@@ -284,8 +284,21 @@
   function renderRecordingBrowser() {
     const browser = $("#recording-browser");
     browser.replaceChildren();
-    const clips = state.arrangementTracks.flatMap((track) =>
-      track.clips.map((clip) => ({ track, clip })));
+    const clips = [];
+    const slicedSources = new Map();
+    state.arrangementTracks.forEach((track) => {
+      track.clips.forEach((clip) => {
+        if (clip.isMelSlice) {
+          const sourceAssetId = clip.sourceAssetId || clip.id;
+          if (!slicedSources.has(sourceAssetId)) {
+            slicedSources.set(sourceAssetId, { track, clip, fullSource: true });
+          }
+        } else {
+          clips.push({ track, clip, fullSource: false });
+        }
+      });
+    });
+    clips.push(...slicedSources.values());
     $("#recording-source-count").textContent = String(clips.length);
     if (!clips.length) {
       const empty = document.createElement("div");
@@ -294,12 +307,14 @@
       browser.append(empty);
       return;
     }
-    clips.forEach(({ track, clip }) => {
+    clips.forEach(({ track, clip, fullSource }) => {
       const item = document.createElement("button");
       item.className = "recording-source";
       item.type = "button";
       item.draggable = true;
-      item.title = `Drag ${clip.name || track.name} to Track View`;
+      item.title = fullSource
+        ? `Drag the original ${clip.name || track.name} source to Track View`
+        : `Drag ${clip.name || track.name} to Track View`;
       const color = document.createElement("span");
       color.className = "source-color";
       color.style.background = track.color;
@@ -315,10 +330,11 @@
         event.dataTransfer.setData("application/x-pulsegrid-audio-source", JSON.stringify({
           sourceTrackId: track.id,
           clipId: clip.id,
+          fullSource,
         }));
         event.dataTransfer.effectAllowed = "copy";
       });
-      item.addEventListener("click", () => {
+      if (!fullSource) item.addEventListener("click", () => {
         setArrangementCursor(clip.startBar);
         $("#timeline-scroll").scrollLeft = clip.startBar * BAR_WIDTH;
         $("#source-browser-dialog").close();
@@ -467,7 +483,7 @@
     showToast(`${mel.name} added to Track View`);
   }
 
-  function addAudioAssetClip(sourceTrackId, clipId, destinationTrackId, startBar) {
+  function addAudioAssetClip(sourceTrackId, clipId, destinationTrackId, startBar, fullSource = false) {
     const sourceTrack = state.arrangementTracks.find((track) => track.id === sourceTrackId);
     const sourceClip = sourceTrack?.clips.find((clip) => clip.id === clipId);
     if (!sourceTrack || !sourceClip) {
@@ -477,8 +493,21 @@
     const clip = {
       ...sourceClip,
       id: makeId(),
-      startBar: clampArrangementStart(startBar, getArrangementClipDuration("audio", sourceClip)),
     };
+    if (fullSource) {
+      clip.durationSeconds = clip.buffer.duration;
+      clip.sourceOffsetSeconds = 0;
+      clip.repeatCount = 1;
+      clip.clipGain = 1;
+      clip.fadeInSeconds = 0;
+      clip.fadeOutSeconds = 0;
+      clip.reversed = false;
+      delete clip.repeatStartSeconds;
+      delete clip.repeatLengthSeconds;
+      delete clip.isMelSlice;
+      delete clip.sourceAssetId;
+    }
+    clip.startBar = clampArrangementStart(startBar, getArrangementClipDuration("audio", clip));
     const destination = state.arrangementTracks.find((track) => track.id === destinationTrackId)
       || createArrangementTrack(clip.name || sourceTrack.name);
     if (!destination.clips.length && /^Track \d+$/.test(destination.name)) {

@@ -385,6 +385,8 @@
         audioStemGroupId: typeof clip.audioStemGroupId === "string" ? clip.audioStemGroupId : null,
         audioStemSelection: clip.audioStemSelection
           ? normalizeAudioStemSelection(clip.audioStemSelection) : null,
+        ...(clip.isMelSlice === true ? { isMelSlice: true } : {}),
+        ...(typeof clip.sourceAssetId === "string" ? { sourceAssetId: clip.sourceAssetId } : {}),
         volume: track.volume,
         muted: track.muted,
         blob: clip.blob,
@@ -588,6 +590,8 @@
               ? record.audioStemGroupId : makeId(),
             ...(record.audioStemSelection
               ? { audioStemSelection: normalizeAudioStemSelection(record.audioStemSelection) } : {}),
+            ...(record.isMelSlice === true ? { isMelSlice: true } : {}),
+            ...(typeof record.sourceAssetId === "string" ? { sourceAssetId: record.sourceAssetId } : {}),
             buffer,
             blob: record.blob,
             audioMetadata: record.audioMetadata

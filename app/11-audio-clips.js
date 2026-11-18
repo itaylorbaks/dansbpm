@@ -1260,6 +1260,11 @@
           repeatLengthSeconds: totalDuration - leftDuration,
           fadeInSeconds: 0,
         };
+        const sourceAssetId = clip.sourceAssetId || clip.id;
+        clip.isMelSlice = true;
+        clip.sourceAssetId = sourceAssetId;
+        right.isMelSlice = true;
+        right.sourceAssetId = sourceAssetId;
         audioMelAdded = ensureAudioClipMel(clip) || audioMelAdded;
         audioMelAdded = ensureAudioClipMel(right) || audioMelAdded;
         track.clips.push(right);
