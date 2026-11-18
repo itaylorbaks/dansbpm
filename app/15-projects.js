@@ -612,14 +612,18 @@
             const durationBars = Number.isFinite(clip.durationBars)
               ? Math.max(0.01, Math.min(MAX_ARRANGEMENT_BARS, clip.durationBars))
               : (pattern?.steps || 16) / 16 * repeatCount;
+            const tempoLockBpm = Number.isFinite(clip.tempoLockBpm) &&
+              clip.tempoLockBpm >= 30 && clip.tempoLockBpm <= 360 ? clip.tempoLockBpm : null;
+            const timelineDurationBars = durationBars * (tempoLockBpm ? state.bpm / tempoLockBpm : 1);
             return {
               id: clip.id,
               patternId,
               trackId: state.patterns.some((item) => item.id === clip.trackId) ? clip.trackId : patternId,
               repeatCount,
               ...(Number.isFinite(clip.durationBars) ? { durationBars } : {}),
+              ...(tempoLockBpm ? { tempoLockBpm } : {}),
               sourceOffsetBars: Number.isFinite(clip.sourceOffsetBars) ? Math.max(0, clip.sourceOffsetBars) : 0,
-              startBar: Math.max(0, Math.min(MAX_ARRANGEMENT_BARS - durationBars, clip.startBar)),
+              startBar: Math.max(0, Math.min(MAX_ARRANGEMENT_BARS - timelineDurationBars, clip.startBar)),
             };
           });
         state.patternClips.forEach((clip) => {
@@ -751,13 +755,17 @@
                 const durationBars = Number.isFinite(clip.durationBars)
                   ? Math.max(0.01, Math.min(MAX_ARRANGEMENT_BARS, clip.durationBars))
                   : mel ? getMelLengthBars(mel) : 1;
+                const tempoLockBpm = Number.isFinite(clip.tempoLockBpm) &&
+                  clip.tempoLockBpm >= 30 && clip.tempoLockBpm <= 360 ? clip.tempoLockBpm : null;
+                const timelineDurationBars = durationBars * (tempoLockBpm ? state.bpm / tempoLockBpm : 1);
                 return {
                   id: clip.id,
                   melId: clip.melId,
                   repeatCount: Number.isInteger(clip.repeatCount) ? Math.max(1, clip.repeatCount) : 1,
                   ...(Number.isFinite(clip.durationBars) ? { durationBars } : {}),
+                  ...(tempoLockBpm ? { tempoLockBpm } : {}),
                   sourceOffsetBars: Number.isFinite(clip.sourceOffsetBars) ? Math.max(0, clip.sourceOffsetBars) : 0,
-                  startBar: Math.max(0, Math.min(MAX_ARRANGEMENT_BARS - durationBars, clip.startBar)),
+                  startBar: Math.max(0, Math.min(MAX_ARRANGEMENT_BARS - timelineDurationBars, clip.startBar)),
                 };
               }),
           }));
@@ -967,23 +975,26 @@
         const gridStepCount = getGridStepCount(pattern);
         const sourceOffset = clip.sourceOffsetBars || 0;
         const sourceBars = pattern.steps / 16 * (clip.repeatCount || 1);
+        const tempoScale = getArrangementClipTempoRatio(clip);
         const clipDuration = getArrangementClipDuration("pattern", clip);
         const firstStep = Math.max(0, Math.ceil(sourceOffset * stepsPerBar - 0.0001));
-        const lastStep = Math.min(sourceBars * stepsPerBar, Math.ceil((sourceOffset + clipDuration) * stepsPerBar - 0.0001));
+        const lastStep = Math.min(sourceBars * stepsPerBar,
+          Math.ceil((sourceOffset + clipDuration / tempoScale) * stepsPerBar - 0.0001));
         for (let sourceStep = firstStep; sourceStep < lastStep; sourceStep += 1) {
           const sourcePosition = sourceStep / stepsPerBar;
           const relativePosition = sourcePosition - sourceOffset;
           const patternStep = sourceStep % gridStepCount;
           const tick = patternStep * ticksPerGridStep;
-          const time = (clip.startBar + relativePosition) * secondsPerBar +
-            (Math.floor(tick / 2) % 2 === 1 ? getStepDuration() * (state.swing / 100) : 0);
+          const time = (clip.startBar + relativePosition * tempoScale) * secondsPerBar +
+            (Math.floor(tick / 2) % 2 === 1
+              ? getStepDuration() * tempoScale * (state.swing / 100) : 0);
           if (time >= duration) continue;
           patternSources.forEach((track) => {
             if (pattern.cells[track.id]?.[patternStep] && !hasPatternStepPianoNotes(pattern, track.id) &&
               !track.muted && (!hasSolo || track.solo)) {
-              const trackTime = getTrackStepTime(track, patternStep, pattern, time);
+              const trackTime = getTrackStepTime(track, patternStep, pattern, time, tempoScale);
               triggerTrack(track, trackTime, pattern.variants[track.id] || track.variant,
-                getNoteDuration(pattern), patternTrack, getPatternSourceGain(patternTrack, track));
+                getNoteDuration(pattern) * tempoScale, patternTrack, getPatternSourceGain(patternTrack, track));
             }
           });
         }
@@ -995,12 +1006,15 @@
           for (let loop = 0; loop < loopCount; loop += 1) {
             notes.forEach((note) => {
               const sourcePosition = loop * patternBars + note.startTick / PIANO_TICKS_PER_BAR;
-              if (sourcePosition < sourceOffset || sourcePosition >= sourceOffset + clipDuration) return;
-              const startTime = (clip.startBar + sourcePosition - sourceOffset) * secondsPerBar +
-                (Math.floor(note.startTick / 2) % 2 === 1 ? getStepDuration() * (state.swing / 100) : 0);
+              if (sourcePosition < sourceOffset || sourcePosition >= sourceOffset + clipDuration / tempoScale) return;
+              const startTime = (clip.startBar + (sourcePosition - sourceOffset) * tempoScale) * secondsPerBar +
+                (Math.floor(note.startTick / 2) % 2 === 1
+                  ? getStepDuration() * tempoScale * (state.swing / 100) : 0);
               if (startTime >= duration) return;
-              const clipEndDuration = (sourceOffset + clipDuration - sourcePosition) * secondsPerBar;
-              const noteDuration = Math.min(note.durationTicks * getSchedulerTickDuration(), clipEndDuration, duration - startTime);
+              const clipEndDuration = (sourceOffset + clipDuration / tempoScale - sourcePosition) *
+                tempoScale * secondsPerBar;
+              const noteDuration = Math.min(
+                note.durationTicks * getSchedulerTickDuration() * tempoScale, clipEndDuration, duration - startTime);
               if (noteDuration > 0) {
                 playPianoNote(track, startTime, note.midi, noteDuration, note.velocity ?? 0.8,
                   patternTrack, getPatternSourceGain(patternTrack, track), note);

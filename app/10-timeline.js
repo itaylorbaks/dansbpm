@@ -273,14 +273,16 @@
   function getPatternActivityWaveform(pattern, clip, durationBars, sampleCount) {
     const patternBars = pattern.steps / 16;
     const sourceOffset = clip.sourceOffsetBars || 0;
-    const playableBars = Math.min(durationBars, Math.max(0, patternBars * (clip.repeatCount || 1) - sourceOffset));
+    const tempoRatio = getArrangementClipTempoRatio(clip);
+    const playableBars = Math.min(durationBars,
+      Math.max(0, (patternBars * (clip.repeatCount || 1) - sourceOffset) * tempoRatio));
     const stepCount = getGridStepCount(pattern);
     const tracks = getPatternTrackIds(pattern);
     const pianoNotes = Object.values(pattern.stepPianoNotes || {}).flat();
     return Array.from({ length: sampleCount }, (_, index) => {
       const position = (index + 0.5) / sampleCount * durationBars;
       if (!tracks.length || position >= playableBars) return 0;
-      const sourcePosition = (sourceOffset + position) % patternBars;
+      const sourcePosition = (sourceOffset + position / tempoRatio) % patternBars;
       const stepPosition = sourcePosition / patternBars * stepCount;
       const step = Math.min(stepCount - 1, Math.floor(stepPosition));
       const phase = stepPosition - step;
@@ -303,11 +305,13 @@
   function getMelActivityWaveform(mel, clip, durationBars, sampleCount) {
     const sourceOffset = clip.sourceOffsetBars || 0;
     const melBars = getMelLengthBars(mel);
-    const playableBars = Math.min(durationBars, Math.max(0, melBars * (clip.repeatCount || 1) - sourceOffset));
+    const tempoRatio = getArrangementClipTempoRatio(clip);
+    const playableBars = Math.min(durationBars,
+      Math.max(0, (melBars * (clip.repeatCount || 1) - sourceOffset) * tempoRatio));
     return Array.from({ length: sampleCount }, (_, index) => {
-      const position = sourceOffset + (index + 0.5) / sampleCount * durationBars;
-      if (position >= sourceOffset + playableBars) return 0;
-      const sourcePosition = position % melBars;
+      const position = (index + 0.5) / sampleCount * durationBars;
+      if (position >= playableBars) return 0;
+      const sourcePosition = (sourceOffset + position / tempoRatio) % melBars;
       return mel.notes.reduce((level, note) => {
         const start = note.startTick / PIANO_TICKS_PER_BAR;
         const duration = note.durationTicks / PIANO_TICKS_PER_BAR;
@@ -507,15 +511,17 @@
       if (target.type === "audio") {
         target.clip.durationSeconds = durationBars * (240 / state.bpm) * getAudioClipTempoRatio(target.clip);
       } else {
-        target.clip.durationBars = durationBars;
+        target.clip.durationBars = durationBars / getArrangementClipTempoRatio(target.clip);
       }
       if (mode !== "repeat") return;
+      const tempoRatio = target.type === "audio" ? 1 : getArrangementClipTempoRatio(target.clip);
       const repeatLength = getArrangementClipRepeatLength(target.type, target.clip);
       const sourceOffset = target.type === "mel" ? target.clip.sourceOffsetBars || 0
         : target.type === "audio" ? (target.clip.sourceOffsetSeconds || 0) /
           ((240 / state.bpm) * getAudioClipTempoRatio(target.clip))
           : target.clip.sourceOffsetBars || 0;
-      target.clip.repeatCount = Math.max(1, Math.ceil((sourceOffset + durationBars - 0.0001) / repeatLength));
+      target.clip.repeatCount = Math.max(1, Math.ceil(
+        (sourceOffset + durationBars / tempoRatio - 0.0001) / (repeatLength / tempoRatio)));
     };
 
     const updateDuration = (durationBars) => {
@@ -531,12 +537,14 @@
         const mel = getMel(clip.melId);
         if (mel) {
           labelElement.textContent = `${mel.name.toUpperCase()} · ${duration.toFixed(2)} BAR${duration === 1 ? "" : "S"}`;
-          updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength(type, clip), duration, clip.sourceOffsetBars || 0);
+          updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength(type, clip), duration,
+            (clip.sourceOffsetBars || 0) * getArrangementClipTempoRatio(clip));
         }
       } else if (type === "pattern") {
         const pattern = getPattern(clip.patternId);
         labelElement.textContent = `${(pattern?.name || "DRUM PATTERN").toUpperCase()} · ${duration.toFixed(2)} BAR${duration === 1 ? "" : "S"}`;
-        if (pattern) updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength(type, clip), duration, clip.sourceOffsetBars || 0);
+        if (pattern) updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength(type, clip), duration,
+          (clip.sourceOffsetBars || 0) * getArrangementClipTempoRatio(clip));
       }
       element.setAttribute("aria-label", `${name}, bar ${clip.startBar + 1}, ${duration.toFixed(2)} bars; drag to move or resize`);
     };

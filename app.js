@@ -9048,7 +9048,7 @@ const DRIVE_SAMPLE_TRACKS = [
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=0df25bef2f3b");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=76775c4e6118");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -12522,8 +12522,7 @@ const DRIVE_SAMPLE_TRACKS = [
         }))),
         ...state.arrangementTracks.flatMap((track) => track.clips.map((clip) => ({
           startTick: clip.startBar * PIANO_TICKS_PER_BAR,
-          durationTicks: (clip.durationSeconds ?? clip.buffer?.duration ?? 0) /
-            (240 / state.bpm) * PIANO_TICKS_PER_BAR,
+          durationTicks: getArrangementClipDuration("audio", clip) * PIANO_TICKS_PER_BAR,
           velocity: 0.7,
         }))),
       ];
@@ -13931,13 +13930,14 @@ const DRIVE_SAMPLE_TRACKS = [
       const stepsPerBar = getStepsPerBar(pattern);
       const sourceOffset = clip.sourceOffsetBars || 0;
       const sourceBars = pattern.steps / 16 * (clip.repeatCount || 1);
+      const tempoScale = getArrangementClipTempoRatio(clip);
       const clipDuration = getArrangementClipDuration("pattern", clip);
       const sourceEndStep = Math.min(sourceBars * stepsPerBar,
-        Math.ceil((sourceOffset + clipDuration) * stepsPerBar - 0.0001));
-      const currentSourceStep = (sourceOffset + currentBar - clip.startBar) * stepsPerBar;
+        Math.ceil((sourceOffset + clipDuration / tempoScale) * stepsPerBar - 0.0001));
+      const currentSourceStep = (sourceOffset + (currentBar - clip.startBar) / tempoScale) * stepsPerBar;
       const firstStep = Math.max(0, Math.ceil(sourceOffset * stepsPerBar - 0.0001), Math.floor(currentSourceStep) - 3);
       const lastStep = Math.min(sourceEndStep,
-        Math.ceil((sourceOffset + currentBar + lookAheadBars - clip.startBar) * stepsPerBar) + 4);
+        Math.ceil((sourceOffset + (currentBar + lookAheadBars - clip.startBar) / tempoScale) * stepsPerBar) + 4);
       const gridStepCount = getGridStepCount(pattern);
       const ticksPerGridStep = getGridTicksPerStep(pattern);
       const patternTrackIds = getPatternTrackIds(pattern);
@@ -13947,9 +13947,10 @@ const DRIVE_SAMPLE_TRACKS = [
         const sourceOffsetBars = sourcePosition - sourceOffset;
         const patternStep = sourceStep % gridStepCount;
         const tick = patternStep * ticksPerGridStep;
-        const bar = clip.startBar + sourceOffsetBars;
+        const bar = clip.startBar + sourceOffsetBars * tempoScale;
         const time = getDjSongTimeForBar(deck, bar) +
-          (Math.floor(tick / 2) % 2 === 1 ? getStepDuration() * state.swing / 100 / deck.songRate : 0);
+          (Math.floor(tick / 2) % 2 === 1
+            ? getStepDuration() * tempoScale * state.swing / 100 / deck.songRate : 0);
         if (!isInLookAhead(time)) continue;
         state.tracks.forEach((track) => {
           if (!patternTrackIds.includes(track.id) || !pattern.cells?.[track.id]?.[patternStep] ||
@@ -13957,10 +13958,11 @@ const DRIVE_SAMPLE_TRACKS = [
             hasPatternStepPianoNotes(pattern, track.id)) return;
           const eventKey = `pattern:${clip.id}:${sourceStep}:${track.id}`;
           if (deck.songEvents.has(eventKey)) return;
-          const trackTime = time + (getTrackStepTime(track, patternStep, pattern, time) - time) / deck.songRate;
+          const trackTime = time +
+            (getTrackStepTime(track, patternStep, pattern, time, tempoScale) - time) / deck.songRate;
           const volume = (patternTrack.volume ?? 1) * (track.volume ?? 1);
           triggerTrack(track, trackTime, pattern.variants?.[track.id] || track.variant,
-            getNoteDuration(pattern) / deck.songRate, patternTrack,
+            getNoteDuration(pattern) * tempoScale / deck.songRate, patternTrack,
             getDjSongGain(deck, `pattern:${clip.id}:${track.id}`, volume));
           deck.songEvents.add(eventKey);
         });
@@ -13976,14 +13978,17 @@ const DRIVE_SAMPLE_TRACKS = [
         for (let loop = 0; loop < loopCount; loop += 1) {
           notes.forEach((note) => {
             const sourcePosition = loop * patternBars + note.startTick / PIANO_TICKS_PER_BAR;
-            if (sourcePosition < sourceOffset || sourcePosition >= sourceOffset + clipDuration) return;
-            const bar = clip.startBar + sourcePosition - sourceOffset;
+            if (sourcePosition < sourceOffset || sourcePosition >= sourceOffset + clipDuration / tempoScale) return;
+            const bar = clip.startBar + (sourcePosition - sourceOffset) * tempoScale;
             const time = getDjSongTimeForBar(deck, bar) +
-              (Math.floor(note.startTick / 2) % 2 === 1 ? getStepDuration() * state.swing / 100 / deck.songRate : 0);
+              (Math.floor(note.startTick / 2) % 2 === 1
+                ? getStepDuration() * tempoScale * state.swing / 100 / deck.songRate : 0);
             const eventKey = `pattern-piano:${clip.id}:${trackId}:${loop}:${note.id}`;
             if (deck.songEvents.has(eventKey) || !isInLookAhead(time)) return;
-            const clipEnd = (sourceOffset + clipDuration - sourcePosition) * secondsPerBar;
-            const duration = Math.min(note.durationTicks * getSchedulerTickDuration() / deck.songRate, clipEnd);
+            const clipEnd = (sourceOffset + clipDuration / tempoScale - sourcePosition) *
+              tempoScale * secondsPerBar;
+            const duration = Math.min(
+              note.durationTicks * getSchedulerTickDuration() * tempoScale / deck.songRate, clipEnd);
             if (duration > 0) {
               playPianoNote(track, time, note.midi, duration, note.velocity ?? 0.8, patternTrack,
                 getDjSongGain(deck, `pattern:${clip.id}:${trackId}`, (patternTrack.volume ?? 1) * (track.volume ?? 1)), note);
@@ -14896,14 +14901,14 @@ const DRIVE_SAMPLE_TRACKS = [
     });
   }
 
-  function getTrackStepTime(track, step, pattern, time) {
+  function getTrackStepTime(track, step, pattern, time, tempoScale = 1) {
     const ticksPerStep = getGridTicksPerStep(pattern);
     const isSwingStep = ticksPerStep === 1
       ? Math.floor(step / 2) % 2 === 1
       : ticksPerStep <= 4 && step % 2 === 1;
     const swingAmount = Number.isFinite(track.swing) ? track.swing : state.swing;
     const swingDelta = swingAmount - (ticksPerStep <= 2 ? state.swing : 0);
-    return time + (isSwingStep ? getStepDuration() * swingDelta / 100 : 0);
+    return time + (isSwingStep ? getStepDuration() * tempoScale * swingDelta / 100 : 0);
   }
 
   function getPatternSourceGain(patternTrack, sourceTrack) {
@@ -14919,7 +14924,7 @@ const DRIVE_SAMPLE_TRACKS = [
     return gain;
   }
 
-  function schedulePatternPianoNotes(pattern, tick, time, outputTrack = null) {
+  function schedulePatternPianoNotes(pattern, tick, time, outputTrack = null, tempoScale = 1) {
     const patternTrackIds = new Set(getPatternTrackIds(pattern));
     const hasSolo = state.tracks.some((track) => track.solo);
     Object.entries(pattern.stepPianoNotes || {}).forEach(([trackId, notes]) => {
@@ -14929,15 +14934,17 @@ const DRIVE_SAMPLE_TRACKS = [
       notes.filter((note) => note.startTick >= tick && note.startTick < tick + 1).forEach((note) => {
         const destination = outputTrack && outputTrack !== track ? outputTrack : track;
         const outputNode = destination !== track ? getPatternSourceGain(destination, track) : null;
-        const noteTime = time + (note.startTick - tick) * getSchedulerTickDuration() +
-          (Math.floor(note.startTick / 2) % 2 === 1 ? getStepDuration() * (state.swing / 100) : 0);
+        const noteTime = time + (note.startTick - tick) * getSchedulerTickDuration() * tempoScale +
+          (Math.floor(note.startTick / 2) % 2 === 1
+            ? getStepDuration() * tempoScale * (state.swing / 100) : 0);
         playPianoNote(track, noteTime, note.midi,
-          note.durationTicks * getSchedulerTickDuration(), note.velocity ?? 0.8, destination, outputNode, note);
+          note.durationTicks * getSchedulerTickDuration() * tempoScale, note.velocity ?? 0.8, destination, outputNode, note);
       });
     });
   }
 
-  function scheduleStep(step, time, pattern = null, loopIndex = null, updatePlayhead = true, highlightPlayer = null, outputTrack = null) {
+  function scheduleStep(step, time, pattern = null, loopIndex = null, updatePlayhead = true, highlightPlayer = null,
+    outputTrack = null, tempoScale = 1) {
     const activeTracks = pattern
       ? state.tracks.filter((track) => getPatternTrackIds(pattern).includes(track.id))
       : state.tracks;
@@ -14950,9 +14957,9 @@ const DRIVE_SAMPLE_TRACKS = [
         if (pattern && loopIndex !== null &&
           state.liveRecordedHits.delete(`${pattern.id}:${loopIndex}:${track.id}:${step}`)) return;
         const gridPattern = pattern || getPattern();
-        const trackTime = getTrackStepTime(track, step, gridPattern, time);
+        const trackTime = getTrackStepTime(track, step, gridPattern, time, tempoScale);
         const outputNode = outputTrack && outputTrack !== track ? getPatternSourceGain(outputTrack, track) : null;
-        triggerTrack(track, trackTime, variant, getNoteDuration(gridPattern), outputTrack || track, outputNode);
+        triggerTrack(track, trackTime, variant, getNoteDuration(gridPattern) * tempoScale, outputTrack || track, outputNode);
       }
     });
     if (!updatePlayhead && !highlightPlayer) return;
@@ -15035,13 +15042,15 @@ const DRIVE_SAMPLE_TRACKS = [
       const stepsPerBar = getStepsPerBar(pattern);
       const sourceOffset = clip.sourceOffsetBars || 0;
       const sourceBars = pattern.steps / 16 * (clip.repeatCount || 1);
+      const tempoScale = getArrangementClipTempoRatio(clip);
+      const clipDuration = getArrangementClipDuration("pattern", clip);
       const sourceEndStep = Math.min(sourceBars * stepsPerBar,
-        Math.ceil((sourceOffset + getArrangementClipDuration("pattern", clip)) * stepsPerBar - 0.0001));
+        Math.ceil((sourceOffset + clipDuration / tempoScale) * stepsPerBar - 0.0001));
       const clipStartTime = state.playbackStartTime + (clip.startBar - state.playbackStartBar) * secondsPerBar;
-      const currentSourceStep = (sourceOffset + (now - clipStartTime) / secondsPerBar) * stepsPerBar;
+      const currentSourceStep = (sourceOffset + (now - clipStartTime) / secondsPerBar / tempoScale) * stepsPerBar;
       const firstStep = Math.max(0, Math.ceil(sourceOffset * stepsPerBar - 0.0001), Math.floor(currentSourceStep) - 3);
       const lastStep = Math.min(sourceEndStep,
-        Math.ceil((sourceOffset + (now + lookAhead - clipStartTime) / secondsPerBar) * stepsPerBar) + 4);
+        Math.ceil((sourceOffset + (now + lookAhead - clipStartTime) / secondsPerBar / tempoScale) * stepsPerBar) + 4);
       const gridStepCount = getGridStepCount(pattern);
       const ticksPerGridStep = getGridTicksPerStep(pattern);
       const patternTrack = state.patterns.find((item) => item.id === (clip.trackId || clip.patternId)) || pattern;
@@ -15050,13 +15059,14 @@ const DRIVE_SAMPLE_TRACKS = [
         const relativePosition = sourcePosition - sourceOffset;
         const patternStep = sourceStep % gridStepCount;
         const tick = patternStep * ticksPerGridStep;
-        const time = clipStartTime + relativePosition * secondsPerBar +
-          (Math.floor(tick / 2) % 2 === 1 ? getStepDuration() * (state.swing / 100) : 0);
+        const time = clipStartTime + relativePosition * tempoScale * secondsPerBar +
+          (Math.floor(tick / 2) % 2 === 1
+            ? getStepDuration() * tempoScale * (state.swing / 100) : 0);
         if (time < now || time < notBefore || time >= now + lookAhead || time >= state.playbackEndTime) continue;
         const key = `${state.arrangementLoopIteration}:${clip.id}:${sourceStep}`;
         if (state.scheduledArrangementSteps.has(key)) continue;
         scheduleArrangementVoice(() =>
-          scheduleStep(patternStep, time, pattern, null, false, null, patternTrack));
+          scheduleStep(patternStep, time, pattern, null, false, null, patternTrack, tempoScale));
         state.scheduledArrangementSteps.add(key);
       }
       const hasSolo = state.tracks.some((track) => track.solo);
@@ -15069,14 +15079,16 @@ const DRIVE_SAMPLE_TRACKS = [
         for (let loop = 0; loop < loopCount; loop += 1) {
           notes.forEach((note) => {
             const sourcePosition = loop * patternBars + note.startTick / PIANO_TICKS_PER_BAR;
-            if (sourcePosition < sourceOffset || sourcePosition >= sourceOffset + getArrangementClipDuration("pattern", clip)) return;
-            const when = clipStartTime + (sourcePosition - sourceOffset) * secondsPerBar +
-              (Math.floor(note.startTick / 2) % 2 === 1 ? getStepDuration() * (state.swing / 100) : 0);
+            if (sourcePosition < sourceOffset || sourcePosition >= sourceOffset + clipDuration / tempoScale) return;
+            const when = clipStartTime + (sourcePosition - sourceOffset) * tempoScale * secondsPerBar +
+              (Math.floor(note.startTick / 2) % 2 === 1
+                ? getStepDuration() * tempoScale * (state.swing / 100) : 0);
             if (when < now || when < notBefore || when >= now + lookAhead || when >= state.playbackEndTime) return;
             const key = `${state.arrangementLoopIteration}:${clip.id}:piano:${trackId}:${loop}:${note.id}`;
             if (state.scheduledArrangementSteps.has(key)) return;
-            const clipEnd = (sourceOffset + getArrangementClipDuration("pattern", clip) - sourcePosition) * secondsPerBar;
-            const noteDuration = Math.min(note.durationTicks * getSchedulerTickDuration(), clipEnd);
+            const clipEnd = (sourceOffset + clipDuration / tempoScale - sourcePosition) *
+              tempoScale * secondsPerBar;
+            const noteDuration = Math.min(note.durationTicks * getSchedulerTickDuration() * tempoScale, clipEnd);
             if (noteDuration > 0) {
               scheduleArrangementVoice(() =>
                 playPianoNote(track, when, note.midi, noteDuration, note.velocity ?? 0.8,
@@ -15770,10 +15782,18 @@ const DRIVE_SAMPLE_TRACKS = [
   }
 
   function getAudioClipTempoRatio(clip) {
+    if (Number.isFinite(clip.tempoRatioOverride) && clip.tempoRatioOverride > 0) {
+      return clip.tempoRatioOverride;
+    }
     const sourceBpm = clip.audioAdjustment?.sourceBpm ?? normalizeAudioMetadata(clip.audioMetadata).bpm;
     if (Number.isFinite(sourceBpm) && sourceBpm > 0) return state.bpm / sourceBpm;
     const ratio = clip.audioAdjustment?.tempoRatio;
     return Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
+  }
+
+  function getArrangementClipTempoRatio(clip) {
+    return Number.isFinite(clip.tempoLockBpm) && clip.tempoLockBpm > 0
+      ? state.bpm / clip.tempoLockBpm : 1;
   }
 
   function isProjectEmptyForAudioImport() {
@@ -16562,25 +16582,28 @@ const DRIVE_SAMPLE_TRACKS = [
   }
 
   function getArrangementClipDuration(type, clip) {
+    const tempoRatio = getArrangementClipTempoRatio(clip);
     if (type === "pattern") {
-      return Number.isFinite(clip.durationBars)
+      const durationBars = Number.isFinite(clip.durationBars)
         ? clip.durationBars
         : (getPattern(clip.patternId)?.steps || 16) / 16 * (clip.repeatCount || 1);
+      return durationBars * tempoRatio;
     }
     if (type === "mel") {
-      if (Number.isFinite(clip.durationBars)) return clip.durationBars;
+      if (Number.isFinite(clip.durationBars)) return clip.durationBars * tempoRatio;
       const mel = getMel(clip.melId);
-      return mel ? getMelLengthBars(mel) : 1;
+      return (mel ? getMelLengthBars(mel) : 1) * tempoRatio;
     }
-    const tempoRatio = getAudioClipTempoRatio(clip);
+    const audioTempoRatio = getAudioClipTempoRatio(clip);
     return Number.isFinite(clip.durationSeconds)
-      ? clip.durationSeconds / tempoRatio / (240 / state.bpm)
-      : clip.buffer.duration / tempoRatio / (240 / state.bpm);
+      ? clip.durationSeconds / audioTempoRatio / (240 / state.bpm)
+      : clip.buffer.duration / audioTempoRatio / (240 / state.bpm);
   }
 
   function getArrangementClipRepeatLength(type, clip) {
-    if (type === "pattern") return (getPattern(clip.patternId)?.steps || 16) / 16;
-    if (type === "mel") return getMelLengthBars(getMel(clip.melId) || { bars: 1, notes: [] });
+    const tempoRatio = getArrangementClipTempoRatio(clip);
+    if (type === "pattern") return (getPattern(clip.patternId)?.steps || 16) / 16 * tempoRatio;
+    if (type === "mel") return getMelLengthBars(getMel(clip.melId) || { bars: 1, notes: [] }) * tempoRatio;
     return Math.max(0.01, clip.buffer.duration / getAudioClipTempoRatio(clip)) / (240 / state.bpm);
   }
 
@@ -16621,8 +16644,9 @@ const DRIVE_SAMPLE_TRACKS = [
   function getMelClipNoteEvents(mel, clip) {
     const melBars = getMelLengthBars(mel);
     const sourceOffset = clip.sourceOffsetBars || 0;
+    const tempoRatio = getArrangementClipTempoRatio(clip);
     const sourceEnd = Math.min(melBars * (clip.repeatCount || 1),
-      sourceOffset + getArrangementClipDuration("mel", clip));
+      sourceOffset + getArrangementClipDuration("mel", clip) / tempoRatio);
     const events = [];
     mel.notes.forEach((note) => {
       const noteStart = note.startTick / PIANO_TICKS_PER_BAR;
@@ -16638,8 +16662,8 @@ const DRIVE_SAMPLE_TRACKS = [
         events.push({
           note,
           loop,
-          startBar: clip.startBar + audibleStart - sourceOffset,
-          endBar: clip.startBar + audibleEnd - sourceOffset,
+          startBar: clip.startBar + (audibleStart - sourceOffset) * tempoRatio,
+          endBar: clip.startBar + (audibleEnd - sourceOffset) * tempoRatio,
         });
       }
     });
@@ -19035,14 +19059,16 @@ const DRIVE_SAMPLE_TRACKS = [
   function getPatternActivityWaveform(pattern, clip, durationBars, sampleCount) {
     const patternBars = pattern.steps / 16;
     const sourceOffset = clip.sourceOffsetBars || 0;
-    const playableBars = Math.min(durationBars, Math.max(0, patternBars * (clip.repeatCount || 1) - sourceOffset));
+    const tempoRatio = getArrangementClipTempoRatio(clip);
+    const playableBars = Math.min(durationBars,
+      Math.max(0, (patternBars * (clip.repeatCount || 1) - sourceOffset) * tempoRatio));
     const stepCount = getGridStepCount(pattern);
     const tracks = getPatternTrackIds(pattern);
     const pianoNotes = Object.values(pattern.stepPianoNotes || {}).flat();
     return Array.from({ length: sampleCount }, (_, index) => {
       const position = (index + 0.5) / sampleCount * durationBars;
       if (!tracks.length || position >= playableBars) return 0;
-      const sourcePosition = (sourceOffset + position) % patternBars;
+      const sourcePosition = (sourceOffset + position / tempoRatio) % patternBars;
       const stepPosition = sourcePosition / patternBars * stepCount;
       const step = Math.min(stepCount - 1, Math.floor(stepPosition));
       const phase = stepPosition - step;
@@ -19065,11 +19091,13 @@ const DRIVE_SAMPLE_TRACKS = [
   function getMelActivityWaveform(mel, clip, durationBars, sampleCount) {
     const sourceOffset = clip.sourceOffsetBars || 0;
     const melBars = getMelLengthBars(mel);
-    const playableBars = Math.min(durationBars, Math.max(0, melBars * (clip.repeatCount || 1) - sourceOffset));
+    const tempoRatio = getArrangementClipTempoRatio(clip);
+    const playableBars = Math.min(durationBars,
+      Math.max(0, (melBars * (clip.repeatCount || 1) - sourceOffset) * tempoRatio));
     return Array.from({ length: sampleCount }, (_, index) => {
-      const position = sourceOffset + (index + 0.5) / sampleCount * durationBars;
-      if (position >= sourceOffset + playableBars) return 0;
-      const sourcePosition = position % melBars;
+      const position = (index + 0.5) / sampleCount * durationBars;
+      if (position >= playableBars) return 0;
+      const sourcePosition = (sourceOffset + position / tempoRatio) % melBars;
       return mel.notes.reduce((level, note) => {
         const start = note.startTick / PIANO_TICKS_PER_BAR;
         const duration = note.durationTicks / PIANO_TICKS_PER_BAR;
@@ -19269,15 +19297,17 @@ const DRIVE_SAMPLE_TRACKS = [
       if (target.type === "audio") {
         target.clip.durationSeconds = durationBars * (240 / state.bpm) * getAudioClipTempoRatio(target.clip);
       } else {
-        target.clip.durationBars = durationBars;
+        target.clip.durationBars = durationBars / getArrangementClipTempoRatio(target.clip);
       }
       if (mode !== "repeat") return;
+      const tempoRatio = target.type === "audio" ? 1 : getArrangementClipTempoRatio(target.clip);
       const repeatLength = getArrangementClipRepeatLength(target.type, target.clip);
       const sourceOffset = target.type === "mel" ? target.clip.sourceOffsetBars || 0
         : target.type === "audio" ? (target.clip.sourceOffsetSeconds || 0) /
           ((240 / state.bpm) * getAudioClipTempoRatio(target.clip))
           : target.clip.sourceOffsetBars || 0;
-      target.clip.repeatCount = Math.max(1, Math.ceil((sourceOffset + durationBars - 0.0001) / repeatLength));
+      target.clip.repeatCount = Math.max(1, Math.ceil(
+        (sourceOffset + durationBars / tempoRatio - 0.0001) / (repeatLength / tempoRatio)));
     };
 
     const updateDuration = (durationBars) => {
@@ -19293,12 +19323,14 @@ const DRIVE_SAMPLE_TRACKS = [
         const mel = getMel(clip.melId);
         if (mel) {
           labelElement.textContent = `${mel.name.toUpperCase()} · ${duration.toFixed(2)} BAR${duration === 1 ? "" : "S"}`;
-          updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength(type, clip), duration, clip.sourceOffsetBars || 0);
+          updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength(type, clip), duration,
+            (clip.sourceOffsetBars || 0) * getArrangementClipTempoRatio(clip));
         }
       } else if (type === "pattern") {
         const pattern = getPattern(clip.patternId);
         labelElement.textContent = `${(pattern?.name || "DRUM PATTERN").toUpperCase()} · ${duration.toFixed(2)} BAR${duration === 1 ? "" : "S"}`;
-        if (pattern) updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength(type, clip), duration, clip.sourceOffsetBars || 0);
+        if (pattern) updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength(type, clip), duration,
+          (clip.sourceOffsetBars || 0) * getArrangementClipTempoRatio(clip));
       }
       element.setAttribute("aria-label", `${name}, bar ${clip.startBar + 1}, ${duration.toFixed(2)} bars; drag to move or resize`);
     };
@@ -19916,7 +19948,8 @@ const DRIVE_SAMPLE_TRACKS = [
     element.setAttribute("aria-label", `${mel.name}, bar ${clip.startBar + 1}, ${bars.toFixed(2)} bars; drag to move or resize`);
     const repeatHandle = makeArrangementResizeHandle("mel", clip, track, element, name, "repeat");
     const resizeHandle = makeArrangementResizeHandle("mel", clip, track, element, name);
-    updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength("mel", clip), bars, clip.sourceOffsetBars || 0);
+    updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength("mel", clip), bars,
+      (clip.sourceOffsetBars || 0) * getArrangementClipTempoRatio(clip));
     const waveform = makeActivityWaveform(
       getMelActivityWaveform(mel, clip, bars, getActivityWaveformSampleCount(Math.max(1, bars * BAR_WIDTH))),
       track.color,
@@ -19991,7 +20024,8 @@ const DRIVE_SAMPLE_TRACKS = [
       setArrangementCursor(clip.startBar);
     });
     element.append(waveform, icon, text, repeatHandle, resizeHandle);
-    if (pattern) updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength("pattern", clip), totalBars, clip.sourceOffsetBars || 0);
+    if (pattern) updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength("pattern", clip), totalBars,
+      (clip.sourceOffsetBars || 0) * getArrangementClipTempoRatio(clip));
     return element;
   }
 
@@ -20523,13 +20557,14 @@ const DRIVE_SAMPLE_TRACKS = [
       if (!canSplit("pattern", clip)) return;
       const leftDuration = cursor - clip.startBar;
       const totalDuration = getArrangementClipDuration("pattern", clip);
-      clip.durationBars = leftDuration;
+      const tempoRatio = getArrangementClipTempoRatio(clip);
+      clip.durationBars = leftDuration / tempoRatio;
       const right = {
         ...clip,
         id: makeId(),
         startBar: cursor,
-        durationBars: totalDuration - leftDuration,
-        sourceOffsetBars: (clip.sourceOffsetBars || 0) + leftDuration,
+        durationBars: (totalDuration - leftDuration) / tempoRatio,
+        sourceOffsetBars: (clip.sourceOffsetBars || 0) + leftDuration / tempoRatio,
       };
       state.patternClips.push(right);
       splitKeys.add(arrangementSelectionKey("pattern", clip.id));
@@ -20543,13 +20578,14 @@ const DRIVE_SAMPLE_TRACKS = [
         if (!canSplit("mel", clip)) return;
         const leftDuration = cursor - clip.startBar;
         const totalDuration = getArrangementClipDuration("mel", clip);
-        clip.durationBars = leftDuration;
+        const tempoRatio = getArrangementClipTempoRatio(clip);
+        clip.durationBars = leftDuration / tempoRatio;
         const right = {
           ...clip,
           id: makeId(),
           startBar: cursor,
-          durationBars: totalDuration - leftDuration,
-          sourceOffsetBars: (clip.sourceOffsetBars || 0) + leftDuration,
+          durationBars: (totalDuration - leftDuration) / tempoRatio,
+          sourceOffsetBars: (clip.sourceOffsetBars || 0) + leftDuration / tempoRatio,
         };
         track.clips.push(right);
         splitKeys.add(arrangementSelectionKey("mel", clip.id));
@@ -20812,10 +20848,10 @@ const DRIVE_SAMPLE_TRACKS = [
       const alignmentNotice = sourceOffsetSeconds > 0.02
         ? ` Aligned the detected first beat; ${sourceOffsetSeconds.toFixed(2)} s of lead-in is trimmed. Drag the clip's left edge to restore it.`
         : "";
+      let projectTempoChanged = false;
       if (tempoChoice.action === "project-to-audio" && detectedMetadata.bpm !== null) {
-        if (state.isPlaying && isSongWorkspace()) stopPlayback();
-        state.bpm = Math.max(60, Math.min(180, roundBpm(detectedMetadata.bpm)));
-        tempoValue.textContent = String(state.bpm);
+        const bpm = Math.max(60, Math.min(180, roundBpm(detectedMetadata.bpm)));
+        if (bpm !== state.bpm) projectTempoChanged = await openProjectTempoChangeDialog(bpm);
       }
       const audioAdjustment = getAudioClipProjectAdjustment(audioMetadata,
         tempoChoice.action === "audio-to-project", tempoChoice.bpmMultiplier);
@@ -20854,14 +20890,16 @@ const DRIVE_SAMPLE_TRACKS = [
           audioAdjustment.targetKey,
           audioAdjustment.targetBpm ? `${audioAdjustment.targetBpm} BPM` : null,
         ].filter(Boolean);
-        const projectTempoNotice = tempoChoice.action === "project-to-audio" && detectedMetadata.bpm !== null
+        const projectTempoNotice = projectTempoChanged
           ? ` Project set to ${state.bpm} BPM.` : "";
         if (targets.length) showToast(`${file.name} matched to ${targets.join(" and ")}.${projectTempoNotice}${alignmentNotice}`);
-        else if (projectTempoNotice) showToast(`${file.name} added.${projectTempoNotice}${alignmentNotice}`);
-      } else if (tempoChoice.action === "project-to-audio" && detectedMetadata.bpm !== null) {
+        else showToast(`${file.name} added.${projectTempoNotice}${alignmentNotice}`);
+      } else if (projectTempoChanged) {
         showToast(`${file.name} added. Project set to ${state.bpm} BPM.${alignmentNotice}`);
+      } else if (tempoChoice.action === "project-to-audio" && detectedMetadata.bpm !== null) {
+        showToast(`${file.name} added. Project tempo left at ${state.bpm} BPM.${alignmentNotice}`);
       } else if (projectWasEmpty) {
-        const message = tempoChoice.action === "project-to-audio" && detectedMetadata.bpm !== null
+        const message = projectTempoChanged
           ? `Project set to ${state.bpm} BPM from ${file.name}.`
           : tempoChoice.action === "audio-to-project" && detectedMetadata.bpm !== null
             ? `Added ${file.name} at ${state.bpm} BPM.`
@@ -21434,6 +21472,8 @@ const DRIVE_SAMPLE_TRACKS = [
         reversed: clip.reversed === true,
         audioMetadata: normalizeAudioMetadata(clip.audioMetadata),
         audioAdjustment: normalizeAudioAdjustment(clip.audioAdjustment),
+        ...(Number.isFinite(clip.tempoLockBpm) ? { tempoLockBpm: clip.tempoLockBpm } : {}),
+        ...(Number.isFinite(clip.tempoRatioOverride) ? { tempoRatioOverride: clip.tempoRatioOverride } : {}),
         audioStemGroupId: typeof clip.audioStemGroupId === "string" ? clip.audioStemGroupId : null,
         audioStemSelection: clip.audioStemSelection
           ? normalizeAudioStemSelection(clip.audioStemSelection) : null,
@@ -21642,6 +21682,12 @@ const DRIVE_SAMPLE_TRACKS = [
               ? normalizeAudioMetadata(record.audioMetadata)
               : detectAudioMetadata(buffer),
             audioAdjustment: normalizeAudioAdjustment(record.audioAdjustment),
+            ...(Number.isFinite(record.tempoLockBpm) &&
+              record.tempoLockBpm >= 30 && record.tempoLockBpm <= 360
+              ? { tempoLockBpm: record.tempoLockBpm } : {}),
+            ...(Number.isFinite(record.tempoRatioOverride) &&
+              record.tempoRatioOverride >= 1 / 6 && record.tempoRatioOverride <= 6
+              ? { tempoRatioOverride: record.tempoRatioOverride } : {}),
           });
         } catch {
           showToast(`Could not restore ${record.name}.`);
@@ -22521,12 +22567,14 @@ const DRIVE_SAMPLE_TRACKS = [
           const instrument = getPianoTrack(editedMel.instrumentId) || getPianoTrack();
           if (!instrument) throw new Error(`The edited Mel for ${clip.name} has no available instrument.`);
           const clipDurationBars = getArrangementClipDuration("audio", clip);
+          const tempoRatio = getArrangementClipTempoRatio(clip);
           const melClip = {
             melId: editedMel.id,
             startBar: clip.startBar,
             sourceOffsetBars: 0,
             repeatCount: clip.repeatCount || 1,
-            durationBars: clipDurationBars,
+            durationBars: clipDurationBars / tempoRatio,
+            tempoLockBpm: clip.tempoLockBpm,
           };
           const clipEndBar = Math.min(arrangementEndBar, clip.startBar + clipDurationBars);
           const clipGain = Math.max(0, Math.min(2, Number.isFinite(clip.clipGain) ? clip.clipGain : 1));
@@ -25582,14 +25630,18 @@ const DRIVE_SAMPLE_TRACKS = [
             const durationBars = Number.isFinite(clip.durationBars)
               ? Math.max(0.01, Math.min(MAX_ARRANGEMENT_BARS, clip.durationBars))
               : (pattern?.steps || 16) / 16 * repeatCount;
+            const tempoLockBpm = Number.isFinite(clip.tempoLockBpm) &&
+              clip.tempoLockBpm >= 30 && clip.tempoLockBpm <= 360 ? clip.tempoLockBpm : null;
+            const timelineDurationBars = durationBars * (tempoLockBpm ? state.bpm / tempoLockBpm : 1);
             return {
               id: clip.id,
               patternId,
               trackId: state.patterns.some((item) => item.id === clip.trackId) ? clip.trackId : patternId,
               repeatCount,
               ...(Number.isFinite(clip.durationBars) ? { durationBars } : {}),
+              ...(tempoLockBpm ? { tempoLockBpm } : {}),
               sourceOffsetBars: Number.isFinite(clip.sourceOffsetBars) ? Math.max(0, clip.sourceOffsetBars) : 0,
-              startBar: Math.max(0, Math.min(MAX_ARRANGEMENT_BARS - durationBars, clip.startBar)),
+              startBar: Math.max(0, Math.min(MAX_ARRANGEMENT_BARS - timelineDurationBars, clip.startBar)),
             };
           });
         state.patternClips.forEach((clip) => {
@@ -25721,13 +25773,17 @@ const DRIVE_SAMPLE_TRACKS = [
                 const durationBars = Number.isFinite(clip.durationBars)
                   ? Math.max(0.01, Math.min(MAX_ARRANGEMENT_BARS, clip.durationBars))
                   : mel ? getMelLengthBars(mel) : 1;
+                const tempoLockBpm = Number.isFinite(clip.tempoLockBpm) &&
+                  clip.tempoLockBpm >= 30 && clip.tempoLockBpm <= 360 ? clip.tempoLockBpm : null;
+                const timelineDurationBars = durationBars * (tempoLockBpm ? state.bpm / tempoLockBpm : 1);
                 return {
                   id: clip.id,
                   melId: clip.melId,
                   repeatCount: Number.isInteger(clip.repeatCount) ? Math.max(1, clip.repeatCount) : 1,
                   ...(Number.isFinite(clip.durationBars) ? { durationBars } : {}),
+                  ...(tempoLockBpm ? { tempoLockBpm } : {}),
                   sourceOffsetBars: Number.isFinite(clip.sourceOffsetBars) ? Math.max(0, clip.sourceOffsetBars) : 0,
-                  startBar: Math.max(0, Math.min(MAX_ARRANGEMENT_BARS - durationBars, clip.startBar)),
+                  startBar: Math.max(0, Math.min(MAX_ARRANGEMENT_BARS - timelineDurationBars, clip.startBar)),
                 };
               }),
           }));
@@ -25937,23 +25993,26 @@ const DRIVE_SAMPLE_TRACKS = [
         const gridStepCount = getGridStepCount(pattern);
         const sourceOffset = clip.sourceOffsetBars || 0;
         const sourceBars = pattern.steps / 16 * (clip.repeatCount || 1);
+        const tempoScale = getArrangementClipTempoRatio(clip);
         const clipDuration = getArrangementClipDuration("pattern", clip);
         const firstStep = Math.max(0, Math.ceil(sourceOffset * stepsPerBar - 0.0001));
-        const lastStep = Math.min(sourceBars * stepsPerBar, Math.ceil((sourceOffset + clipDuration) * stepsPerBar - 0.0001));
+        const lastStep = Math.min(sourceBars * stepsPerBar,
+          Math.ceil((sourceOffset + clipDuration / tempoScale) * stepsPerBar - 0.0001));
         for (let sourceStep = firstStep; sourceStep < lastStep; sourceStep += 1) {
           const sourcePosition = sourceStep / stepsPerBar;
           const relativePosition = sourcePosition - sourceOffset;
           const patternStep = sourceStep % gridStepCount;
           const tick = patternStep * ticksPerGridStep;
-          const time = (clip.startBar + relativePosition) * secondsPerBar +
-            (Math.floor(tick / 2) % 2 === 1 ? getStepDuration() * (state.swing / 100) : 0);
+          const time = (clip.startBar + relativePosition * tempoScale) * secondsPerBar +
+            (Math.floor(tick / 2) % 2 === 1
+              ? getStepDuration() * tempoScale * (state.swing / 100) : 0);
           if (time >= duration) continue;
           patternSources.forEach((track) => {
             if (pattern.cells[track.id]?.[patternStep] && !hasPatternStepPianoNotes(pattern, track.id) &&
               !track.muted && (!hasSolo || track.solo)) {
-              const trackTime = getTrackStepTime(track, patternStep, pattern, time);
+              const trackTime = getTrackStepTime(track, patternStep, pattern, time, tempoScale);
               triggerTrack(track, trackTime, pattern.variants[track.id] || track.variant,
-                getNoteDuration(pattern), patternTrack, getPatternSourceGain(patternTrack, track));
+                getNoteDuration(pattern) * tempoScale, patternTrack, getPatternSourceGain(patternTrack, track));
             }
           });
         }
@@ -25965,12 +26024,15 @@ const DRIVE_SAMPLE_TRACKS = [
           for (let loop = 0; loop < loopCount; loop += 1) {
             notes.forEach((note) => {
               const sourcePosition = loop * patternBars + note.startTick / PIANO_TICKS_PER_BAR;
-              if (sourcePosition < sourceOffset || sourcePosition >= sourceOffset + clipDuration) return;
-              const startTime = (clip.startBar + sourcePosition - sourceOffset) * secondsPerBar +
-                (Math.floor(note.startTick / 2) % 2 === 1 ? getStepDuration() * (state.swing / 100) : 0);
+              if (sourcePosition < sourceOffset || sourcePosition >= sourceOffset + clipDuration / tempoScale) return;
+              const startTime = (clip.startBar + (sourcePosition - sourceOffset) * tempoScale) * secondsPerBar +
+                (Math.floor(note.startTick / 2) % 2 === 1
+                  ? getStepDuration() * tempoScale * (state.swing / 100) : 0);
               if (startTime >= duration) return;
-              const clipEndDuration = (sourceOffset + clipDuration - sourcePosition) * secondsPerBar;
-              const noteDuration = Math.min(note.durationTicks * getSchedulerTickDuration(), clipEndDuration, duration - startTime);
+              const clipEndDuration = (sourceOffset + clipDuration / tempoScale - sourcePosition) *
+                tempoScale * secondsPerBar;
+              const noteDuration = Math.min(
+                note.durationTicks * getSchedulerTickDuration() * tempoScale, clipEndDuration, duration - startTime);
               if (noteDuration > 0) {
                 playPianoNote(track, startTime, note.midi, noteDuration, note.velocity ?? 0.8,
                   patternTrack, getPatternSourceGain(patternTrack, track), note);
@@ -27069,6 +27131,7 @@ const DRIVE_SAMPLE_TRACKS = [
     }
   }
   let scaleSaveTimer = null;
+  let pendingProjectTempoChange = null;
 
   function scheduleScaleSave() {
     if (scaleSaveTimer !== null) window.clearTimeout(scaleSaveTimer);
@@ -27076,6 +27139,110 @@ const DRIVE_SAMPLE_TRACKS = [
       scaleSaveTimer = null;
       saveState();
     }, 250);
+  }
+
+  function getProjectTempoChangeItems() {
+    return [
+      ...state.patternClips.map((clip) => ({
+        key: `pattern:${clip.id}`,
+        kind: "pattern",
+        clip,
+        label: `Pattern · ${getPattern(clip.patternId)?.name || "Pattern"} · bar ${Math.floor(clip.startBar) + 1}`,
+      })),
+      ...state.melTracks.flatMap((track) => track.clips.map((clip) => ({
+        key: `mel:${clip.id}`,
+        kind: "mel",
+        clip,
+        label: `Mel · ${getMel(clip.melId)?.name || "Mel"} · ${track.name} · bar ${Math.floor(clip.startBar) + 1}`,
+      }))),
+      ...state.arrangementTracks.flatMap((track) => track.clips.map((clip) => ({
+        key: `audio:${clip.id}`,
+        kind: "audio",
+        clip,
+        track,
+        label: `Audio · ${clip.name} · ${track.name} · bar ${Math.floor(clip.startBar) + 1}`,
+      }))),
+    ];
+  }
+
+  function applyProjectTempoChange(bpm, items, followKeys) {
+    const previousBpm = state.bpm;
+    const resumeBar = state.arrangementCursor;
+    stopAllWorkspacePlayers();
+    if (state.isPlaying || state.isStartingPlayback) stopPlayback();
+
+    const audioItemsToPersist = [];
+    items.forEach((item) => {
+      if (followKeys.has(item.key)) {
+        delete item.clip.tempoLockBpm;
+        if (item.kind === "audio") delete item.clip.tempoRatioOverride;
+      } else {
+        if (!Number.isFinite(item.clip.tempoLockBpm)) item.clip.tempoLockBpm = previousBpm;
+        if (item.kind === "audio") {
+          if (!Number.isFinite(item.clip.tempoRatioOverride)) {
+            item.clip.tempoRatioOverride = getAudioClipTempoRatio(item.clip);
+          }
+        }
+      }
+      if (item.kind === "audio") audioItemsToPersist.push(item);
+    });
+
+    state.bpm = bpm;
+    tempoValue.textContent = String(state.bpm);
+    updateArrangementLength();
+    if (isSongWorkspace()) renderArrangement();
+    if (resumeBar > 0) setArrangementCursor(resumeBar);
+    saveState();
+    audioItemsToPersist.forEach((item) => {
+      persistClip(item.track, item.clip).catch((error) =>
+        showToast(`Tempo changed, but ${item.clip.name} could not be saved: ${error.message || "browser storage is unavailable"}`));
+    });
+  }
+
+  function openProjectTempoChangeDialog(bpm) {
+    const items = getProjectTempoChangeItems();
+    if (!items.length) {
+      applyProjectTempoChange(bpm, items, new Set());
+      return Promise.resolve(true);
+    }
+
+    const dialog = $("#project-tempo-change-dialog");
+    const list = $("#tempo-change-items");
+    $("#project-tempo-change-description").textContent =
+      `Project: ${state.bpm} → ${bpm} BPM. Checked clips follow the new BPM; unchecked clips keep their current playback tempo.`;
+    list.replaceChildren();
+    items.forEach((item) => {
+      const label = document.createElement("label");
+      label.className = "tempo-change-item";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = true;
+      checkbox.dataset.tempoItemKey = item.key;
+      const name = document.createElement("span");
+      name.className = "tempo-change-item-name";
+      name.textContent = item.label;
+      label.append(checkbox, name);
+      list.append(label);
+    });
+    return new Promise((resolve) => {
+      pendingProjectTempoChange = { bpm, items, resolve };
+      dialog.showModal();
+    });
+  }
+
+  function resolveProjectTempoChange(apply) {
+    const pending = pendingProjectTempoChange;
+    if (!pending) return;
+    pendingProjectTempoChange = null;
+    if (apply) {
+      const followKeys = new Set(Array.from(
+        $("#tempo-change-items").querySelectorAll('input[type="checkbox"]:checked'),
+        (checkbox) => checkbox.dataset.tempoItemKey,
+      ));
+      applyProjectTempoChange(pending.bpm, pending.items, followKeys);
+    }
+    $("#project-tempo-change-dialog").close();
+    pending.resolve(apply);
   }
 
   function bindEvents() {
@@ -27138,14 +27305,28 @@ const DRIVE_SAMPLE_TRACKS = [
         showToast("Tempo must be between 60 and 180 BPM.");
         return;
       }
-      const resumeBar = state.arrangementCursor;
-      if (state.isPlaying && isSongWorkspace()) stopPlayback();
-      state.bpm = roundBpm(value);
-      tempoValue.textContent = String(state.bpm);
-      updateArrangementLength();
-      if (isSongWorkspace()) renderArrangement();
-      if (resumeBar > 0) setArrangementCursor(resumeBar);
-      saveState();
+      const bpm = roundBpm(value);
+      if (bpm !== state.bpm) void openProjectTempoChangeDialog(bpm);
+    });
+    $("#tempo-change-select-all").addEventListener("click", () => {
+      $("#tempo-change-items").querySelectorAll('input[type="checkbox"]').forEach((checkbox) => {
+        checkbox.checked = true;
+      });
+    });
+    $("#tempo-change-select-none").addEventListener("click", () => {
+      $("#tempo-change-items").querySelectorAll('input[type="checkbox"]').forEach((checkbox) => {
+        checkbox.checked = false;
+      });
+    });
+    $("#tempo-change-cancel").addEventListener("click", () => {
+      resolveProjectTempoChange(false);
+    });
+    $("#tempo-change-apply").addEventListener("click", () => {
+      resolveProjectTempoChange(true);
+    });
+    $("#project-tempo-change-dialog").addEventListener("cancel", (event) => {
+      event.preventDefault();
+      resolveProjectTempoChange(false);
     });
     $("#master-pitch-control").addEventListener("input", (event) => {
       setMasterPitch(event.currentTarget.value);

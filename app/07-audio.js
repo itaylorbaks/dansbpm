@@ -452,10 +452,18 @@
   }
 
   function getAudioClipTempoRatio(clip) {
+    if (Number.isFinite(clip.tempoRatioOverride) && clip.tempoRatioOverride > 0) {
+      return clip.tempoRatioOverride;
+    }
     const sourceBpm = clip.audioAdjustment?.sourceBpm ?? normalizeAudioMetadata(clip.audioMetadata).bpm;
     if (Number.isFinite(sourceBpm) && sourceBpm > 0) return state.bpm / sourceBpm;
     const ratio = clip.audioAdjustment?.tempoRatio;
     return Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
+  }
+
+  function getArrangementClipTempoRatio(clip) {
+    return Number.isFinite(clip.tempoLockBpm) && clip.tempoLockBpm > 0
+      ? state.bpm / clip.tempoLockBpm : 1;
   }
 
   function isProjectEmptyForAudioImport() {
@@ -1244,25 +1252,28 @@
   }
 
   function getArrangementClipDuration(type, clip) {
+    const tempoRatio = getArrangementClipTempoRatio(clip);
     if (type === "pattern") {
-      return Number.isFinite(clip.durationBars)
+      const durationBars = Number.isFinite(clip.durationBars)
         ? clip.durationBars
         : (getPattern(clip.patternId)?.steps || 16) / 16 * (clip.repeatCount || 1);
+      return durationBars * tempoRatio;
     }
     if (type === "mel") {
-      if (Number.isFinite(clip.durationBars)) return clip.durationBars;
+      if (Number.isFinite(clip.durationBars)) return clip.durationBars * tempoRatio;
       const mel = getMel(clip.melId);
-      return mel ? getMelLengthBars(mel) : 1;
+      return (mel ? getMelLengthBars(mel) : 1) * tempoRatio;
     }
-    const tempoRatio = getAudioClipTempoRatio(clip);
+    const audioTempoRatio = getAudioClipTempoRatio(clip);
     return Number.isFinite(clip.durationSeconds)
-      ? clip.durationSeconds / tempoRatio / (240 / state.bpm)
-      : clip.buffer.duration / tempoRatio / (240 / state.bpm);
+      ? clip.durationSeconds / audioTempoRatio / (240 / state.bpm)
+      : clip.buffer.duration / audioTempoRatio / (240 / state.bpm);
   }
 
   function getArrangementClipRepeatLength(type, clip) {
-    if (type === "pattern") return (getPattern(clip.patternId)?.steps || 16) / 16;
-    if (type === "mel") return getMelLengthBars(getMel(clip.melId) || { bars: 1, notes: [] });
+    const tempoRatio = getArrangementClipTempoRatio(clip);
+    if (type === "pattern") return (getPattern(clip.patternId)?.steps || 16) / 16 * tempoRatio;
+    if (type === "mel") return getMelLengthBars(getMel(clip.melId) || { bars: 1, notes: [] }) * tempoRatio;
     return Math.max(0.01, clip.buffer.duration / getAudioClipTempoRatio(clip)) / (240 / state.bpm);
   }
 
@@ -1303,8 +1314,9 @@
   function getMelClipNoteEvents(mel, clip) {
     const melBars = getMelLengthBars(mel);
     const sourceOffset = clip.sourceOffsetBars || 0;
+    const tempoRatio = getArrangementClipTempoRatio(clip);
     const sourceEnd = Math.min(melBars * (clip.repeatCount || 1),
-      sourceOffset + getArrangementClipDuration("mel", clip));
+      sourceOffset + getArrangementClipDuration("mel", clip) / tempoRatio);
     const events = [];
     mel.notes.forEach((note) => {
       const noteStart = note.startTick / PIANO_TICKS_PER_BAR;
@@ -1320,8 +1332,8 @@
         events.push({
           note,
           loop,
-          startBar: clip.startBar + audibleStart - sourceOffset,
-          endBar: clip.startBar + audibleEnd - sourceOffset,
+          startBar: clip.startBar + (audibleStart - sourceOffset) * tempoRatio,
+          endBar: clip.startBar + (audibleEnd - sourceOffset) * tempoRatio,
         });
       }
     });

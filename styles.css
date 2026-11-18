@@ -57,6 +57,7 @@
 :root[data-theme="light"] .help-dialog,
 :root[data-theme="light"] .settings-dialog,
 :root[data-theme="light"] .audio-tempo-dialog,
+:root[data-theme="light"] .tempo-change-dialog,
 :root[data-theme="light"] .audio-clip-edit-dialog { background-color: var(--panel); color: var(--text); }
 :root[data-theme="light"] .track-row:nth-child(even),
 :root[data-theme="light"] .timeline-lane { background-color: #f0f2f5; }
@@ -576,6 +577,17 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .audio-tempo-option-list p { margin: 0 0 4px; }
 .audio-tempo-options .quiet-button { justify-content: flex-start; min-height: 38px; }
 .audio-tempo-options .quiet-button:disabled { cursor: not-allowed; opacity: .45; }
+.tempo-change-dialog { width: min(520px, calc(100vw - 28px)); max-height: min(680px, calc(100vh - 28px)); overflow: hidden; border: 1px solid #3a3b40; border-radius: 10px; background: #1b1c1f; padding: 22px; color: var(--text); box-shadow: 0 20px 60px #0009; }
+.tempo-change-dialog::backdrop { background: #0009; backdrop-filter: blur(3px); }
+.tempo-change-dialog h2 { margin: 7px 0 0; font-size: 19px; }
+.tempo-change-description { margin: 14px 0; color: #929398; font-size: 12px; }
+.tempo-change-selection, .tempo-change-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.tempo-change-selection { margin-bottom: 8px; }
+.tempo-change-items { display: grid; max-height: min(46vh, 360px); overflow-y: auto; gap: 4px; padding: 2px; }
+.tempo-change-item { display: flex; min-height: 38px; align-items: center; gap: 10px; border: 1px solid #303136; border-radius: 6px; padding: 7px 10px; color: var(--text); font-size: 12px; }
+.tempo-change-item input { accent-color: var(--accent); }
+.tempo-change-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tempo-change-actions { margin-top: 16px; }
 .audio-clip-edit-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
 .audio-clip-edit-heading h2 { margin: 4px 0; font-size: 17px; }
 .audio-clip-edit-heading p { max-width: 260px; overflow: hidden; margin: 0; color: #929398; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }

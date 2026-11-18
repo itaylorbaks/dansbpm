@@ -719,6 +719,25 @@
           </form>
         </dialog>
 
+        <dialog class="tempo-change-dialog" id="project-tempo-change-dialog" aria-labelledby="project-tempo-change-title">
+          <div class="project-dialog-heading">
+            <div>
+              <div class="eyebrow">PROJECT TEMPO</div>
+              <h2 id="project-tempo-change-title">Choose what follows the new BPM</h2>
+            </div>
+          </div>
+          <p class="tempo-change-description" id="project-tempo-change-description"></p>
+          <div class="tempo-change-selection">
+            <button class="quiet-button" id="tempo-change-select-all" type="button">Select all</button>
+            <button class="quiet-button" id="tempo-change-select-none" type="button">Select none</button>
+          </div>
+          <div class="tempo-change-items" id="tempo-change-items"></div>
+          <div class="tempo-change-actions">
+            <button class="quiet-button" id="tempo-change-cancel" type="button">Cancel</button>
+            <button class="quiet-button" id="tempo-change-apply" type="button">Apply BPM</button>
+          </div>
+        </dialog>
+
         <dialog class="source-browser-dialog" id="source-browser-dialog" aria-label="Asset library">
           <aside class="source-sidebar">
             <div class="source-sidebar-heading">ASSET LIBRARY <button id="source-browser-close" type="button" aria-label="Close asset library">×</button></div>
@@ -1101,6 +1120,6 @@
       </div>
     </section>
     <script src="assets/vendor/lame.min.js"></script>
-    <script src="app.js?v=0df25bef2f3b"></script>
+    <script src="app.js?v=76775c4e6118"></script>
   </body>
 </html>

@@ -1,4 +1,5 @@
   let scaleSaveTimer = null;
+  let pendingProjectTempoChange = null;
 
   function scheduleScaleSave() {
     if (scaleSaveTimer !== null) window.clearTimeout(scaleSaveTimer);
@@ -6,6 +7,110 @@
       scaleSaveTimer = null;
       saveState();
     }, 250);
+  }
+
+  function getProjectTempoChangeItems() {
+    return [
+      ...state.patternClips.map((clip) => ({
+        key: `pattern:${clip.id}`,
+        kind: "pattern",
+        clip,
+        label: `Pattern · ${getPattern(clip.patternId)?.name || "Pattern"} · bar ${Math.floor(clip.startBar) + 1}`,
+      })),
+      ...state.melTracks.flatMap((track) => track.clips.map((clip) => ({
+        key: `mel:${clip.id}`,
+        kind: "mel",
+        clip,
+        label: `Mel · ${getMel(clip.melId)?.name || "Mel"} · ${track.name} · bar ${Math.floor(clip.startBar) + 1}`,
+      }))),
+      ...state.arrangementTracks.flatMap((track) => track.clips.map((clip) => ({
+        key: `audio:${clip.id}`,
+        kind: "audio",
+        clip,
+        track,
+        label: `Audio · ${clip.name} · ${track.name} · bar ${Math.floor(clip.startBar) + 1}`,
+      }))),
+    ];
+  }
+
+  function applyProjectTempoChange(bpm, items, followKeys) {
+    const previousBpm = state.bpm;
+    const resumeBar = state.arrangementCursor;
+    stopAllWorkspacePlayers();
+    if (state.isPlaying || state.isStartingPlayback) stopPlayback();
+
+    const audioItemsToPersist = [];
+    items.forEach((item) => {
+      if (followKeys.has(item.key)) {
+        delete item.clip.tempoLockBpm;
+        if (item.kind === "audio") delete item.clip.tempoRatioOverride;
+      } else {
+        if (!Number.isFinite(item.clip.tempoLockBpm)) item.clip.tempoLockBpm = previousBpm;
+        if (item.kind === "audio") {
+          if (!Number.isFinite(item.clip.tempoRatioOverride)) {
+            item.clip.tempoRatioOverride = getAudioClipTempoRatio(item.clip);
+          }
+        }
+      }
+      if (item.kind === "audio") audioItemsToPersist.push(item);
+    });
+
+    state.bpm = bpm;
+    tempoValue.textContent = String(state.bpm);
+    updateArrangementLength();
+    if (isSongWorkspace()) renderArrangement();
+    if (resumeBar > 0) setArrangementCursor(resumeBar);
+    saveState();
+    audioItemsToPersist.forEach((item) => {
+      persistClip(item.track, item.clip).catch((error) =>
+        showToast(`Tempo changed, but ${item.clip.name} could not be saved: ${error.message || "browser storage is unavailable"}`));
+    });
+  }
+
+  function openProjectTempoChangeDialog(bpm) {
+    const items = getProjectTempoChangeItems();
+    if (!items.length) {
+      applyProjectTempoChange(bpm, items, new Set());
+      return Promise.resolve(true);
+    }
+
+    const dialog = $("#project-tempo-change-dialog");
+    const list = $("#tempo-change-items");
+    $("#project-tempo-change-description").textContent =
+      `Project: ${state.bpm} → ${bpm} BPM. Checked clips follow the new BPM; unchecked clips keep their current playback tempo.`;
+    list.replaceChildren();
+    items.forEach((item) => {
+      const label = document.createElement("label");
+      label.className = "tempo-change-item";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = true;
+      checkbox.dataset.tempoItemKey = item.key;
+      const name = document.createElement("span");
+      name.className = "tempo-change-item-name";
+      name.textContent = item.label;
+      label.append(checkbox, name);
+      list.append(label);
+    });
+    return new Promise((resolve) => {
+      pendingProjectTempoChange = { bpm, items, resolve };
+      dialog.showModal();
+    });
+  }
+
+  function resolveProjectTempoChange(apply) {
+    const pending = pendingProjectTempoChange;
+    if (!pending) return;
+    pendingProjectTempoChange = null;
+    if (apply) {
+      const followKeys = new Set(Array.from(
+        $("#tempo-change-items").querySelectorAll('input[type="checkbox"]:checked'),
+        (checkbox) => checkbox.dataset.tempoItemKey,
+      ));
+      applyProjectTempoChange(pending.bpm, pending.items, followKeys);
+    }
+    $("#project-tempo-change-dialog").close();
+    pending.resolve(apply);
   }
 
   function bindEvents() {
@@ -68,14 +173,28 @@
         showToast("Tempo must be between 60 and 180 BPM.");
         return;
       }
-      const resumeBar = state.arrangementCursor;
-      if (state.isPlaying && isSongWorkspace()) stopPlayback();
-      state.bpm = roundBpm(value);
-      tempoValue.textContent = String(state.bpm);
-      updateArrangementLength();
-      if (isSongWorkspace()) renderArrangement();
-      if (resumeBar > 0) setArrangementCursor(resumeBar);
-      saveState();
+      const bpm = roundBpm(value);
+      if (bpm !== state.bpm) void openProjectTempoChangeDialog(bpm);
+    });
+    $("#tempo-change-select-all").addEventListener("click", () => {
+      $("#tempo-change-items").querySelectorAll('input[type="checkbox"]').forEach((checkbox) => {
+        checkbox.checked = true;
+      });
+    });
+    $("#tempo-change-select-none").addEventListener("click", () => {
+      $("#tempo-change-items").querySelectorAll('input[type="checkbox"]').forEach((checkbox) => {
+        checkbox.checked = false;
+      });
+    });
+    $("#tempo-change-cancel").addEventListener("click", () => {
+      resolveProjectTempoChange(false);
+    });
+    $("#tempo-change-apply").addEventListener("click", () => {
+      resolveProjectTempoChange(true);
+    });
+    $("#project-tempo-change-dialog").addEventListener("cancel", (event) => {
+      event.preventDefault();
+      resolveProjectTempoChange(false);
     });
     $("#master-pitch-control").addEventListener("input", (event) => {
       setMasterPitch(event.currentTarget.value);

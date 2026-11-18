@@ -378,6 +378,8 @@
         reversed: clip.reversed === true,
         audioMetadata: normalizeAudioMetadata(clip.audioMetadata),
         audioAdjustment: normalizeAudioAdjustment(clip.audioAdjustment),
+        ...(Number.isFinite(clip.tempoLockBpm) ? { tempoLockBpm: clip.tempoLockBpm } : {}),
+        ...(Number.isFinite(clip.tempoRatioOverride) ? { tempoRatioOverride: clip.tempoRatioOverride } : {}),
         audioStemGroupId: typeof clip.audioStemGroupId === "string" ? clip.audioStemGroupId : null,
         audioStemSelection: clip.audioStemSelection
           ? normalizeAudioStemSelection(clip.audioStemSelection) : null,
@@ -586,6 +588,12 @@
               ? normalizeAudioMetadata(record.audioMetadata)
               : detectAudioMetadata(buffer),
             audioAdjustment: normalizeAudioAdjustment(record.audioAdjustment),
+            ...(Number.isFinite(record.tempoLockBpm) &&
+              record.tempoLockBpm >= 30 && record.tempoLockBpm <= 360
+              ? { tempoLockBpm: record.tempoLockBpm } : {}),
+            ...(Number.isFinite(record.tempoRatioOverride) &&
+              record.tempoRatioOverride >= 1 / 6 && record.tempoRatioOverride <= 6
+              ? { tempoRatioOverride: record.tempoRatioOverride } : {}),
           });
         } catch {
           showToast(`Could not restore ${record.name}.`);

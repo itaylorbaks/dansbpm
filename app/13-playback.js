@@ -833,12 +833,14 @@
           const instrument = getPianoTrack(editedMel.instrumentId) || getPianoTrack();
           if (!instrument) throw new Error(`The edited Mel for ${clip.name} has no available instrument.`);
           const clipDurationBars = getArrangementClipDuration("audio", clip);
+          const tempoRatio = getArrangementClipTempoRatio(clip);
           const melClip = {
             melId: editedMel.id,
             startBar: clip.startBar,
             sourceOffsetBars: 0,
             repeatCount: clip.repeatCount || 1,
-            durationBars: clipDurationBars,
+            durationBars: clipDurationBars / tempoRatio,
+            tempoLockBpm: clip.tempoLockBpm,
           };
           const clipEndBar = Math.min(arrangementEndBar, clip.startBar + clipDurationBars);
           const clipGain = Math.max(0, Math.min(2, Number.isFinite(clip.clipGain) ? clip.clipGain : 1));

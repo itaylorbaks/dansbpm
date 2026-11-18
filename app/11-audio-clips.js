@@ -534,7 +534,8 @@
     element.setAttribute("aria-label", `${mel.name}, bar ${clip.startBar + 1}, ${bars.toFixed(2)} bars; drag to move or resize`);
     const repeatHandle = makeArrangementResizeHandle("mel", clip, track, element, name, "repeat");
     const resizeHandle = makeArrangementResizeHandle("mel", clip, track, element, name);
-    updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength("mel", clip), bars, clip.sourceOffsetBars || 0);
+    updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength("mel", clip), bars,
+      (clip.sourceOffsetBars || 0) * getArrangementClipTempoRatio(clip));
     const waveform = makeActivityWaveform(
       getMelActivityWaveform(mel, clip, bars, getActivityWaveformSampleCount(Math.max(1, bars * BAR_WIDTH))),
       track.color,
@@ -609,7 +610,8 @@
       setArrangementCursor(clip.startBar);
     });
     element.append(waveform, icon, text, repeatHandle, resizeHandle);
-    if (pattern) updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength("pattern", clip), totalBars, clip.sourceOffsetBars || 0);
+    if (pattern) updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength("pattern", clip), totalBars,
+      (clip.sourceOffsetBars || 0) * getArrangementClipTempoRatio(clip));
     return element;
   }
 
@@ -1141,13 +1143,14 @@
       if (!canSplit("pattern", clip)) return;
       const leftDuration = cursor - clip.startBar;
       const totalDuration = getArrangementClipDuration("pattern", clip);
-      clip.durationBars = leftDuration;
+      const tempoRatio = getArrangementClipTempoRatio(clip);
+      clip.durationBars = leftDuration / tempoRatio;
       const right = {
         ...clip,
         id: makeId(),
         startBar: cursor,
-        durationBars: totalDuration - leftDuration,
-        sourceOffsetBars: (clip.sourceOffsetBars || 0) + leftDuration,
+        durationBars: (totalDuration - leftDuration) / tempoRatio,
+        sourceOffsetBars: (clip.sourceOffsetBars || 0) + leftDuration / tempoRatio,
       };
       state.patternClips.push(right);
       splitKeys.add(arrangementSelectionKey("pattern", clip.id));
@@ -1161,13 +1164,14 @@
         if (!canSplit("mel", clip)) return;
         const leftDuration = cursor - clip.startBar;
         const totalDuration = getArrangementClipDuration("mel", clip);
-        clip.durationBars = leftDuration;
+        const tempoRatio = getArrangementClipTempoRatio(clip);
+        clip.durationBars = leftDuration / tempoRatio;
         const right = {
           ...clip,
           id: makeId(),
           startBar: cursor,
-          durationBars: totalDuration - leftDuration,
-          sourceOffsetBars: (clip.sourceOffsetBars || 0) + leftDuration,
+          durationBars: (totalDuration - leftDuration) / tempoRatio,
+          sourceOffsetBars: (clip.sourceOffsetBars || 0) + leftDuration / tempoRatio,
         };
         track.clips.push(right);
         splitKeys.add(arrangementSelectionKey("mel", clip.id));
@@ -1430,10 +1434,10 @@
       const alignmentNotice = sourceOffsetSeconds > 0.02
         ? ` Aligned the detected first beat; ${sourceOffsetSeconds.toFixed(2)} s of lead-in is trimmed. Drag the clip's left edge to restore it.`
         : "";
+      let projectTempoChanged = false;
       if (tempoChoice.action === "project-to-audio" && detectedMetadata.bpm !== null) {
-        if (state.isPlaying && isSongWorkspace()) stopPlayback();
-        state.bpm = Math.max(60, Math.min(180, roundBpm(detectedMetadata.bpm)));
-        tempoValue.textContent = String(state.bpm);
+        const bpm = Math.max(60, Math.min(180, roundBpm(detectedMetadata.bpm)));
+        if (bpm !== state.bpm) projectTempoChanged = await openProjectTempoChangeDialog(bpm);
       }
       const audioAdjustment = getAudioClipProjectAdjustment(audioMetadata,
         tempoChoice.action === "audio-to-project", tempoChoice.bpmMultiplier);
@@ -1472,14 +1476,16 @@
           audioAdjustment.targetKey,
           audioAdjustment.targetBpm ? `${audioAdjustment.targetBpm} BPM` : null,
         ].filter(Boolean);
-        const projectTempoNotice = tempoChoice.action === "project-to-audio" && detectedMetadata.bpm !== null
+        const projectTempoNotice = projectTempoChanged
           ? ` Project set to ${state.bpm} BPM.` : "";
         if (targets.length) showToast(`${file.name} matched to ${targets.join(" and ")}.${projectTempoNotice}${alignmentNotice}`);
-        else if (projectTempoNotice) showToast(`${file.name} added.${projectTempoNotice}${alignmentNotice}`);
-      } else if (tempoChoice.action === "project-to-audio" && detectedMetadata.bpm !== null) {
+        else showToast(`${file.name} added.${projectTempoNotice}${alignmentNotice}`);
+      } else if (projectTempoChanged) {
         showToast(`${file.name} added. Project set to ${state.bpm} BPM.${alignmentNotice}`);
+      } else if (tempoChoice.action === "project-to-audio" && detectedMetadata.bpm !== null) {
+        showToast(`${file.name} added. Project tempo left at ${state.bpm} BPM.${alignmentNotice}`);
       } else if (projectWasEmpty) {
-        const message = tempoChoice.action === "project-to-audio" && detectedMetadata.bpm !== null
+        const message = projectTempoChanged
           ? `Project set to ${state.bpm} BPM from ${file.name}.`
           : tempoChoice.action === "audio-to-project" && detectedMetadata.bpm !== null
             ? `Added ${file.name} at ${state.bpm} BPM.`
