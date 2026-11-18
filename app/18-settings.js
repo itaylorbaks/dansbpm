@@ -323,6 +323,13 @@
   }
 
   function setQuickActionView(view) {
+    if (view === "none") {
+      userSettings.quickActionEnabled = false;
+      $("#settings-quick-action-enabled").checked = false;
+      renderQuickActionPanel();
+      persistUserSettings();
+      return;
+    }
     userSettings.quickActionView = ["mixer", "sequencer", "piano-roll"].includes(view) ? view : "mixer";
     $("#settings-quick-action-view").value = userSettings.quickActionView;
     $("#quick-action-view-select").value = userSettings.quickActionView;

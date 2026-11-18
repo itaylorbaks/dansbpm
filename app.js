@@ -9800,7 +9800,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=19b0423f1442");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=f5a759cb70c8");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -29718,6 +29718,13 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   }
 
   function setQuickActionView(view) {
+    if (view === "none") {
+      userSettings.quickActionEnabled = false;
+      $("#settings-quick-action-enabled").checked = false;
+      renderQuickActionPanel();
+      persistUserSettings();
+      return;
+    }
     userSettings.quickActionView = ["mixer", "sequencer", "piano-roll"].includes(view) ? view : "mixer";
     $("#settings-quick-action-view").value = userSettings.quickActionView;
     $("#quick-action-view-select").value = userSettings.quickActionView;
