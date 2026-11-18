@@ -1188,32 +1188,6 @@
     window.localStorage.setItem(USERS_KEY, JSON.stringify(state.users));
   }
 
-  function renderLoginUsers() {
-    const options = $("#login-options");
-    options.replaceChildren();
-    state.users.filter((user) => !user.cloudAccount).forEach((user) => {
-      const button = document.createElement("button");
-      button.className = "login-option";
-      button.type = "button";
-      button.dataset.userId = user.id;
-      const avatar = document.createElement("span");
-      avatar.className = `login-avatar${user.id === "guest" ? " guest-avatar" : ""}`;
-      avatar.textContent = user.name.trim().charAt(0).toUpperCase();
-      const text = document.createElement("span");
-      const name = document.createElement("strong");
-      name.textContent = user.name;
-      const detail = document.createElement("small");
-      detail.textContent = "Local profile · this browser only";
-      text.append(name, detail);
-      const arrow = document.createElement("span");
-      arrow.className = "login-arrow";
-      arrow.setAttribute("aria-hidden", "true");
-      arrow.textContent = "→";
-      button.append(avatar, text, arrow);
-      options.append(button);
-    });
-  }
-
   function initializeUsers() {
     let users = DEFAULT_USERS.map((user) => ({ ...user }));
     try {
@@ -1225,7 +1199,8 @@
             id: user.id,
             name: user.name.trim().slice(0, 32),
             ...(user.cloudAccount === true ? { cloudAccount: true } : {}),
-          }));
+          }))
+          .filter((user) => user.cloudAccount);
       }
       DEFAULT_USERS.forEach((defaultUser) => {
         if (!users.some((user) => user.id === defaultUser.id)) users.push(defaultUser);
@@ -1236,7 +1211,6 @@
       if (!state.users.length) state.users = users;
       showToast(`Could not load or save profiles: ${error.message || "browser storage is unavailable"}`);
     }
-    renderLoginUsers();
   }
 
   function getSessionUser() {
@@ -1326,7 +1300,7 @@
         : [];
       projects = projects.map((project) => ({
         ...project,
-        ownerId: state.users.some((user) => user.id === project.ownerId) ? project.ownerId : "taylor",
+        ownerId: state.users.some((user) => user.id === project.ownerId) ? project.ownerId : "guest",
       }));
       const savedCreationCounts = savedCatalog?.projectCreationCounts;
       state.projectCreationCounts = Object.fromEntries(state.users.map((user) => [
@@ -1339,14 +1313,17 @@
       state.activeProjectIds = savedCatalog?.activeProjectIds && typeof savedCatalog.activeProjectIds === "object"
         ? { ...savedCatalog.activeProjectIds }
         : {};
+      if (!state.activeProjectIds.guest && typeof state.activeProjectIds.taylor === "string") {
+        state.activeProjectIds.guest = state.activeProjectIds.taylor;
+      }
 
       if (!projects.length) {
         const savedName = window.localStorage.getItem(`${STORAGE_KEY}-name`)?.trim();
         const name = !savedName || savedName === "Untitled session" ? "New Proj 1" : savedName;
         const oldSnapshot = window.localStorage.getItem(STORAGE_KEY);
         if (oldSnapshot || name !== "New Proj 1") {
-          projects = [{ id: "default", name, ownerId: "taylor", updatedAt: Date.now() }];
-          state.projectCreationCounts.taylor = Math.max(1, state.projectCreationCounts.taylor || 0);
+          projects = [{ id: "default", name, ownerId: "guest", updatedAt: Date.now() }];
+          state.projectCreationCounts.guest = Math.max(1, state.projectCreationCounts.guest || 0);
           if (oldSnapshot) window.localStorage.setItem(getProjectStorageKey("default"), oldSnapshot);
         }
       }
@@ -1383,7 +1360,7 @@
       state.projects = [{
         id: "default",
         name: "New Proj 1",
-        ownerId: state.currentUser || "taylor",
+        ownerId: state.currentUser || "guest",
         updatedAt: 0,
       }];
       state.projectId = state.currentUser ? "default" : "";

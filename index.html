@@ -1262,21 +1262,21 @@
           <input id="login-profile-password" name="password" type="password" autocomplete="current-password" placeholder="Password" required />
           <button class="quiet-button" type="submit">Sign in</button>
         </form>
-        <form class="create-profile-form" id="create-profile-form">
-          <label for="new-profile-name">Create a profile and password</label>
-          <input id="new-profile-name" name="profileName" type="text" maxlength="32" autocomplete="name" placeholder="Profile name" required />
-          <input id="new-profile-password" name="password" type="password" minlength="8" maxlength="256" autocomplete="new-password" placeholder="Password (at least 8 characters)" required />
-          <button class="quiet-button" type="submit">Create account</button>
-        </form>
-        <p class="login-error" id="login-error" role="alert"></p>
-        <p class="login-note">Cloud projects are downloaded to this browser when you open them. Local profiles from earlier versions remain available only in this browser.</p>
-        <details class="legacy-profiles">
-          <summary>Open a legacy local profile</summary>
-          <div class="login-options" id="login-options" aria-label="Choose a local profile"></div>
+        <details class="signup-details">
+          <summary>Sign Up</summary>
+          <form class="create-profile-form" id="create-profile-form">
+            <label for="new-profile-name">Create a profile and password</label>
+            <input id="new-profile-name" name="profileName" type="text" maxlength="32" autocomplete="name" placeholder="Profile name" required />
+            <input id="new-profile-password" name="password" type="password" minlength="8" maxlength="256" autocomplete="new-password" placeholder="Password (at least 8 characters)" required />
+            <button class="quiet-button" type="submit">Create account</button>
+          </form>
         </details>
+        <p class="login-error" id="login-error" role="alert"></p>
+        <p class="login-note">Cloud projects download to this browser when opened. Earlier local projects are available in your Guest session.</p>
       </div>
+      <button class="continue-as-guest" id="continue-as-guest" type="button">Continue as Guest</button>
     </section>
     <script src="assets/vendor/lame.min.js"></script>
-    <script src="app.js?v=33f5713d1e2d"></script>
+    <script src="app.js?v=05a1c3d4af80"></script>
   </body>
 </html>

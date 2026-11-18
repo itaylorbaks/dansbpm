@@ -786,10 +786,7 @@
         else if (button.dataset.collaborationAction === "discard") void discardWorkspaceCollaborationChanges(target);
       });
     });
-    $("#login-options").addEventListener("click", (event) => {
-      const option = event.target instanceof Element ? event.target.closest("[data-user-id]") : null;
-      if (option instanceof HTMLButtonElement) selectUser(option.dataset.userId);
-    });
+    $("#continue-as-guest").addEventListener("click", () => selectUser("guest"));
     $("#login-profile-form").addEventListener("submit", (event) => {
       event.preventDefault();
       void loginUser();

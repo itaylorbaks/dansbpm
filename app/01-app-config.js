@@ -11,7 +11,6 @@
   const DEFAULT_COLLABORATION_SERVER_URL = "wss://bpmcollab.onrender.com/collaboration";
   const COLLABORATION_SESSION_KEY = `${STORAGE_KEY}-collaboration-room`;
   const DEFAULT_USERS = [
-    { id: "taylor", name: "Taylor" },
     { id: "guest", name: "Guest" },
   ];
   const MAX_PATTERN_BARS = 32;
