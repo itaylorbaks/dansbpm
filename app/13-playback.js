@@ -1030,13 +1030,21 @@
     state.arrangementSources.clear();
     if (stoppedPlaybackMode === "arrangement") {
       if (pausedByUser) {
-        if (wasPlaying && userSettings.rewindOnPause) state.arrangementCursor = state.playbackStartBar;
+        if (wasPlaying && userSettings.pauseBehavior === "playback-start") {
+          state.arrangementCursor = state.playbackStartBar;
+        } else if (wasPlaying && userSettings.pauseBehavior === "track-origin") {
+          state.arrangementCursor = 0;
+        }
       } else if (state.view === "arrangement") {
         state.arrangementCursor = 0;
       }
     }
-    if (pausedByUser && wasPlaying && userSettings.rewindOnPause && stoppedPlaybackMode === "piano-roll") {
-      setPianoCursorTick(state.pianoPlaybackStartTick, false, false);
+    if (pausedByUser && wasPlaying && stoppedPlaybackMode === "piano-roll") {
+      if (userSettings.pauseBehavior === "playback-start") {
+        setPianoCursorTick(state.pianoPlaybackStartTick, false, false);
+      } else if (userSettings.pauseBehavior === "track-origin") {
+        setPianoCursorTick(0, false, false, true);
+      }
     }
     if (state.audioContext) {
       const now = state.audioContext.currentTime;

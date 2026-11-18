@@ -8861,11 +8861,11 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     updatePianoPlayhead(true);
   }
 
-  function setPianoCursorTick(tick, seek = true, persist = true) {
+  function setPianoCursorTick(tick, seek = true, persist = true, allowOutsideLoop = false) {
     const loopTicks = Math.max(1, getPianoLoopRange().totalBars * PIANO_TICKS_PER_BAR);
     const maxTick = loopTicks;
     let cursorTick = Math.max(0, Math.min(maxTick - 0.001, tick));
-    if (state.pianoLoopEnabled) {
+    if (state.pianoLoopEnabled && !allowOutsideLoop) {
       const { startBar, endBar } = getPianoLoopRange();
       const startTick = startBar * PIANO_TICKS_PER_BAR;
       const endTick = endBar * PIANO_TICKS_PER_BAR;
@@ -9353,7 +9353,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=52825188cda3");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=6aa8a7c01972");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -15574,12 +15574,17 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     player.playheadTimers.forEach((timerId) => window.clearTimeout(timerId));
     player.playheadTimers.clear();
     player.scheduledMelNotes.clear();
-    if (pausedByUser && workspace === "piano-roll" && userSettings.rewindOnPause) {
-      setPianoCursorTick(player.startTick || 0, false, false);
+    if (pausedByUser && workspace === "piano-roll") {
+      if (userSettings.pauseBehavior === "playback-start") {
+        setPianoCursorTick(player.startTick || 0, false, false);
+      } else if (userSettings.pauseBehavior === "track-origin") {
+        setPianoCursorTick(0, false, false, true);
+      }
     }
     state.workspacePlayers[workspace] = null;
     if (workspace === "sequencer" && !(state.isPlaying && state.view === "sequencer")) {
-      if (pausedByUser && userSettings.rewindOnPause) setPlayhead(0);
+      if (pausedByUser && userSettings.pauseBehavior === "track-origin") setPlayhead(0);
+      else if (pausedByUser && userSettings.pauseBehavior === "playback-start") setPlayhead(player.startStep || 0);
       else if (!pausedByUser) setPlayhead(-1);
     }
     updateWorkspacePlayButton(workspace, false);
@@ -15595,16 +15600,18 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       stopWorkspacePlayback(workspace, true);
       return;
     }
+    const startStep = workspace === "sequencer" && state.currentStep >= 0
+      ? state.currentStep
+      : 0;
     const player = {
       timerId: null,
       playheadTimers: new Set(),
       scheduledMelNotes: new Set(),
       startTime: 0,
       startTick: workspace === "piano-roll" ? state.pianoCursorTick : 0,
+      startStep,
       nextStepTime: 0,
-      stepIndex: workspace === "sequencer" && !userSettings.rewindOnPause && state.currentStep >= 0
-        ? state.currentStep
-        : 0,
+      stepIndex: startStep,
     };
     state.workspacePlayers[workspace] = player;
     updateWorkspacePlayButton(workspace, true);
@@ -23273,13 +23280,21 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     state.arrangementSources.clear();
     if (stoppedPlaybackMode === "arrangement") {
       if (pausedByUser) {
-        if (wasPlaying && userSettings.rewindOnPause) state.arrangementCursor = state.playbackStartBar;
+        if (wasPlaying && userSettings.pauseBehavior === "playback-start") {
+          state.arrangementCursor = state.playbackStartBar;
+        } else if (wasPlaying && userSettings.pauseBehavior === "track-origin") {
+          state.arrangementCursor = 0;
+        }
       } else if (state.view === "arrangement") {
         state.arrangementCursor = 0;
       }
     }
-    if (pausedByUser && wasPlaying && userSettings.rewindOnPause && stoppedPlaybackMode === "piano-roll") {
-      setPianoCursorTick(state.pianoPlaybackStartTick, false, false);
+    if (pausedByUser && wasPlaying && stoppedPlaybackMode === "piano-roll") {
+      if (userSettings.pauseBehavior === "playback-start") {
+        setPianoCursorTick(state.pianoPlaybackStartTick, false, false);
+      } else if (userSettings.pauseBehavior === "track-origin") {
+        setPianoCursorTick(0, false, false, true);
+      }
     }
     if (state.audioContext) {
       const now = state.audioContext.currentTime;
@@ -26942,7 +26957,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     metronomeVolume: 100,
     theme: "dark",
     accent: "lime",
-    rewindOnPause: false,
+    pauseBehavior: "maintain",
     blueprintLayout: "workspace-top",
   };
   let drummerAudio = null;
@@ -26963,7 +26978,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
             : 100,
           theme: saved.theme === "light" ? "light" : "dark",
           accent: ["lime", "blue", "violet", "coral"].includes(saved.accent) ? saved.accent : "lime",
-          rewindOnPause: saved.rewindOnPause === true,
+          pauseBehavior: ["maintain", "playback-start", "track-origin"].includes(saved.pauseBehavior)
+            ? saved.pauseBehavior
+            : saved.rewindOnPause === true ? "playback-start" : "maintain",
           blueprintLayout: ["workspace-top", "track-top", "side-by-side"].includes(saved.blueprintLayout)
             ? saved.blueprintLayout
             : "workspace-top",
@@ -26977,7 +26994,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     document.documentElement.dataset.accent = userSettings.accent;
     $("#settings-theme").value = userSettings.theme;
     $("#settings-accent").value = userSettings.accent;
-    $("#settings-pause-behavior").value = userSettings.rewindOnPause ? "rewind" : "stay";
+    $("#settings-pause-behavior").value = userSettings.pauseBehavior;
     updateBlueprintLayoutButtons();
     activateSettingsPage("display");
     $("#settings-audio-input").value = userSettings.audioInputDeviceId;
@@ -27028,7 +27045,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       persistUserSettings();
     });
     $("#settings-pause-behavior").addEventListener("change", (event) => {
-      userSettings.rewindOnPause = event.target.value === "rewind";
+      userSettings.pauseBehavior = ["maintain", "playback-start", "track-origin"].includes(event.target.value)
+        ? event.target.value
+        : "maintain";
       persistUserSettings();
     });
     document.querySelectorAll("[data-blueprint-layout]").forEach((button) => {

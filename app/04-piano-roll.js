@@ -1084,11 +1084,11 @@
     updatePianoPlayhead(true);
   }
 
-  function setPianoCursorTick(tick, seek = true, persist = true) {
+  function setPianoCursorTick(tick, seek = true, persist = true, allowOutsideLoop = false) {
     const loopTicks = Math.max(1, getPianoLoopRange().totalBars * PIANO_TICKS_PER_BAR);
     const maxTick = loopTicks;
     let cursorTick = Math.max(0, Math.min(maxTick - 0.001, tick));
-    if (state.pianoLoopEnabled) {
+    if (state.pianoLoopEnabled && !allowOutsideLoop) {
       const { startBar, endBar } = getPianoLoopRange();
       const startTick = startBar * PIANO_TICKS_PER_BAR;
       const endTick = endBar * PIANO_TICKS_PER_BAR;

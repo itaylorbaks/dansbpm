@@ -3355,12 +3355,17 @@
     player.playheadTimers.forEach((timerId) => window.clearTimeout(timerId));
     player.playheadTimers.clear();
     player.scheduledMelNotes.clear();
-    if (pausedByUser && workspace === "piano-roll" && userSettings.rewindOnPause) {
-      setPianoCursorTick(player.startTick || 0, false, false);
+    if (pausedByUser && workspace === "piano-roll") {
+      if (userSettings.pauseBehavior === "playback-start") {
+        setPianoCursorTick(player.startTick || 0, false, false);
+      } else if (userSettings.pauseBehavior === "track-origin") {
+        setPianoCursorTick(0, false, false, true);
+      }
     }
     state.workspacePlayers[workspace] = null;
     if (workspace === "sequencer" && !(state.isPlaying && state.view === "sequencer")) {
-      if (pausedByUser && userSettings.rewindOnPause) setPlayhead(0);
+      if (pausedByUser && userSettings.pauseBehavior === "track-origin") setPlayhead(0);
+      else if (pausedByUser && userSettings.pauseBehavior === "playback-start") setPlayhead(player.startStep || 0);
       else if (!pausedByUser) setPlayhead(-1);
     }
     updateWorkspacePlayButton(workspace, false);
@@ -3376,16 +3381,18 @@
       stopWorkspacePlayback(workspace, true);
       return;
     }
+    const startStep = workspace === "sequencer" && state.currentStep >= 0
+      ? state.currentStep
+      : 0;
     const player = {
       timerId: null,
       playheadTimers: new Set(),
       scheduledMelNotes: new Set(),
       startTime: 0,
       startTick: workspace === "piano-roll" ? state.pianoCursorTick : 0,
+      startStep,
       nextStepTime: 0,
-      stepIndex: workspace === "sequencer" && !userSettings.rewindOnPause && state.currentStep >= 0
-        ? state.currentStep
-        : 0,
+      stepIndex: startStep,
     };
     state.workspacePlayers[workspace] = player;
     updateWorkspacePlayButton(workspace, true);

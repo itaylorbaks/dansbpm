@@ -8,7 +8,7 @@
     metronomeVolume: 100,
     theme: "dark",
     accent: "lime",
-    rewindOnPause: false,
+    pauseBehavior: "maintain",
     blueprintLayout: "workspace-top",
   };
   let drummerAudio = null;
@@ -29,7 +29,9 @@
             : 100,
           theme: saved.theme === "light" ? "light" : "dark",
           accent: ["lime", "blue", "violet", "coral"].includes(saved.accent) ? saved.accent : "lime",
-          rewindOnPause: saved.rewindOnPause === true,
+          pauseBehavior: ["maintain", "playback-start", "track-origin"].includes(saved.pauseBehavior)
+            ? saved.pauseBehavior
+            : saved.rewindOnPause === true ? "playback-start" : "maintain",
           blueprintLayout: ["workspace-top", "track-top", "side-by-side"].includes(saved.blueprintLayout)
             ? saved.blueprintLayout
             : "workspace-top",
@@ -43,7 +45,7 @@
     document.documentElement.dataset.accent = userSettings.accent;
     $("#settings-theme").value = userSettings.theme;
     $("#settings-accent").value = userSettings.accent;
-    $("#settings-pause-behavior").value = userSettings.rewindOnPause ? "rewind" : "stay";
+    $("#settings-pause-behavior").value = userSettings.pauseBehavior;
     updateBlueprintLayoutButtons();
     activateSettingsPage("display");
     $("#settings-audio-input").value = userSettings.audioInputDeviceId;
@@ -94,7 +96,9 @@
       persistUserSettings();
     });
     $("#settings-pause-behavior").addEventListener("change", (event) => {
-      userSettings.rewindOnPause = event.target.value === "rewind";
+      userSettings.pauseBehavior = ["maintain", "playback-start", "track-origin"].includes(event.target.value)
+        ? event.target.value
+        : "maintain";
       persistUserSettings();
     });
     document.querySelectorAll("[data-blueprint-layout]").forEach((button) => {
