@@ -9800,7 +9800,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=d0bf4f929c60");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=aa675fdfb3e6");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -19261,9 +19261,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     saveState();
   }
 
-  function makeMixerSettingRange(labelText, value, min, max, step, unit, onInput) {
+  function makeMixerSettingRange(labelText, value, min, max, step, unit, onInput, parameterId = "") {
     const control = document.createElement("label");
     control.className = "mixer-effect-control";
+    if (parameterId) control.dataset.effectParameter = parameterId;
     const caption = document.createElement("span");
     caption.className = "mixer-control-caption";
     caption.textContent = labelText;
@@ -19283,6 +19284,71 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     return control;
   }
 
+  function makeMixerSettingKnob(labelText, value, min, max, step, unit, onInput) {
+    const control = document.createElement("label");
+    control.className = "mixer-effect-knob-control";
+    const caption = document.createElement("span");
+    caption.className = "mixer-control-caption";
+    caption.textContent = labelText;
+    const dial = document.createElement("div");
+    dial.className = "mixer-effect-dial";
+    dial.setAttribute("role", "slider");
+    dial.setAttribute("aria-label", labelText);
+    dial.setAttribute("aria-valuemin", String(min));
+    dial.setAttribute("aria-valuemax", String(max));
+    dial.tabIndex = 0;
+    const indicator = document.createElement("span");
+    indicator.className = "mixer-effect-dial-indicator";
+    dial.append(indicator);
+    const output = document.createElement("output");
+    const span = max - min;
+    const setValue = (candidate, notify = true) => {
+      const clamped = Math.max(min, Math.min(max, candidate));
+      const next = min + Math.round((clamped - min) / step) * step;
+      const percent = span ? (next - min) / span * 100 : 0;
+      dial.style.setProperty("--dial-angle", `${-135 + percent * 2.7}deg`);
+      dial.style.setProperty("--dial-fill", `${percent * 0.75}%`);
+      dial.setAttribute("aria-valuenow", String(next));
+      dial.setAttribute("aria-valuetext", `${next}${unit}`);
+      output.textContent = `${next}${unit}`;
+      if (notify) onInput(next);
+    };
+    const setFromPointer = (event) => {
+      const bounds = dial.getBoundingClientRect();
+      const angle = Math.atan2(
+        event.clientY - bounds.top - bounds.height / 2,
+        event.clientX - bounds.left - bounds.width / 2,
+      ) * 180 / Math.PI;
+      const percent = Math.max(0, Math.min(1, ((angle + 135 + 360) % 360) / 270));
+      setValue(min + percent * span);
+    };
+    dial.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      dial.setPointerCapture(event.pointerId);
+      setFromPointer(event);
+      const onMove = (moveEvent) => setFromPointer(moveEvent);
+      const onEnd = () => {
+        dial.removeEventListener("pointermove", onMove);
+        dial.removeEventListener("pointerup", onEnd);
+        dial.removeEventListener("pointercancel", onEnd);
+      };
+      dial.addEventListener("pointermove", onMove);
+      dial.addEventListener("pointerup", onEnd);
+      dial.addEventListener("pointercancel", onEnd);
+    });
+    dial.addEventListener("keydown", (event) => {
+      if (!["ArrowLeft", "ArrowDown", "ArrowRight", "ArrowUp"].includes(event.key)) return;
+      event.preventDefault();
+      const direction = ["ArrowRight", "ArrowUp"].includes(event.key) ? 1 : -1;
+      const current = Number(dial.getAttribute("aria-valuenow"));
+      setValue(current + direction * step * (event.shiftKey ? 5 : 1));
+    });
+    control.append(caption, dial, output);
+    setValue(value, false);
+    return control;
+  }
+
   function makeMixerEffectResetButton(track, effectId) {
     const reset = document.createElement("button");
     reset.type = "button";
@@ -19291,6 +19357,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     reset.addEventListener("click", () => {
       if (effectId === "eq") {
         ["eqSub", "eqLow", "eqMid", "eqHigh", "eqAir"].forEach((band) => { track.effects[band] = 0; });
+      } else if (effectId === "midSideEq") {
+        Object.keys(track.effectSettings.midSideEq).forEach((key) => { track.effectSettings.midSideEq[key] = 0; });
+      } else if (effectId === "steepEq") {
+        Object.assign(track.effectSettings.steepEq, { frequency: 1000, gain: 0, q: 1, order: 4 });
       } else {
         track.effects[effectId] = 0;
       }
@@ -19298,6 +19368,34 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       openMixerEffectDialog(track, effectId);
     });
     return reset;
+  }
+
+  function getMixerEffectHue(effectId) {
+    const index = EFFECT_NAMES.findIndex(([id]) => id === effectId);
+    const position = index < 0 ? EFFECT_NAMES.length + 1 : index + 1;
+    return String((23 + position * 137) % 360);
+  }
+
+  function makeMixerEffectScreen(track, effectId, variant = "") {
+    const screen = document.createElement("section");
+    screen.className = `mixer-effect-screen${variant ? ` ${variant}` : ""}`;
+    screen.dataset.effectId = effectId;
+    const heading = document.createElement("div");
+    heading.className = "mixer-effect-screen-heading";
+    const mode = document.createElement("span");
+    mode.textContent = "DSP / SCOPE";
+    const status = document.createElement("span");
+    status.textContent = track.analyser && (state.isPlaying || Object.values(state.workspacePlayers).some(Boolean))
+      ? "SIGNAL LIVE"
+      : "SIGNAL READY";
+    heading.append(mode, status);
+    const canvas = document.createElement("canvas");
+    canvas.setAttribute("aria-label", `${track.name} ${effectId} visualizer`);
+    const footer = document.createElement("div");
+    footer.className = "mixer-effect-screen-footer";
+    footer.textContent = `${effectId.replace(/[A-Z]/g, (letter) => ` ${letter}`).toUpperCase()} · ${track.name}`;
+    screen.append(heading, canvas, footer);
+    return { screen, canvas };
   }
 
   function openMixerEffectDialog(track, effectId) {
@@ -19308,6 +19406,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     state.mixerEffectAnimation = null;
     if (dialog.open) dialog.close();
     state.mixerEffectDialogTrackId = track.id;
+    dialog.dataset.effectId = effectId;
+    dialog.style.setProperty("--effect-hue", getMixerEffectHue(effectId));
     $("#mixer-effect-track-name").textContent = track.name;
     const title = effectId === "eq" ? "EQ" : EFFECT_NAMES.find(([id]) => id === effectId)?.[1] || effectId;
     $("#mixer-effect-title").textContent = title;
@@ -19316,15 +19416,13 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     let eqCanvas = null;
     let eqBands = [];
     let midSideCanvas = null;
+    let effectCanvas = null;
+    let eqBus = "mid";
 
     if (effectId === "midSideMonitor") {
-      const visualizer = document.createElement("div");
-      visualizer.className = "mixer-eq-visualizer mixer-mid-side-visualizer";
-      const canvas = document.createElement("canvas");
-      canvas.setAttribute("aria-label", `${track.name} live mid and side levels`);
+      const { screen, canvas } = makeMixerEffectScreen(track, effectId, "is-mid-side");
       midSideCanvas = canvas;
-      visualizer.append(canvas);
-      content.append(visualizer);
+      content.append(screen);
       const note = document.createElement("p");
       note.className = "mixer-effect-help";
       note.textContent = "Analysis only: this monitor does not alter the signal.";
@@ -19336,33 +19434,70 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       remove.addEventListener("click", () => removeMixerEffect(track, effectId));
       content.append(remove);
     } else if (effectId === "eq") {
-      const visualizer = document.createElement("div");
-      visualizer.className = "mixer-eq-visualizer";
-      const canvas = document.createElement("canvas");
-      canvas.setAttribute("aria-label", `${track.name} live EQ spectrum`);
-      eqCanvas = canvas;
-      visualizer.append(canvas);
-      content.append(visualizer);
+      const screen = makeMixerEffectScreen(track, effectId, "is-equalizer");
+      eqCanvas = screen.canvas;
+      content.append(screen.screen);
+      const graphHelp = document.createElement("p");
+      graphHelp.className = "mixer-effect-help";
+      graphHelp.textContent = "Drag a band node to shape the response; sliders stay synchronized.";
+      content.append(graphHelp);
       eqBands = [
-        ["eqSub", "Sub · 20–60 Hz", 40],
-        ["eqLow", "Bass · 60–250 Hz", 160],
-        ["eqMid", "Mid · 250 Hz–2 kHz", 1000],
-        ["eqHigh", "Presence · 2–8 kHz", 5000],
-        ["eqAir", "Air · 8–20 kHz", 12000],
+        ["eqSub", "SUB", 40],
+        ["eqLow", "BASS", 160],
+        ["eqMid", "MID", 1000],
+        ["eqHigh", "PRES", 5000],
+        ["eqAir", "AIR", 12000],
       ];
       const controls = document.createElement("div");
       controls.className = "mixer-effect-controls";
       eqBands.forEach(([id, label]) => {
-        controls.append(makeMixerSettingRange(label, track.effects[id], -12, 12, 1, " dB", (value) => {
+        const labelText = `${label} · ${id === "eqSub" ? "20–60 Hz" : id === "eqLow" ? "60–250 Hz" : id === "eqMid" ? "250 Hz–2 kHz" : id === "eqHigh" ? "2–8 kHz" : "8–20 kHz"}`;
+        controls.append(makeMixerSettingRange(labelText, track.effects[id], -12, 12, 1, " dB", (value) => {
           track.effects[id] = value;
           refreshMixerEffectTrack(track);
-        }));
+        }, id));
       });
       content.append(controls);
       content.append(makeMixerEffectResetButton(track, effectId));
     } else {
       const controls = document.createElement("div");
       controls.className = "mixer-effect-controls";
+      if (effectId === "midSideEq" || effectId === "steepEq") {
+        const screen = makeMixerEffectScreen(track, effectId, "is-equalizer");
+        eqCanvas = screen.canvas;
+        content.append(screen.screen);
+        eqBands = effectId === "midSideEq"
+          ? [["sub", "SUB", 40], ["low", "LOW", 160], ["mid", "MID", 1000], ["high", "HIGH", 5000], ["air", "AIR", 12000]]
+          : [["gain", "PEAK", track.effectSettings.steepEq.frequency]];
+        if (effectId === "midSideEq") {
+          const busSwitch = document.createElement("div");
+          busSwitch.className = "mixer-eq-bus-switch";
+          ["mid", "side"].forEach((bus) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = bus.toUpperCase();
+            button.setAttribute("aria-pressed", String(eqBus === bus));
+            button.addEventListener("click", () => {
+              eqBus = bus;
+              busSwitch.querySelectorAll("button").forEach((item) => {
+                item.setAttribute("aria-pressed", String(item === button));
+              });
+            });
+            busSwitch.append(button);
+          });
+          content.append(busSwitch);
+        }
+        const graphHelp = document.createElement("p");
+        graphHelp.className = "mixer-effect-help";
+        graphHelp.textContent = effectId === "midSideEq"
+          ? "Choose MID or SIDE, then drag a band node; its slider follows."
+          : "Drag the peak node to set frequency and gain; use sliders for width and order.";
+        content.append(graphHelp);
+      } else {
+        const screen = makeMixerEffectScreen(track, effectId);
+        effectCanvas = screen.canvas;
+        content.append(screen.screen);
+      }
       if (["sidechain", "crossfadeLimiter", "vocoder3Band"].includes(effectId)) {
         const sourceLabel = document.createElement("label");
         sourceLabel.className = "mixer-effect-control mixer-sidechain-source";
@@ -19393,7 +19528,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         sourceLabel.append(sourceCaption, sourceSelect);
         controls.append(sourceLabel);
       }
-      controls.append(makeMixerSettingRange(effectId === "sidechain" ? "Depth" : "Mix", track.effects[effectId], 0, 100, 1, "%", (value) => {
+      controls.append(makeMixerSettingKnob(effectId === "sidechain" ? "Depth" : "Mix", track.effects[effectId], 0, 100, 1, "%", (value) => {
         track.effects[effectId] = value;
         refreshMixerEffectTrack(track);
       }));
@@ -19401,7 +19536,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         controls.append(makeMixerSettingRange(label, track.effectSettings[effectId][id], min, max, step, unit, (value) => {
           track.effectSettings[effectId][id] = value;
           refreshMixerEffectTrack(track);
-        }));
+        }, id));
       });
       content.append(controls);
       content.append(makeMixerEffectResetButton(track, effectId));
@@ -19413,8 +19548,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       content.append(remove);
     }
     dialog.showModal();
-    if (eqCanvas) drawMixerEq(track, eqCanvas, eqBands.map(([id, , frequency]) => [id, frequency]));
+    if (eqCanvas) drawMixerEq(track, eqCanvas, effectId, eqBands, () => eqBus);
     if (midSideCanvas) drawMixerMidSide(track, midSideCanvas);
+    if (effectCanvas) drawMixerEffectVisualizer(track, effectId, effectCanvas);
   }
 
   function drawMixerMidSide(track, canvas) {
@@ -19476,11 +19612,39 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     state.mixerEffectAnimation = requestAnimationFrame(draw);
   }
 
-  function drawMixerEq(track, canvas, bands) {
+  function drawMixerEq(track, canvas, effectId, bandDefinitions, getBus) {
     const context = canvas.getContext("2d");
     if (!context) return;
+    let activeBand = -1;
+    let spectrum = new Uint8Array(0);
+    const getBands = () => bandDefinitions.map(([key, label, frequency]) => {
+      const parameterId = effectId === "midSideEq"
+        ? `${getBus()}${key[0].toUpperCase()}${key.slice(1)}`
+        : key;
+      return {
+        key,
+        label,
+        parameterId,
+        frequency: effectId === "steepEq" ? track.effectSettings.steepEq.frequency : frequency,
+      };
+    });
+    const getGain = (band) => effectId === "steepEq"
+      ? track.effectSettings.steepEq.gain
+      : effectId === "midSideEq"
+        ? track.effectSettings.midSideEq[band.parameterId]
+        : track.effects[band.parameterId];
+    const syncRange = (parameterId, value) => {
+      const control = [...$("#mixer-effect-dialog-content").querySelectorAll("[data-effect-parameter]")]
+        .find((item) => item.dataset.effectParameter === parameterId);
+      if (!control) return;
+      const input = control.querySelector("input");
+      const output = control.querySelector("output");
+      if (input) input.value = String(value);
+      if (output) output.textContent = `${value} dB`;
+    };
     const draw = () => {
-      if (!canvas.isConnected || !$("#mixer-effect-dialog").open || state.mixerEffectDialogTrackId !== track.id) return;
+      if (!canvas.isConnected || !$("#mixer-effect-dialog").open ||
+          state.mixerEffectDialogTrackId !== track.id) return;
       const bounds = canvas.getBoundingClientRect();
       if (!bounds.width || !bounds.height) {
         state.mixerEffectAnimation = requestAnimationFrame(draw);
@@ -19496,62 +19660,336 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
       const width = bounds.width;
       const height = bounds.height;
-      const centerY = height / 2;
-      context.fillStyle = "#141518";
+      const left = 32;
+      const right = width - 12;
+      const top = 14;
+      const bottom = height - 26;
+      const plotHeight = bottom - top;
+      const xForFrequency = (frequency) => left + Math.log(frequency / 20) / Math.log(1000) * (right - left);
+      const frequencyForX = (x) => 20 * Math.pow(1000, Math.max(0, Math.min(1, (x - left) / (right - left))));
+      const yForGain = (gain) => top + (12 - gain) / 24 * plotHeight;
+      const gainForY = (y) => Math.max(-12, Math.min(12, 12 - (y - top) / plotHeight * 24));
+      const hue = getComputedStyle($("#mixer-effect-dialog")).getPropertyValue("--effect-hue").trim() || "120";
+      const accent = `hsl(${hue} 85% 67%)`;
+      const bands = getBands();
+      const gradient = context.createLinearGradient(0, top, 0, bottom);
+      gradient.addColorStop(0, "#171a20");
+      gradient.addColorStop(1, "#101216");
+      context.fillStyle = gradient;
       context.fillRect(0, 0, width, height);
-      context.strokeStyle = "#34363b";
+      context.strokeStyle = "rgba(184,198,214,.12)";
       context.lineWidth = 1;
-      [0.2, 0.5, 0.8].forEach((ratioY) => {
-        const y = height * ratioY;
+      [-12, -6, 0, 6, 12].forEach((gain) => {
+        const y = yForGain(gain);
         context.beginPath();
-        context.moveTo(0, y);
-        context.lineTo(width, y);
+        context.moveTo(left, y);
+        context.lineTo(right, y);
+        context.stroke();
+        context.fillStyle = "#858d9a";
+        context.font = "8px monospace";
+        context.fillText(`${gain > 0 ? "+" : ""}${gain}`, 3, y + 3);
+      });
+      [20, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 20000].forEach((frequency) => {
+        const x = xForFrequency(frequency);
+        context.beginPath();
+        context.moveTo(x, top);
+        context.lineTo(x, bottom);
+        context.stroke();
+        if ([20, 100, 1000, 10000, 20000].includes(frequency)) {
+          context.fillStyle = "#858d9a";
+          context.font = "8px monospace";
+          context.fillText(frequency >= 1000 ? `${frequency / 1000}k` : String(frequency), x + 2, height - 8);
+        }
+      });
+      const playing = state.isPlaying || Object.values(state.workspacePlayers).some(Boolean);
+      if (track.analyser && playing) {
+        if (spectrum.length !== track.analyser.frequencyBinCount) spectrum = new Uint8Array(track.analyser.frequencyBinCount);
+        track.analyser.getByteFrequencyData(spectrum);
+        context.fillStyle = "rgba(107,195,255,.16)";
+        for (let index = 1; index < spectrum.length; index += 2) {
+          const frequency = index * (state.audioContext?.sampleRate || 44100) / track.analyser.fftSize;
+          if (frequency < 20 || frequency > 20000) continue;
+          const x = xForFrequency(frequency);
+          const barHeight = spectrum[index] / 255 * plotHeight * 0.8;
+          context.fillRect(x, bottom - barHeight, Math.max(1, width / 220), barHeight);
+        }
+      }
+      const response = (frequency) => {
+        if (effectId === "steepEq") {
+          const settings = track.effectSettings.steepEq;
+          const octaves = Math.log2(frequency / settings.frequency);
+          const spread = Math.max(0.2, 1.8 / settings.q);
+          return settings.gain * Math.exp(-(octaves * octaves) / spread);
+        }
+        return bands.reduce((sum, band) => {
+          const octaves = Math.log2(frequency / band.frequency);
+          return sum + getGain(band) * Math.exp(-(octaves * octaves) / 1.8);
+        }, 0);
+      };
+      context.beginPath();
+      context.moveTo(left, bottom);
+      for (let x = left; x <= right; x += 2) {
+        const gain = Math.max(-12, Math.min(12, response(frequencyForX(x))));
+        context.lineTo(x, yForGain(gain));
+      }
+      context.lineTo(right, bottom);
+      context.closePath();
+      context.fillStyle = `hsla(${hue},85%,67%,.12)`;
+      context.fill();
+      context.beginPath();
+      for (let x = left; x <= right; x += 2) {
+        const gain = Math.max(-12, Math.min(12, response(frequencyForX(x))));
+        const y = yForGain(gain);
+        if (x === left) context.moveTo(x, y);
+        else context.lineTo(x, y);
+      }
+      context.strokeStyle = accent;
+      context.lineWidth = 2.5;
+      context.shadowColor = accent;
+      context.shadowBlur = 10;
+      context.stroke();
+      context.shadowBlur = 0;
+      bands.forEach((band) => {
+        const x = xForFrequency(band.frequency);
+        const y = yForGain(getGain(band));
+        context.beginPath();
+        context.arc(x, y, activeBand === bands.indexOf(band) ? 7 : 5, 0, Math.PI * 2);
+        context.fillStyle = accent;
+        context.fill();
+        context.lineWidth = 1.5;
+        context.strokeStyle = "#f3f5f7";
         context.stroke();
       });
-      const frequencies = [20, 100, 1000, 10000, 20000];
-      frequencies.forEach((frequency) => {
-        const x = Math.log(frequency / 20) / Math.log(1000) * width;
+      state.mixerEffectAnimation = requestAnimationFrame(draw);
+    };
+    const updateFromPointer = (event) => {
+      const bounds = canvas.getBoundingClientRect();
+      const band = getBands()[activeBand];
+      if (!band) return;
+      const x = event.clientX - bounds.left;
+      const gain = Math.round(gainForY(event.clientY - bounds.top) * 2) / 2;
+      if (effectId === "steepEq") {
+        track.effectSettings.steepEq.frequency = Math.round(frequencyForX(x) / 10) * 10;
+        track.effectSettings.steepEq.gain = gain;
+        const frequencyControl = [...$("#mixer-effect-dialog-content").querySelectorAll("[data-effect-parameter]")]
+          .find((item) => item.dataset.effectParameter === "frequency");
+        if (frequencyControl?.querySelector("input")) {
+          frequencyControl.querySelector("input").value = String(track.effectSettings.steepEq.frequency);
+          frequencyControl.querySelector("output").textContent = `${track.effectSettings.steepEq.frequency} Hz`;
+        }
+        syncRange("gain", gain);
+      } else if (effectId === "midSideEq") {
+        track.effectSettings.midSideEq[band.parameterId] = gain;
+        syncRange(band.parameterId, gain);
+      } else {
+        track.effects[band.parameterId] = gain;
+        syncRange(band.parameterId, gain);
+      }
+    };
+    canvas.style.touchAction = "none";
+    canvas.addEventListener("pointerdown", (event) => {
+      const bounds = canvas.getBoundingClientRect();
+      const bands = getBands();
+      const x = event.clientX - bounds.left;
+      const nearest = bands
+        .map((band, index) => ({ index, distance: Math.abs(x - (32 + Math.log(band.frequency / 20) / Math.log(1000) * (bounds.width - 44))) }))
+        .sort((leftBand, rightBand) => leftBand.distance - rightBand.distance)[0];
+      if (!nearest || nearest.distance > 28) return;
+      event.preventDefault();
+      activeBand = nearest.index;
+      canvas.setPointerCapture(event.pointerId);
+      canvas.classList.add("is-dragging");
+      updateFromPointer(event);
+    });
+    canvas.addEventListener("pointermove", (event) => {
+      if (activeBand >= 0) updateFromPointer(event);
+    });
+    const finishDrag = () => {
+      if (activeBand < 0) return;
+      activeBand = -1;
+      canvas.classList.remove("is-dragging");
+      refreshMixerEffectTrack(track);
+    };
+    canvas.addEventListener("pointerup", finishDrag);
+    canvas.addEventListener("pointercancel", finishDrag);
+    draw();
+  }
+
+  function drawMixerEffectVisualizer(track, effectId, canvas) {
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    const modulationEffects = new Set(["autopan", "chorus", "flanger", "phaser", "vibrato", "tremolo", "autoFilter", "lfoGain"]);
+    const timeEffects = new Set(["delay", "pingPong", "slapback", "tapeDelay", "reverb", "room", "hall", "plate"]);
+    const dynamicsEffects = new Set(["compressor", "multibandCompressor", "limiter", "noiseGate", "sidechain", "crossfadeLimiter", "transientShaper"]);
+    const stereoEffects = new Set(["midSidePanner", "midSideFilter"]);
+    const waveEffects = new Set(["distortion", "saturator", "softClipper", "bitcrusher", "gain"]);
+    const visualKind = modulationEffects.has(effectId) ? "modulation"
+      : timeEffects.has(effectId) ? "time"
+        : dynamicsEffects.has(effectId) ? "dynamics"
+          : stereoEffects.has(effectId) ? "stereo"
+            : waveEffects.has(effectId) ? "wave"
+              : ["vocoder", "vocoder3Band", "harmonizer", "pitchShifter"].includes(effectId) ? "spectrum" : "filter";
+    let samples = new Uint8Array(0);
+    const draw = (timestamp) => {
+      if (!canvas.isConnected || !$("#mixer-effect-dialog").open ||
+          state.mixerEffectDialogTrackId !== track.id) return;
+      const bounds = canvas.getBoundingClientRect();
+      if (!bounds.width || !bounds.height) {
+        state.mixerEffectAnimation = requestAnimationFrame(draw);
+        return;
+      }
+      const ratio = window.devicePixelRatio || 1;
+      const widthPx = Math.round(bounds.width * ratio);
+      const heightPx = Math.round(bounds.height * ratio);
+      if (canvas.width !== widthPx || canvas.height !== heightPx) {
+        canvas.width = widthPx;
+        canvas.height = heightPx;
+      }
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      const width = bounds.width;
+      const height = bounds.height;
+      const time = timestamp / 1000;
+      const hue = getComputedStyle($("#mixer-effect-dialog")).getPropertyValue("--effect-hue").trim() || "120";
+      const accent = `hsl(${hue} 85% 67%)`;
+      const active = state.isPlaying || Object.values(state.workspacePlayers).some(Boolean);
+      const background = context.createLinearGradient(0, 0, width, height);
+      background.addColorStop(0, "#171a20");
+      background.addColorStop(1, "#0e1116");
+      context.fillStyle = background;
+      context.fillRect(0, 0, width, height);
+      context.strokeStyle = "rgba(180,195,212,.1)";
+      context.lineWidth = 1;
+      for (let x = 0; x <= width; x += 32) {
         context.beginPath();
         context.moveTo(x, 0);
         context.lineTo(x, height);
         context.stroke();
-        context.fillStyle = "#85868c";
-        context.font = "9px sans-serif";
-        context.fillText(frequency >= 1000 ? `${frequency / 1000}k` : String(frequency), x + 3, height - 5);
-      });
-      if (track.analyser && state.isPlaying) {
-        const data = new Uint8Array(track.analyser.frequencyBinCount);
-        track.analyser.getByteFrequencyData(data);
-        const sampleRate = state.audioContext?.sampleRate || 44100;
-        context.fillStyle = "rgba(124, 201, 255, .3)";
-        for (let index = 1; index < data.length; index += 1) {
-          const frequency = index * sampleRate / track.analyser.fftSize;
-          if (frequency < 20 || frequency > 20000) continue;
-          const x = Math.log(frequency / 20) / Math.log(1000) * width;
-          const barWidth = Math.max(1, width / 180);
-          const barHeight = (data[index] / 255) * height * 0.8;
-          context.fillRect(x, height - barHeight, barWidth, barHeight);
+      }
+      for (let y = 0; y <= height; y += 24) {
+        context.beginPath();
+        context.moveTo(0, y);
+        context.lineTo(width, y);
+        context.stroke();
+      }
+      if (track.analyser && active) {
+        if (samples.length !== track.analyser.frequencyBinCount) samples = new Uint8Array(track.analyser.frequencyBinCount);
+        track.analyser.getByteFrequencyData(samples);
+      }
+      const drawBars = (count = 40) => {
+        const gap = 3;
+        const barWidth = Math.max(2, (width - gap * (count - 1) - 24) / count);
+        for (let index = 0; index < count; index += 1) {
+          const sample = samples.length
+            ? samples[Math.floor(index / count * samples.length)] / 255
+            : 0.15 + Math.abs(Math.sin(index * 0.41 + time * 1.3)) * 0.25;
+          const barHeight = Math.max(3, sample * (height - 36));
+          const x = 12 + index * (barWidth + gap);
+          context.fillStyle = `hsla(${hue},85%,67%,${0.25 + sample * 0.65})`;
+          context.fillRect(x, height - 18 - barHeight, barWidth, barHeight);
+        }
+      };
+      if (visualKind === "modulation") {
+        const rate = track.effectSettings[effectId]?.rate || 0.5;
+        [0, 1, 2].forEach((layer) => {
+          context.beginPath();
+          for (let x = 12; x < width - 12; x += 2) {
+            const phase = x / width * Math.PI * 2 * (1 + layer * 0.25) + time * rate * (layer + 1);
+            const y = height / 2 + Math.sin(phase) * (height * (0.18 + layer * 0.08));
+            if (x === 12) context.moveTo(x, y);
+            else context.lineTo(x, y);
+          }
+          context.strokeStyle = `hsla(${hue},85%,67%,${0.85 - layer * 0.2})`;
+          context.lineWidth = layer === 0 ? 2 : 1;
+          context.stroke();
+        });
+      } else if (visualKind === "time") {
+        const delay = effectId.includes("Delay") || effectId.includes("delay") || effectId === "pingPong";
+        const pulseCount = delay ? 7 : 12;
+        for (let index = 0; index < pulseCount; index += 1) {
+          const phase = (time * (delay ? 0.7 : 0.35) + index / pulseCount) % 1;
+          const x = 12 + phase * (width - 24);
+          const envelope = Math.exp(-phase * (delay ? 3.2 : 5));
+          context.beginPath();
+          context.moveTo(x, height - 20);
+          context.lineTo(x, height - 20 - envelope * (height - 42));
+          context.strokeStyle = `hsla(${hue},85%,67%,${0.2 + envelope * 0.7})`;
+          context.lineWidth = delay ? 3 : 2;
+          context.stroke();
+          context.beginPath();
+          context.arc(x, height - 20 - envelope * (height - 42), 3 + envelope * 3, 0, Math.PI * 2);
+          context.fillStyle = accent;
+          context.fill();
+        }
+      } else if (visualKind === "dynamics") {
+        const threshold = track.effectSettings[effectId]?.threshold ?? -18;
+        const knee = Math.max(0.1, (threshold + 60) / 60);
+        context.beginPath();
+        for (let x = 12; x <= width - 12; x += 2) {
+          const input = (x - 12) / (width - 24);
+          const output = input < knee ? input : knee + (input - knee) * 0.38;
+          const y = height - 18 - output * (height - 36);
+          if (x === 12) context.moveTo(x, y);
+          else context.lineTo(x, y);
+        }
+        context.strokeStyle = accent;
+        context.lineWidth = 2.5;
+        context.shadowColor = accent;
+        context.shadowBlur = 8;
+        context.stroke();
+        context.shadowBlur = 0;
+        const meter = 0.28 + Math.abs(Math.sin(time * 1.8)) * (active ? 0.68 : 0.3);
+        context.fillStyle = `hsla(${hue},85%,67%,.2)`;
+        context.fillRect(12, height - 14, (width - 24) * meter, 5);
+      } else if (visualKind === "stereo") {
+        context.beginPath();
+        for (let index = 0; index <= 180; index += 1) {
+          const phase = index / 180 * Math.PI * 2;
+          const x = width / 2 + Math.sin(phase + time) * (width * 0.36);
+          const y = height / 2 + Math.sin(phase * (effectId === "midSidePanner" ? 1.08 : 1.6)) * (height * 0.34);
+          if (!index) context.moveTo(x, y);
+          else context.lineTo(x, y);
+        }
+        context.strokeStyle = accent;
+        context.lineWidth = 2;
+        context.shadowColor = accent;
+        context.shadowBlur = 10;
+        context.stroke();
+        context.shadowBlur = 0;
+        drawBars(18);
+      } else if (visualKind === "wave") {
+        const drive = track.effectSettings[effectId]?.drive || 4;
+        context.beginPath();
+        for (let index = 0; index <= 180; index += 1) {
+          const input = index / 90 - 1;
+          const output = effectId === "gain" ? input : Math.tanh(input * drive) / Math.tanh(drive);
+          const x = 12 + index / 180 * (width - 24);
+          const y = height / 2 - output * (height * 0.38);
+          if (!index) context.moveTo(x, y);
+          else context.lineTo(x, y);
+        }
+        context.strokeStyle = accent;
+        context.lineWidth = 2.5;
+        context.shadowColor = accent;
+        context.shadowBlur = 8;
+        context.stroke();
+        context.shadowBlur = 0;
+      } else {
+        drawBars(effectId === "vocoder3Band" ? 3 : 44);
+        if (visualKind === "spectrum") {
+          context.beginPath();
+          for (let x = 12; x < width - 12; x += 2) {
+            const y = height * 0.6 - Math.sin(x * 0.07 + time * 2) * (height * 0.17);
+            if (x === 12) context.moveTo(x, y);
+            else context.lineTo(x, y);
+          }
+          context.strokeStyle = accent;
+          context.lineWidth = 1.5;
+          context.stroke();
         }
       }
-      const response = (frequency) => bands.reduce((sum, [id, center]) => {
-        const gain = track.effects[id];
-        const octaves = Math.log2(frequency / center);
-        return sum + gain * Math.exp(-(octaves * octaves) / 1.8);
-      }, 0);
-      context.strokeStyle = "#d4f16c";
-      context.lineWidth = 2;
-      context.beginPath();
-      for (let x = 0; x <= width; x += 2) {
-        const frequency = 20 * Math.pow(1000, x / width);
-        const gain = Math.max(-12, Math.min(12, response(frequency)));
-        const y = centerY - gain / 24 * height;
-        if (x === 0) context.moveTo(x, y);
-        else context.lineTo(x, y);
-      }
-      context.stroke();
       state.mixerEffectAnimation = requestAnimationFrame(draw);
     };
-    draw();
+    state.mixerEffectAnimation = requestAnimationFrame(draw);
   }
 
   function getInstrumentCategory(track) {
