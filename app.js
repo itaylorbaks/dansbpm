@@ -9656,7 +9656,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=c3aee2269eda");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=942a7401be40");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -17602,7 +17602,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       option.type = "button";
       option.setAttribute("role", "menuitem");
       option.dataset.clipId = clip.id;
-      option.textContent = `Open ${clip.name} in Audio Pitch`;
+      option.textContent = `Open ${clip.name} in Piano Roll`;
       option.title = `Transcribe and edit ${clip.name} in the Piano Roll`;
       audioOptions.append(option);
     });
@@ -17642,8 +17642,15 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         option.textContent = label;
         segmentOptions.append(option);
       };
-      addOption(`Open original ${assetType}`, sourceId);
-      addOption(`Open segment ${assetType}`, asset.id);
+      if (assetType === "audio") {
+        const source = getArrangementAsset(assetType, sourceId);
+        if (source) addOption(`Open ${source.name} - Source in Piano Roll`, source.id);
+      } else {
+        const source = getArrangementAsset(assetType, sourceId);
+        const editor = assetType === "mel" ? "Piano Roll" : "Grid";
+        if (source) addOption(`Open ${source.name} - Source in ${editor}`, source.id);
+        addOption(`Open ${asset.name} in ${editor}`, asset.id);
+      }
       segmentOptions.hidden = false;
     }
     menu.dataset.trackId = trackId;
@@ -19210,7 +19217,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       const clip = state.patternClips.find((item) => item.id === id);
       return state.patterns.find((pattern) => pattern.id === id) || (clip ? getPattern(clip.patternId) : null);
     }
-    const audio = state.audioAssets.find((asset) => asset.id === id) ||
+    const audio = state.audioAssets.find((asset) => asset.id === id ||
+      asset.isSourceAudioAsset && asset.sourceAssetId === id) ||
       state.arrangementTracks.flatMap((track) => track.clips).find((clip) => clip.id === id);
     if (!audio) return null;
     if (state.audioAssets.includes(audio)) return audio;
@@ -19434,45 +19442,46 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       return;
     }
 
-    function openArrangementAssetInEditor(type, id) {
-      if (!type || !id) return;
-      if (type === "mel") {
-        captureCurrentMel();
-        if (!getMel(id)) {
-          showToast("That Mel is no longer available.");
-          return;
-        }
-        loadMel(id);
-        renderMelOptions();
-        renderPianoInstrumentOptions();
-        renderPianoRoll();
-        setWorkspaceView("piano-roll");
-        return;
-      }
-      if (type === "pattern") {
-        if (!getPattern(id)) {
-          showToast("That pattern is no longer available.");
-          return;
-        }
-        selectPattern(id);
-        setWorkspaceView("sequencer");
-        return;
-      }
-      const asset = state.audioAssets.find((candidate) => candidate.id === id ||
-        candidate.isSourceAudioAsset && candidate.sourceAssetId === id);
-      if (asset) {
-        void openAudioAssetInPianoRoll(asset);
-        return;
-      }
-      const track = state.arrangementTracks.find((candidate) =>
-        candidate.clips.some((clip) => clip.id === id));
-      if (track) void openAudioClipInPianoRoll(track.id, id);
-    }
     state.selectedMixerTrackId = destinationId;
     updateArrangementLength();
     renderArrangement();
     saveState();
     showToast(`${name} duplicated`);
+  }
+
+  function openArrangementAssetInEditor(type, id) {
+    if (!type || !id) return;
+    if (type === "mel") {
+      captureCurrentMel();
+      if (!getMel(id)) {
+        showToast("That Mel is no longer available.");
+        return;
+      }
+      loadMel(id);
+      renderMelOptions();
+      renderPianoInstrumentOptions();
+      renderPianoRoll();
+      setWorkspaceView("piano-roll");
+      return;
+    }
+    if (type === "pattern") {
+      if (!getPattern(id)) {
+        showToast("That pattern is no longer available.");
+        return;
+      }
+      selectPattern(id);
+      setWorkspaceView("sequencer");
+      return;
+    }
+    const asset = getArrangementAsset(type, id);
+    if (asset && state.audioAssets.includes(asset)) {
+      void openAudioAssetInPianoRoll(asset);
+      return;
+    }
+    const track = state.arrangementTracks.find((candidate) =>
+      candidate.clips.some((clip) => clip.id === id));
+    if (track) void openAudioClipInPianoRoll(track.id, id);
+    else showToast("That audio asset is no longer available.");
   }
 
   function renderRecordingBrowser() {

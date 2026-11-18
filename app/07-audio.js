@@ -1641,7 +1641,7 @@
       option.type = "button";
       option.setAttribute("role", "menuitem");
       option.dataset.clipId = clip.id;
-      option.textContent = `Open ${clip.name} in Audio Pitch`;
+      option.textContent = `Open ${clip.name} in Piano Roll`;
       option.title = `Transcribe and edit ${clip.name} in the Piano Roll`;
       audioOptions.append(option);
     });
@@ -1681,8 +1681,15 @@
         option.textContent = label;
         segmentOptions.append(option);
       };
-      addOption(`Open original ${assetType}`, sourceId);
-      addOption(`Open segment ${assetType}`, asset.id);
+      if (assetType === "audio") {
+        const source = getArrangementAsset(assetType, sourceId);
+        if (source) addOption(`Open ${source.name} - Source in Piano Roll`, source.id);
+      } else {
+        const source = getArrangementAsset(assetType, sourceId);
+        const editor = assetType === "mel" ? "Piano Roll" : "Grid";
+        if (source) addOption(`Open ${source.name} - Source in ${editor}`, source.id);
+        addOption(`Open ${asset.name} in ${editor}`, asset.id);
+      }
       segmentOptions.hidden = false;
     }
     menu.dataset.trackId = trackId;
