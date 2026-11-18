@@ -180,6 +180,7 @@
       volume.addEventListener("input", () => {
         track.volume = Number(volume.value) / 100;
         updateTrackGains();
+        syncQuickMixerControls(track);
       });
       volume.addEventListener("change", () => {
         persistTrackClips(track);
@@ -272,6 +273,7 @@
     updateArrangementSelection();
     updateProjectKeyIndicator();
     if (state.view === "mixer") renderMixer();
+    else renderQuickActionPanel();
   }
 
   function makeAutomationToggle(track) {
@@ -764,6 +766,7 @@
     library.append(libraryTitle, libraryHint, effectList);
     root.append(trackList, library);
     syncMixerMeters();
+    renderQuickActionPanel();
   }
 
   function makeMixerVolumeMonitor(track) {
@@ -800,12 +803,14 @@
       element.setAttribute("aria-valuenow", "0");
       if (fill) fill.style.width = "0%";
     });
-    if (state.view !== "mixer" || !isPlaying()) {
+    if ((state.view !== "mixer" && !(userSettings.quickActionEnabled && userSettings.quickActionView === "mixer")) ||
+      !isPlaying()) {
       resetMeters();
       return;
     }
     const draw = () => {
-      if (state.view !== "mixer" || !isPlaying()) {
+      if ((state.view !== "mixer" && !(userSettings.quickActionEnabled && userSettings.quickActionView === "mixer")) ||
+        !isPlaying()) {
         resetMeters();
         state.mixerMeterAnimation = null;
         return;
@@ -900,6 +905,7 @@
       knob.style.setProperty("--knob-fill", `${percent * 0.75}%`);
       value.textContent = displayText;
       updateTrackGains();
+      syncQuickMixerControls(track);
       if (persist) saveState();
     };
     const setFromPointer = (event) => {
@@ -960,6 +966,9 @@
       const channel = [...document.querySelectorAll(".mixer-channel")]
         .find((item) => item.dataset.trackId === track.id);
       channel?.querySelector(".mixer-effect-slots")?.replaceWith(makeMixerEffectSlots(track));
+      const quickLane = [...document.querySelectorAll(".quick-mixer-lane")]
+        .find((item) => item.dataset.trackId === track.id);
+      quickLane?.querySelector(".mixer-effect-slots")?.replaceWith(makeMixerEffectSlots(track));
     });
     control.append(caption, input, value);
     return control;

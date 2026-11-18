@@ -1628,7 +1628,7 @@
     input.click();
   }
 
-  async function importRecording(file, trackId = null, startBar = state.arrangementCursor, snapStart = true) {
+  async function importRecording(file, trackId = null, startBar = state.arrangementCursor, snapStart = true, requirePersistence = false) {
     if (!isAudioFile(file)) {
       showToast(`"${file.name}" is not an audio file.`);
       return null;
@@ -1654,6 +1654,7 @@
       const audioAdjustment = getAudioClipProjectAdjustment(audioMetadata,
         tempoChoice.action === "audio-to-project" ? tempoChoice.targetBpm : null);
       let track = state.arrangementTracks.find((item) => item.id === trackId);
+      const createdTrack = !track;
       if (!track) track = createArrangementTrack(file.name);
       else if (!track.clips.length && /^Track \d+$/.test(track.name)) track.name = file.name;
       const clip = {
@@ -1682,7 +1683,15 @@
       saveState();
       try {
         await persistClip(track, clip);
-      } catch {
+      } catch (error) {
+        if (requirePersistence) {
+          track.clips = track.clips.filter((item) => item !== clip);
+          if (createdTrack) state.arrangementTracks = state.arrangementTracks.filter((item) => item !== track);
+          updateArrangementLength();
+          renderArrangement();
+          saveState();
+          throw error;
+        }
         showToast("Recording added for this session, but browser storage is unavailable.");
       }
       if (audioAdjustment) {
@@ -1849,10 +1858,15 @@
 
   function startRecordingPreview(stream) {
     let track = null;
+    let createdTrack = false;
     let analyser = null;
     let source = null;
     try {
-      track = createArrangementTrack("Recording");
+      track = state.arrangementTracks.find((item) => item.id === userSettings.recordingTrackId) || null;
+      if (!track) {
+        track = createArrangementTrack("Recording");
+        createdTrack = true;
+      }
       analyser = state.audioContext.createAnalyser();
       analyser.fftSize = 512;
       source = state.audioContext.createMediaStreamSource(stream);
@@ -1871,6 +1885,7 @@
 
       const preview = {
         track,
+        createdTrack,
         startBar: state.recordingStartBar,
         startedAt: performance.now(),
         analyser,
@@ -1880,14 +1895,20 @@
         waveform: [],
       };
       state.recordingPreview = preview;
+      try {
+        setRecordingInputMonitoring(userSettings.inputMonitoring, stream, track);
+      } catch (error) {
+        showToast(`Recording started without input monitoring: ${error.message || "unknown error"}`);
+      }
       renderArrangement();
       updateRecordingPreview();
       state.recordingPreviewTimer = window.setInterval(updateRecordingPreview, 100);
     } catch (error) {
       state.recordingPreview = null;
+      stopRecordingInputMonitoring();
       source?.disconnect();
       analyser?.disconnect();
-      if (track) state.arrangementTracks = state.arrangementTracks.filter((item) => item !== track);
+      if (track && createdTrack) state.arrangementTracks = state.arrangementTracks.filter((item) => item !== track);
       throw error;
     }
   }

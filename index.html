@@ -639,15 +639,28 @@
                       <button class="quiet-button" id="add-bars-button" type="button">+ 4 BARS</button>
                     </div>
                   </div>
-                  <div class="arrangement-editor" id="arrangement-editor">
-                    <div class="arrangement-track-column">
-                      <div class="arrangement-track-header">TRACKS <span id="arrangement-track-count">01</span></div>
-                      <div class="arrangement-track-labels" id="arrangement-track-labels"></div>
-                      <button class="quiet-button track-browser-button" id="source-browser-button" type="button">Browser</button>
+                  <div class="track-view-content">
+                    <div class="arrangement-editor" id="arrangement-editor">
+                      <div class="arrangement-track-column">
+                        <div class="arrangement-track-header">TRACKS <span id="arrangement-track-count">01</span></div>
+                        <div class="arrangement-track-labels" id="arrangement-track-labels"></div>
+                        <button class="quiet-button track-browser-button" id="source-browser-button" type="button">Browser</button>
+                      </div>
+                      <div class="timeline-scroll" id="timeline-scroll">
+                        <div class="timeline-content" id="timeline-content"></div>
+                      </div>
                     </div>
-                    <div class="timeline-scroll" id="timeline-scroll">
-                      <div class="timeline-content" id="timeline-content"></div>
-                    </div>
+                    <aside class="quick-action-panel" id="quick-action-panel" aria-label="Quick Action" hidden>
+                      <div class="quick-action-heading">
+                        <span>QUICK ACTION</span>
+                        <select id="quick-action-view-select" aria-label="Quick Action view">
+                          <option value="mixer">Mixer</option>
+                          <option value="sequencer">Step Grid</option>
+                          <option value="piano-roll">Piano Roll</option>
+                        </select>
+                      </div>
+                      <div class="quick-action-content" id="quick-action-content"></div>
+                    </aside>
                   </div>
                 </section>
               </div>
@@ -928,6 +941,48 @@
                     <option value="coral">Coral</option>
                   </select>
                 </label>
+                <label class="settings-field">
+                  <span>Font size</span>
+                  <input id="settings-font-size" type="range" min="85" max="125" step="5" value="100">
+                  <output id="settings-font-size-value" for="settings-font-size">100%</output>
+                </label>
+                <label class="settings-field">
+                  <span>Font family</span>
+                  <select id="settings-font-family">
+                    <option value="system">System</option>
+                    <option value="arial">Arial</option>
+                    <option value="verdana">Verdana</option>
+                    <option value="georgia">Georgia</option>
+                  </select>
+                </label>
+                <label class="settings-field">
+                  <span>Contrast</span>
+                  <input id="settings-contrast" type="range" min="0" max="100" step="10" value="50">
+                  <output id="settings-contrast-value" for="settings-contrast">50%</output>
+                </label>
+                <label class="settings-field">
+                  <span>Interface density</span>
+                  <select id="settings-density">
+                    <option value="compact">Compact</option>
+                    <option value="comfortable">Comfortable</option>
+                    <option value="spacious">Spacious</option>
+                  </select>
+                </label>
+              </div>
+              <div class="settings-subsection">
+                <h4>Quick Action</h4>
+                <label class="settings-check-field">
+                  <input id="settings-quick-action-enabled" type="checkbox">
+                  <span>Show Quick Action beside Track View</span>
+                </label>
+                <label class="settings-field">
+                  <span>Quick Action view</span>
+                  <select id="settings-quick-action-view">
+                    <option value="mixer">Mixer</option>
+                    <option value="sequencer">Step Grid</option>
+                    <option value="piano-roll">Piano Roll</option>
+                  </select>
+                </label>
               </div>
             </section>
             <section class="settings-page" id="settings-page-controls" role="tabpanel"
@@ -941,6 +996,33 @@
                   <option value="track-origin">Return to track origin</option>
                 </select>
               </label>
+              <div class="settings-subsection">
+                <h4>Keyboard shortcuts</h4>
+                <p class="settings-note">Shortcuts are grouped by view. Select a binding and press the key combination you want; conflicting bindings are rejected.</p>
+                <div id="settings-shortcuts" class="settings-shortcuts"></div>
+                <p id="settings-shortcuts-status" class="settings-note" role="status" aria-live="polite"></p>
+              </div>
+              <div class="settings-subsection">
+                <h4>Recording defaults</h4>
+                <label class="settings-field">
+                  <span>Default recording track</span>
+                  <select id="settings-recording-track">
+                    <option value="">New track for each take</option>
+                  </select>
+                </label>
+                <label class="settings-field">
+                  <span>Recording over clips</span>
+                  <select id="settings-recording-mode">
+                    <option value="new-take">Keep each take</option>
+                    <option value="replace">Replace overlapping clips</option>
+                  </select>
+                </label>
+                <label class="settings-check-field">
+                  <input id="settings-input-monitoring" type="checkbox">
+                  <span>Monitor microphone input while recording</span>
+                </label>
+                <p class="settings-note">Monitoring is off by default. With no default track, each take gets a new track. On a selected track, takes are kept or overlapping clips are replaced only after the new recording is saved successfully.</p>
+              </div>
             </section>
             <section class="settings-page" id="settings-page-collaboration" role="tabpanel"
               aria-labelledby="settings-tab-collaboration" tabindex="0" data-settings-panel="collaboration" hidden>
@@ -1194,6 +1276,6 @@
       </div>
     </section>
     <script src="assets/vendor/lame.min.js"></script>
-    <script src="app.js?v=e1535f10481a"></script>
+    <script src="app.js?v=0a9eb9aa2d09"></script>
   </body>
 </html>

@@ -1490,6 +1490,7 @@
     volume.addEventListener("input", () => {
       track.volume = Number(volume.value) / 100;
       updateTrackGains();
+      syncQuickMixerControls(track);
     });
     volume.addEventListener("change", saveState);
     return { actions, volume };

@@ -1204,6 +1204,7 @@
       if (id === "volume") {
         track.volume = nextValue / 100;
         updateTrackGains();
+        syncQuickMixerControls(track);
       } else {
         track[id] = nextValue;
       }
@@ -1355,7 +1356,6 @@
       const slotsPerBar = getStepsPerBar();
       const stepCount = getGridStepCount();
       const cellHeight = 21;
-      row.style.minHeight = "44px";
 
       const meta = document.createElement("div");
       meta.className = "track-meta";
@@ -1491,6 +1491,7 @@
     if (state.view === "mixer") renderMixer();
     renderInstrumentBrowser();
     renderPianoInstrumentOptions();
+    renderQuickActionPanel();
   }
 
   function makeSoundSelect(track, compact = false) {

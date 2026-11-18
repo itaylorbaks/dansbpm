@@ -5,13 +5,51 @@
     state.recordingPreview = null;
     preview?.source.disconnect();
     preview?.analyser.disconnect();
+    stopRecordingInputMonitoring();
     return preview;
   }
 
-  function removeEmptyRecordingTrack(track) {
-    if (track.clips.length) return;
+  function removeEmptyRecordingTrack(track, createdForTake = true) {
+    if (!createdForTake || track.clips.length) return;
     state.arrangementTracks = state.arrangementTracks.filter((item) => item !== track);
     renderArrangement();
+  }
+
+  let recordingMonitorSource = null;
+  let recordingMonitorGain = null;
+
+  function stopRecordingInputMonitoring() {
+    recordingMonitorSource?.disconnect();
+    recordingMonitorGain?.disconnect();
+    recordingMonitorSource = null;
+    recordingMonitorGain = null;
+  }
+
+  function setRecordingInputMonitoring(enabled, stream = state.recordingStream, track = state.recordingPreview?.track) {
+    stopRecordingInputMonitoring();
+    if (!enabled || !stream || !track || !state.audioContext) return;
+    ensureTrackAudio(track);
+    if (!track.gainNode) throw new Error("The recording track audio path is unavailable.");
+    recordingMonitorSource = state.audioContext.createMediaStreamSource(stream);
+    recordingMonitorGain = state.audioContext.createGain();
+    recordingMonitorGain.gain.value = 1;
+    recordingMonitorSource.connect(recordingMonitorGain);
+    recordingMonitorGain.connect(track.gainNode);
+  }
+
+  async function deletePersistedClipRecords(clipIds) {
+    if (!clipIds.length) return;
+    const database = await openRecordingDb();
+    await new Promise((resolve, reject) => {
+      const transaction = database.transaction("recordings", "readwrite");
+      const store = transaction.objectStore("recordings");
+      clipIds.forEach((id) => store.delete(id));
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error || new Error("Could not replace the previous recording"));
+      transaction.onabort = () => reject(transaction.error || new Error("Recording replacement was cancelled"));
+    }).finally(() => database.close());
+    updateStorageIndicator();
+    scheduleCollaborationAssetSync();
   }
 
   function cancelRecordingCountdown() {
@@ -73,6 +111,7 @@
       showToast("Microphone recording is not supported in this browser.");
       return;
     }
+    const recordingMode = userSettings.recordingMode;
     try {
       $("#record-audio-button").disabled = true;
       $("#record-button-label").textContent = "Requesting mic…";
@@ -99,22 +138,38 @@
         resetRecordingControls();
         const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
         if (!blob.size) {
-          if (preview) removeEmptyRecordingTrack(preview.track);
+          if (preview) removeEmptyRecordingTrack(preview.track, preview.createdTrack);
           showToast("No audio was captured.");
           return;
         }
         const extension = blob.type.includes("ogg") ? "ogg" : "webm";
         const name = `Recording-${new Date().toISOString().replace(/[:.]/g, "-")}.${extension}`;
         try {
-          await importRecording(
+          const imported = await importRecording(
             new File([blob], name, { type: blob.type }),
             preview?.track.id || null,
             state.recordingStartBar,
             false,
+            recordingMode === "replace",
           );
-          if (preview && !preview.track.clips.length) removeEmptyRecordingTrack(preview.track);
+          if (recordingMode === "replace" && preview && imported) {
+            const start = imported.startBar;
+            const end = start + getArrangementClipDuration("audio", imported);
+            const replaced = preview.track.clips.filter((clip) => clip !== imported &&
+              clip.startBar < end && clip.startBar + getArrangementClipDuration("audio", clip) > start);
+            try {
+              await deletePersistedClipRecords(replaced.map((clip) => clip.id));
+              preview.track.clips = preview.track.clips.filter((clip) => !replaced.includes(clip));
+              updateArrangementLength();
+              renderArrangement();
+              saveState();
+            } catch (error) {
+              showToast(`The new take was saved, but overlapping clips were kept because they could not be removed from browser storage: ${error.message || "unknown error"}`);
+            }
+          }
+          if (preview && !preview.track.clips.length) removeEmptyRecordingTrack(preview.track, preview.createdTrack);
         } catch (error) {
-          if (preview) removeEmptyRecordingTrack(preview.track);
+          if (preview) removeEmptyRecordingTrack(preview.track, preview.createdTrack);
           showToast(`Could not add recording: ${error.message || "unknown error"}`);
         }
       });

@@ -1535,6 +1535,7 @@
       });
       updatePianoRulerViewport();
       updatePianoPlayhead();
+    renderQuickActionPanel();
   }
 
   function getPianoNoteContextValue(note, property) {

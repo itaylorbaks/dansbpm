@@ -876,20 +876,17 @@
       );
       const dialogOpen = $("#help-dialog").open || $("#project-dialog").open || $("#source-browser-dialog").open ||
         $("#step-instrument-dialog").open || $("#step-track-mix-dialog").open || $("#audio-tempo-dialog").open;
-      if (!isTextEntry && !dialogOpen && (event.ctrlKey || event.metaKey) && !event.altKey &&
-        (event.key.toLowerCase() === "y" || event.key.toLowerCase() === "z" && event.shiftKey)) {
+      if (!isTextEntry && !dialogOpen && matchesConfiguredShortcut(event, "redo")) {
         event.preventDefault();
         if (!event.repeat) redoCurrentView();
         return;
       }
-      if (!isTextEntry && !dialogOpen && (event.ctrlKey || event.metaKey) && !event.altKey &&
-        !event.shiftKey && event.key.toLowerCase() === "z") {
+      if (!isTextEntry && !dialogOpen && matchesConfiguredShortcut(event, "undo")) {
         event.preventDefault();
         if (!event.repeat) undoCurrentView();
         return;
       }
-      if (!isTyping && !dialogOpen && !event.repeat && !event.ctrlKey && !event.metaKey &&
-        !event.altKey && !event.shiftKey && event.key.toLowerCase() === "f") {
+      if (!isTyping && !dialogOpen && !event.repeat && matchesConfiguredShortcut(event, "fullscreen")) {
         event.preventDefault();
         const area = getLastInteractedViewArea();
         if (document.fullscreenElement === $("#track-view-area")) {
@@ -909,44 +906,56 @@
       }
       const djControlFocused = state.view === "dj" && djViewExpanded &&
         target instanceof Element && target.closest("input, select, textarea, [contenteditable='true']");
-      const pianoRollSelectAll = state.view === "piano-roll" && !isTextEntry && event.key.toLowerCase() === "a";
-      if (state.view === "dj" && djViewExpanded && event.code === "Space" &&
+      const pianoRollSelectAll = state.view === "piano-roll" && !isTextEntry &&
+        (matchesConfiguredShortcut(event, "select-all-editor") ||
+          matchesLegacyShiftShortcut(event, "select-all-editor"));
+      if (state.view === "dj" && djViewExpanded && matchesConfiguredShortcut(event, "play") &&
         (dialogOpen || (djControlFocused && !(event.ctrlKey || event.altKey || event.metaKey)))) return;
-      if (event.code === "Space" && (event.ctrlKey || event.metaKey) && !event.altKey && !isTextEntry) {
+      if (!isTyping && !dialogOpen && matchesConfiguredShortcut(event, "workspace-play") && !isTextEntry) {
         event.preventDefault();
         if (event.repeat) return;
         if (state.keyboardRecordingCountdown) cancelKeyboardRecordingCountdown();
         toggleCurrentWorkspacePlayback();
         return;
       }
-      if (!isTyping && !event.repeat && !event.ctrlKey && !event.metaKey && !event.altKey && !dialogOpen) {
-        const key = event.key.toLowerCase();
-        if (key === "p" && ["sequencer", "piano-roll"].includes(state.view) && !state.keyboardRecording) {
+      if (!isTyping && !event.repeat && !dialogOpen) {
+        if (matchesConfiguredShortcut(event, "place") && !state.keyboardRecording) {
           event.preventDefault();
           placeCurrentEditorAtPlayhead();
-        } else if (key === "s" && ["arrangement", "mixer"].includes(state.view)) {
+        } else if (matchesConfiguredShortcut(event, "split")) {
           event.preventDefault();
           splitArrangementItemsAtCursor();
-        } else if (key === "t" && getLastInteractedViewArea() === "track-view") {
+        } else if (matchesConfiguredShortcut(event, "slice")) {
           event.preventDefault();
           setArrangementSliceMode(!arrangementSliceMode);
         }
       }
-      if ((!isTyping || pianoRollSelectAll) && !dialogOpen && !event.repeat && (event.ctrlKey || event.metaKey) && !event.altKey) {
-        const key = event.key.toLowerCase();
+      if ((!isTyping || pianoRollSelectAll) && !dialogOpen && !event.repeat) {
         const clipboardView = getClipboardEditorView();
-        if (key === "a" && ["arrangement", "sequencer", "piano-roll", "mixer"].includes(clipboardView)) {
+        if ((matchesConfiguredShortcut(event, "select-all") || matchesLegacyShiftShortcut(event, "select-all") ||
+          matchesConfiguredShortcut(event, "select-all-editor") ||
+          matchesLegacyShiftShortcut(event, "select-all-editor")) &&
+          ["arrangement", "sequencer", "piano-roll", "mixer"].includes(clipboardView)) {
           event.preventDefault();
           if (clipboardView === "arrangement" || clipboardView === "mixer") selectAllArrangementItems();
           else if (clipboardView === "sequencer") selectAllStepCells();
           else selectAllPianoNotes();
-        } else if (key === "c" && ["arrangement", "sequencer", "piano-roll", "mixer"].includes(clipboardView)) {
+        } else if ((matchesConfiguredShortcut(event, "copy") || matchesLegacyShiftShortcut(event, "copy") ||
+          matchesConfiguredShortcut(event, "copy-editor") ||
+          matchesLegacyShiftShortcut(event, "copy-editor")) &&
+          ["arrangement", "sequencer", "piano-roll", "mixer"].includes(clipboardView)) {
           event.preventDefault();
           copyEditorSelection({ trackOnly: event.shiftKey && ["arrangement", "mixer"].includes(clipboardView) });
-        } else if (key === "v" && ["arrangement", "sequencer", "piano-roll", "mixer"].includes(clipboardView)) {
+        } else if ((matchesConfiguredShortcut(event, "paste") || matchesLegacyShiftShortcut(event, "paste") ||
+          matchesConfiguredShortcut(event, "paste-editor") ||
+          matchesLegacyShiftShortcut(event, "paste-editor")) &&
+          ["arrangement", "sequencer", "piano-roll", "mixer"].includes(clipboardView)) {
           event.preventDefault();
           pasteEditorClipboard({ newTrack: event.shiftKey && ["arrangement", "mixer"].includes(clipboardView) });
-        } else if (key === "x" && ["arrangement", "piano-roll", "mixer"].includes(clipboardView)) {
+        } else if ((matchesConfiguredShortcut(event, "cut") || matchesLegacyShiftShortcut(event, "cut") ||
+          matchesConfiguredShortcut(event, "cut-editor") ||
+          matchesLegacyShiftShortcut(event, "cut-editor")) &&
+          ["arrangement", "piano-roll", "mixer"].includes(clipboardView)) {
           event.preventDefault();
           copyEditorSelection();
           if (clipboardView === "piano-roll") deleteSelectedPianoNote();
@@ -991,7 +1000,7 @@
         event.preventDefault();
         setArrangementCursor(0);
       }
-      if (event.code === "Space" && !isTextEntry && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      if (matchesConfiguredShortcut(event, "play") && !isTextEntry) {
         event.preventDefault();
         if (event.repeat) return;
         if (state.keyboardRecordingCountdown) cancelKeyboardRecordingCountdown();
