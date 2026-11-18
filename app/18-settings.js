@@ -54,7 +54,7 @@
           audioOutputDeviceId: typeof saved.audioOutputDeviceId === "string" ? saved.audioOutputDeviceId : "",
           drummerDeviceId: typeof saved.drummerDeviceId === "string" ? saved.drummerDeviceId : "",
           metronomeVolume: Number.isFinite(saved.metronomeVolume)
-            ? Math.round(Math.max(0, Math.min(100, saved.metronomeVolume)))
+            ? Math.round(Math.max(0, Math.min(200, saved.metronomeVolume)))
             : 100,
           theme: saved.theme === "light" ? "light" : "dark",
           accent: ["lime", "blue", "violet", "coral"].includes(saved.accent) ? saved.accent : "lime",
@@ -835,7 +835,7 @@
   function updateMetronomeVolumeUI() {
     const volume = userSettings.metronomeVolume;
     $("#metronome-volume-value").textContent = `${volume}%`;
-    $("#metronome-volume").style.setProperty("--range-progress", `${volume}%`);
+    $("#metronome-volume").style.setProperty("--range-progress", `${volume / 2}%`);
   }
 
   function getRecordingAudioConstraints() {

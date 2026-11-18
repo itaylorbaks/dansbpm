@@ -217,7 +217,7 @@
       "#import-midi-button", "#export-midi-button"].forEach((selector) => {
       $(selector).hidden = active;
     });
-    $("#mel-drag-source").hidden = false;
+    $("#mel-drag-source").hidden = !active;
   }
 
   function openStepInstrumentPianoRoll(trackId) {
@@ -318,7 +318,7 @@
       ? 0
       : Math.max(0, Math.min(timeline.clientWidth, anchorClientX - timeline.getBoundingClientRect().left));
     const barOffset = (timeline.scrollLeft + anchorOffsetX) / BAR_WIDTH;
-    const nextScale = Math.max(0.1, Math.min(4, scale));
+    const nextScale = Math.max(0.1, Math.min(8, scale));
     if (nextScale === state.arrangementScale) return;
     state.arrangementScale = nextScale;
     BAR_WIDTH = BASE_BAR_WIDTH * state.arrangementScale;

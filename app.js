@@ -7301,7 +7301,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       "#import-midi-button", "#export-midi-button"].forEach((selector) => {
       $(selector).hidden = active;
     });
-    $("#mel-drag-source").hidden = false;
+    $("#mel-drag-source").hidden = !active;
   }
 
   function openStepInstrumentPianoRoll(trackId) {
@@ -7402,7 +7402,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       ? 0
       : Math.max(0, Math.min(timeline.clientWidth, anchorClientX - timeline.getBoundingClientRect().left));
     const barOffset = (timeline.scrollLeft + anchorOffsetX) / BAR_WIDTH;
-    const nextScale = Math.max(0.1, Math.min(4, scale));
+    const nextScale = Math.max(0.1, Math.min(8, scale));
     if (nextScale === state.arrangementScale) return;
     state.arrangementScale = nextScale;
     BAR_WIDTH = BASE_BAR_WIDTH * state.arrangementScale;
@@ -9657,7 +9657,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=31cee16adb63");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=23a12eb582c6");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -27352,7 +27352,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         : 0;
       if (Number.isFinite(saved.swing)) state.swing = Math.max(0, Math.min(45, Math.round(saved.swing)));
       if (Number.isFinite(saved.steps)) state.steps = normalizePatternSteps(saved.steps);
-      if (Number.isFinite(saved.arrangementScale)) state.arrangementScale = Math.max(0.1, Math.min(4, saved.arrangementScale));
+      if (Number.isFinite(saved.arrangementScale)) state.arrangementScale = Math.max(0.1, Math.min(8, saved.arrangementScale));
       if (Number.isFinite(saved.pianoScale)) state.pianoScale = Math.max(0.5, Math.min(4, saved.pianoScale));
       if (Number.isFinite(saved.sequencerScale)) state.sequencerScale = Math.max(0.5, Math.min(4, saved.sequencerScale));
       if (Number.isFinite(saved.arrangementBars)) state.arrangementBars = Math.max(32, Math.min(MAX_ARRANGEMENT_BARS, Math.round(saved.arrangementBars)));
@@ -28310,7 +28310,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
           audioOutputDeviceId: typeof saved.audioOutputDeviceId === "string" ? saved.audioOutputDeviceId : "",
           drummerDeviceId: typeof saved.drummerDeviceId === "string" ? saved.drummerDeviceId : "",
           metronomeVolume: Number.isFinite(saved.metronomeVolume)
-            ? Math.round(Math.max(0, Math.min(100, saved.metronomeVolume)))
+            ? Math.round(Math.max(0, Math.min(200, saved.metronomeVolume)))
             : 100,
           theme: saved.theme === "light" ? "light" : "dark",
           accent: ["lime", "blue", "violet", "coral"].includes(saved.accent) ? saved.accent : "lime",
@@ -29091,7 +29091,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   function updateMetronomeVolumeUI() {
     const volume = userSettings.metronomeVolume;
     $("#metronome-volume-value").textContent = `${volume}%`;
-    $("#metronome-volume").style.setProperty("--range-progress", `${volume}%`);
+    $("#metronome-volume").style.setProperty("--range-progress", `${volume / 2}%`);
   }
 
   function getRecordingAudioConstraints() {
