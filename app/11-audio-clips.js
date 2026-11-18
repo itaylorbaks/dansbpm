@@ -734,14 +734,20 @@
         : firstSelection;
       if (!anchor) return;
       const anchorTrackIndex = trackIndexes.get(anchor.trackId);
+      const pattern = getPattern();
+      const ticksPerStep = getGridTicksPerStep(pattern);
       const items = selection.flatMap(({ trackId, step }) => {
         const trackIndex = trackIndexes.get(trackId);
         const track = trackIndex === undefined ? null : tracks[trackIndex];
         if (!track || !Number.isInteger(step)) return [];
+        const stepStartTick = step * ticksPerStep;
         return [{
           trackOffset: trackIndex - anchorTrackIndex,
           stepOffset: step - anchor.step,
           value: track.cells[step] === true,
+          notes: (pattern ? getStepPianoNotes(pattern, track) : [])
+            .filter((note) => Math.floor(note.startTick / ticksPerStep) === step)
+            .map((note) => ({ ...note, startOffsetTicks: note.startTick - stepStartTick })),
         }];
       });
       if (!items.length) return;
@@ -957,11 +963,32 @@
       }
       const targetStep = Math.max(0, Math.min(stepCount - 1, stepSelectionAnchor.step));
       const pasted = new Set();
+      const pattern = getPattern();
+      const ticksPerStep = getGridTicksPerStep(pattern);
       clipboard.items.forEach((item) => {
         const track = tracks[targetTrackIndex + item.trackOffset];
         const step = targetStep + item.stepOffset;
         if (!track || step < 0 || step >= stepCount) return;
         track.cells[step] = item.value;
+        const patternNotes = pattern?.stepPianoNotes?.[track.id];
+        if (pattern && (Array.isArray(patternNotes) || item.notes?.length)) {
+          pattern.stepPianoNotes ||= {};
+          const notes = Array.isArray(patternNotes)
+            ? patternNotes
+            : getStepPianoNotes(pattern, track);
+          const stepStartTick = step * ticksPerStep;
+          const pastedNotes = (item.notes || []).flatMap((note) => {
+            const { startOffsetTicks, ...pianoNote } = note;
+            const startTick = stepStartTick + startOffsetTicks;
+            const durationTicks = Math.min(note.durationTicks, pattern.steps * 2 - startTick);
+            if (durationTicks <= 0) return [];
+            return [{ ...pianoNote, id: makeId(), trackId: track.id, startTick, durationTicks }];
+          });
+          pattern.stepPianoNotes[track.id] = [
+            ...notes.filter((note) => Math.floor(note.startTick / ticksPerStep) !== step),
+            ...pastedNotes,
+          ];
+        }
         pasted.add(`${track.id}:${step}`);
       });
       if (!pasted.size) {

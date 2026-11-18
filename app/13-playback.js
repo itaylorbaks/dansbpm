@@ -235,7 +235,7 @@
       const rate = Math.pow(2, (playedMidi - rootMidi + detune / 100) / 12) * rateScale;
       const sourceDuration = range.duration;
       const arpLength = getSoundProcessingEdits(track).arpeggiatorLength;
-      const maxOutputDuration = Math.max(0.01, duration) * arpLength;
+      const maxOutputDuration = track.sampleOneShot ? null : Math.max(0.01, duration) * arpLength;
       playProcessedSample(track, sampleBuffer, range.offset, sourceDuration, time, rate,
         velocity, maxOutputDuration, outputNode, noteOptions);
       return;

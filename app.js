@@ -9656,7 +9656,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=05a1c3d4af80");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=9b5fa0b55b6e");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -21500,14 +21500,20 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         : firstSelection;
       if (!anchor) return;
       const anchorTrackIndex = trackIndexes.get(anchor.trackId);
+      const pattern = getPattern();
+      const ticksPerStep = getGridTicksPerStep(pattern);
       const items = selection.flatMap(({ trackId, step }) => {
         const trackIndex = trackIndexes.get(trackId);
         const track = trackIndex === undefined ? null : tracks[trackIndex];
         if (!track || !Number.isInteger(step)) return [];
+        const stepStartTick = step * ticksPerStep;
         return [{
           trackOffset: trackIndex - anchorTrackIndex,
           stepOffset: step - anchor.step,
           value: track.cells[step] === true,
+          notes: (pattern ? getStepPianoNotes(pattern, track) : [])
+            .filter((note) => Math.floor(note.startTick / ticksPerStep) === step)
+            .map((note) => ({ ...note, startOffsetTicks: note.startTick - stepStartTick })),
         }];
       });
       if (!items.length) return;
@@ -21723,11 +21729,32 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       }
       const targetStep = Math.max(0, Math.min(stepCount - 1, stepSelectionAnchor.step));
       const pasted = new Set();
+      const pattern = getPattern();
+      const ticksPerStep = getGridTicksPerStep(pattern);
       clipboard.items.forEach((item) => {
         const track = tracks[targetTrackIndex + item.trackOffset];
         const step = targetStep + item.stepOffset;
         if (!track || step < 0 || step >= stepCount) return;
         track.cells[step] = item.value;
+        const patternNotes = pattern?.stepPianoNotes?.[track.id];
+        if (pattern && (Array.isArray(patternNotes) || item.notes?.length)) {
+          pattern.stepPianoNotes ||= {};
+          const notes = Array.isArray(patternNotes)
+            ? patternNotes
+            : getStepPianoNotes(pattern, track);
+          const stepStartTick = step * ticksPerStep;
+          const pastedNotes = (item.notes || []).flatMap((note) => {
+            const { startOffsetTicks, ...pianoNote } = note;
+            const startTick = stepStartTick + startOffsetTicks;
+            const durationTicks = Math.min(note.durationTicks, pattern.steps * 2 - startTick);
+            if (durationTicks <= 0) return [];
+            return [{ ...pianoNote, id: makeId(), trackId: track.id, startTick, durationTicks }];
+          });
+          pattern.stepPianoNotes[track.id] = [
+            ...notes.filter((note) => Math.floor(note.startTick / ticksPerStep) !== step),
+            ...pastedNotes,
+          ];
+        }
         pasted.add(`${track.id}:${step}`);
       });
       if (!pasted.size) {
@@ -23732,7 +23759,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       const rate = Math.pow(2, (playedMidi - rootMidi + detune / 100) / 12) * rateScale;
       const sourceDuration = range.duration;
       const arpLength = getSoundProcessingEdits(track).arpeggiatorLength;
-      const maxOutputDuration = Math.max(0.01, duration) * arpLength;
+      const maxOutputDuration = track.sampleOneShot ? null : Math.max(0.01, duration) * arpLength;
       playProcessedSample(track, sampleBuffer, range.offset, sourceDuration, time, rate,
         velocity, maxOutputDuration, outputNode, noteOptions);
       return;
