@@ -3381,6 +3381,7 @@
       playheadTimers: new Set(),
       scheduledMelNotes: new Set(),
       startTime: 0,
+      startTick: workspace === "piano-roll" ? state.pianoCursorTick : 0,
       nextStepTime: 0,
       stepIndex: workspace === "sequencer" && !userSettings.rewindOnPause && state.currentStep >= 0
         ? state.currentStep

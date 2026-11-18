@@ -882,9 +882,12 @@
         </div>
         <div class="settings-layout">
           <nav class="settings-nav" id="settings-nav" role="tablist" aria-label="Settings sections" aria-orientation="vertical">
-            <button class="settings-nav-button is-selected" id="settings-tab-accessibility" type="button" role="tab"
-              aria-selected="true" aria-controls="settings-page-accessibility" tabindex="0"
-              data-settings-page="accessibility">Accessibility</button>
+            <button class="settings-nav-button is-selected" id="settings-tab-display" type="button" role="tab"
+              aria-selected="true" aria-controls="settings-page-display" tabindex="0"
+              data-settings-page="display">Display</button>
+            <button class="settings-nav-button" id="settings-tab-controls" type="button" role="tab"
+              aria-selected="false" aria-controls="settings-page-controls" tabindex="-1"
+              data-settings-page="controls">Controls</button>
             <button class="settings-nav-button" id="settings-tab-collaboration" type="button" role="tab"
               aria-selected="false" aria-controls="settings-page-collaboration" tabindex="-1"
               data-settings-page="collaboration">Collaboration</button>
@@ -896,16 +899,9 @@
               data-settings-page="blueprint">Blueprint</button>
           </nav>
           <div class="settings-pages">
-            <section class="settings-page" id="settings-page-accessibility" role="tabpanel"
-              aria-labelledby="settings-tab-accessibility" tabindex="0" data-settings-panel="accessibility">
-              <h3>Accessibility</h3>
-              <label class="settings-field">
-                <span>After pausing playback</span>
-                <select id="settings-pause-behavior">
-                  <option value="stay">Stay at the paused location</option>
-                  <option value="rewind">Return to the playback start</option>
-                </select>
-              </label>
+            <section class="settings-page" id="settings-page-display" role="tabpanel"
+              aria-labelledby="settings-tab-display" tabindex="0" data-settings-panel="display">
+              <h3>Display</h3>
               <div class="settings-subsection">
                 <h4>Appearance</h4>
                 <label class="settings-field">
@@ -925,6 +921,17 @@
                   </select>
                 </label>
               </div>
+            </section>
+            <section class="settings-page" id="settings-page-controls" role="tabpanel"
+              aria-labelledby="settings-tab-controls" tabindex="0" data-settings-panel="controls" hidden>
+              <h3>Controls</h3>
+              <label class="settings-field">
+                <span>After pausing playback</span>
+                <select id="settings-pause-behavior">
+                  <option value="stay">Stay at the paused location</option>
+                  <option value="rewind">Return to the playback start</option>
+                </select>
+              </label>
             </section>
             <section class="settings-page" id="settings-page-collaboration" role="tabpanel"
               aria-labelledby="settings-tab-collaboration" tabindex="0" data-settings-panel="collaboration" hidden>
@@ -1178,6 +1185,6 @@
       </div>
     </section>
     <script src="assets/vendor/lame.min.js"></script>
-    <script src="app.js?v=986e6ef24002"></script>
+    <script src="app.js?v=52825188cda3"></script>
   </body>
 </html>

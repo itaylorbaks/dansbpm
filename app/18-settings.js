@@ -45,7 +45,7 @@
     $("#settings-accent").value = userSettings.accent;
     $("#settings-pause-behavior").value = userSettings.rewindOnPause ? "rewind" : "stay";
     updateBlueprintLayoutButtons();
-    activateSettingsPage("accessibility");
+    activateSettingsPage("display");
     $("#settings-audio-input").value = userSettings.audioInputDeviceId;
     $("#settings-audio-output").value = userSettings.audioOutputDeviceId;
     $("#settings-drummer-output").value = userSettings.drummerDeviceId;

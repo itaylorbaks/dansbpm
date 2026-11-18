@@ -1028,10 +1028,10 @@
       try { source.stop(state.audioContext?.currentTime || 0); } catch { /* The source may have ended between scheduler ticks. */ }
     });
     state.arrangementSources.clear();
-    if (stoppedPlaybackMode === "arrangement" && state.view === "arrangement") {
+    if (stoppedPlaybackMode === "arrangement") {
       if (pausedByUser) {
         if (wasPlaying && userSettings.rewindOnPause) state.arrangementCursor = state.playbackStartBar;
-      } else {
+      } else if (state.view === "arrangement") {
         state.arrangementCursor = 0;
       }
     }

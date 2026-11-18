@@ -9353,7 +9353,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=986e6ef24002");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=52825188cda3");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -15600,6 +15600,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       playheadTimers: new Set(),
       scheduledMelNotes: new Set(),
       startTime: 0,
+      startTick: workspace === "piano-roll" ? state.pianoCursorTick : 0,
       nextStepTime: 0,
       stepIndex: workspace === "sequencer" && !userSettings.rewindOnPause && state.currentStep >= 0
         ? state.currentStep
@@ -23270,10 +23271,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       try { source.stop(state.audioContext?.currentTime || 0); } catch { /* The source may have ended between scheduler ticks. */ }
     });
     state.arrangementSources.clear();
-    if (stoppedPlaybackMode === "arrangement" && state.view === "arrangement") {
+    if (stoppedPlaybackMode === "arrangement") {
       if (pausedByUser) {
         if (wasPlaying && userSettings.rewindOnPause) state.arrangementCursor = state.playbackStartBar;
-      } else {
+      } else if (state.view === "arrangement") {
         state.arrangementCursor = 0;
       }
     }
@@ -26978,7 +26979,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     $("#settings-accent").value = userSettings.accent;
     $("#settings-pause-behavior").value = userSettings.rewindOnPause ? "rewind" : "stay";
     updateBlueprintLayoutButtons();
-    activateSettingsPage("accessibility");
+    activateSettingsPage("display");
     $("#settings-audio-input").value = userSettings.audioInputDeviceId;
     $("#settings-audio-output").value = userSettings.audioOutputDeviceId;
     $("#settings-drummer-output").value = userSettings.drummerDeviceId;
