@@ -7014,6 +7014,22 @@ function getArrangementClipSourcePosition(sourceOffset, elapsed, repeatStart, re
   return sourceOffset + elapsed;
 }
 
+function getArrangementClipLeftResizeSourcePosition(sourceOffset, elapsed, repeatStart, repeatLength) {
+  if (elapsed < 0) return Math.max(0, sourceOffset + elapsed);
+  return getArrangementClipSourcePosition(sourceOffset, elapsed, repeatStart, repeatLength);
+}
+
+function getArrangementClipLeftResizeRepeatRegion(sourceOffset, repeatStart, repeatLength) {
+  if (!Number.isFinite(repeatStart) || !Number.isFinite(repeatLength) ||
+    repeatLength <= 0 || sourceOffset >= repeatStart) {
+    return { repeatStart, repeatLength };
+  }
+  return {
+    repeatStart: sourceOffset,
+    repeatLength: repeatStart + repeatLength - sourceOffset,
+  };
+}
+
 function getArrangementClipPlayableSourceDuration(sourceLength, sourceOffset, repeatCount, requestedDuration,
   repeatStart = null, repeatLength = null) {
   if (!(sourceLength > 0) || !(requestedDuration > 0)) return 0;
@@ -9353,7 +9369,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=6aa8a7c01972");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=cb28132df11c");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -19580,7 +19596,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       const secondsPerBar = 240 / state.bpm;
       const sourceSecondsPerBar = secondsPerBar * getAudioClipTempoRatio(clip);
       const minDuration = Math.min(state.arrangementSnap ? 0.25 : 0.01, initial.durationBars);
-      const minDelta = -initial.sourceOffsetSeconds / sourceSecondsPerBar;
+      const minDelta = Math.max(-initial.sourceOffsetSeconds / sourceSecondsPerBar, -initial.startBar);
       const maxDelta = Math.max(0, initial.durationBars - minDuration);
       const trimDelta = deltaBars < 0 && initial.sourceOffsetSeconds > 0
         ? deltaBars
@@ -19588,12 +19604,12 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       const delta = Math.max(minDelta, Math.min(maxDelta, trimDelta));
       const durationBars = initial.durationBars - delta;
       const startBar = Math.max(0, initial.startBar + delta);
-      const sourceOffsetSeconds = Math.max(0, getArrangementClipSourcePosition(
+      const sourceOffsetSeconds = getArrangementClipLeftResizeSourcePosition(
         initial.sourceOffsetSeconds,
         delta * sourceSecondsPerBar,
         initial.repeatStartSeconds,
         initial.repeatLengthSeconds,
-      ));
+      );
       const changed = Math.abs(startBar - clip.startBar) > 0.0001 ||
         Math.abs(sourceOffsetSeconds - (clip.sourceOffsetSeconds || 0)) > 0.0001 ||
         Math.abs(durationBars - getArrangementClipDuration("audio", clip)) > 0.0001;
@@ -19602,6 +19618,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       clip.startBar = startBar;
       clip.sourceOffsetSeconds = sourceOffsetSeconds;
       clip.durationSeconds = durationBars * sourceSecondsPerBar;
+      const repeatRegion = getArrangementClipLeftResizeRepeatRegion(sourceOffsetSeconds,
+        initial.repeatStartSeconds, initial.repeatLengthSeconds);
+      clip.repeatStartSeconds = repeatRegion.repeatStart;
+      clip.repeatLengthSeconds = repeatRegion.repeatLength;
       const repeatLength = clip.repeatLengthSeconds || clip.buffer.duration;
       const repeatPhase = Number.isFinite(clip.repeatStartSeconds)
         ? ((sourceOffsetSeconds - clip.repeatStartSeconds) % repeatLength + repeatLength) % repeatLength
@@ -19666,6 +19686,132 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         const moved = applyTrim(nextDelta, initial);
         changed = moved || changed;
         updateClipResizeIndicator(element, "start", clip, getArrangementClipDuration("audio", clip), initial.durationBars);
+      };
+      const onEnd = () => {
+        document.removeEventListener("pointermove", onMove);
+        document.removeEventListener("pointerup", onEnd);
+        document.removeEventListener("pointercancel", onEnd);
+        element.draggable = true;
+        element.querySelector(".clip-resize-indicator")?.remove();
+        finishTrim(changed);
+      };
+      document.addEventListener("pointermove", onMove);
+      document.addEventListener("pointerup", onEnd);
+      document.addEventListener("pointercancel", onEnd);
+    });
+    return handle;
+  }
+
+  function makeMelClipStartTrimHandle(track, clip, element) {
+    const handle = document.createElement("button");
+    handle.type = "button";
+    handle.className = "clip-resize-handle clip-start-handle";
+    handle.setAttribute("aria-label", `Trim or extend the beginning of ${getMel(clip.melId)?.name || "Mel"}`);
+    handle.title = "Drag to reveal earlier source notes or trim the beginning";
+    const handleWidth = Math.max(4, Math.min(12, BAR_WIDTH * 0.1));
+    handle.style.width = `${handleWidth}px`;
+    handle.style.flexBasis = `${handleWidth}px`;
+
+    const mel = getMel(clip.melId);
+    if (!mel) return handle;
+    const applyTrim = (deltaBars, initial) => {
+      const tempoRatio = getArrangementClipTempoRatio(clip);
+      const sourceOffsetBars = initial.sourceOffsetBars || 0;
+      const minDuration = Math.min(state.arrangementSnap ? 0.25 : 0.01, initial.durationBars);
+      const minDelta = Math.max(-sourceOffsetBars * tempoRatio, -initial.startBar);
+      const maxDelta = Math.max(0, initial.durationBars - minDuration);
+      const trimDelta = deltaBars < 0 && sourceOffsetBars > 0
+        ? deltaBars
+        : snapArrangementBar(deltaBars);
+      const delta = Math.max(minDelta, Math.min(maxDelta, trimDelta));
+      const durationBars = initial.durationBars - delta;
+      const startBar = Math.max(0, initial.startBar + delta);
+      const nextSourceOffset = getArrangementClipLeftResizeSourcePosition(
+        sourceOffsetBars,
+        delta / tempoRatio,
+        initial.repeatStartBars,
+        initial.repeatLengthBars,
+      );
+      if (Math.abs(startBar - clip.startBar) < 0.0001 &&
+        Math.abs(nextSourceOffset - sourceOffsetBars) < 0.0001 &&
+        Math.abs(durationBars - getArrangementClipDuration("mel", clip)) < 0.0001) return false;
+
+      clip.startBar = startBar;
+      clip.sourceOffsetBars = nextSourceOffset;
+      clip.durationBars = durationBars / tempoRatio;
+      const repeatRegion = getArrangementClipLeftResizeRepeatRegion(
+        nextSourceOffset,
+        initial.repeatStartBars,
+        initial.repeatLengthBars,
+      );
+      clip.repeatStartBars = repeatRegion.repeatStart;
+      clip.repeatLengthBars = repeatRegion.repeatLength;
+      const repeatLength = clip.repeatLengthBars || getMelLengthBars(mel);
+      const repeatPhase = Number.isFinite(clip.repeatStartBars)
+        ? ((nextSourceOffset - clip.repeatStartBars) % repeatLength + repeatLength) % repeatLength
+        : nextSourceOffset;
+      clip.repeatCount = Math.max(1, Math.ceil(
+        (repeatPhase + clip.durationBars - 0.0001) / repeatLength,
+      ));
+
+      const width = Math.max(12, durationBars * BAR_WIDTH);
+      element.style.left = `${startBar * BAR_WIDTH}px`;
+      element.style.width = `${width}px`;
+      const waveform = makeActivityWaveform(
+        getMelActivityWaveform(mel, clip, durationBars, getActivityWaveformSampleCount(width)),
+        track.color,
+        width,
+        durationBars,
+      );
+      waveform.classList.add("bar-aligned-waveform");
+      element.querySelector(".clip-waveform-canvas")?.replaceWith(waveform);
+      const name = element.querySelector(".mel-clip-name");
+      if (name) name.textContent = `${mel.name.toUpperCase()} · ${Number(durationBars.toFixed(2))} BAR${durationBars === 1 ? "" : "S"}`;
+      updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength("mel", clip), durationBars,
+        getArrangementClipRepeatPhaseBars("mel", clip));
+      element.setAttribute("aria-label",
+        `${mel.name}, bar ${startBar + 1}, ${durationBars.toFixed(2)} bars; drag to move or resize`);
+      return true;
+    };
+
+    const finishTrim = (changed) => {
+      if (!changed) return;
+      updateArrangementLength();
+      state.suppressArrangementClick = true;
+      window.setTimeout(() => { state.suppressArrangementClick = false; }, 0);
+      renderArrangement();
+      saveState();
+    };
+
+    const getInitial = () => ({
+      startBar: clip.startBar,
+      sourceOffsetBars: clip.sourceOffsetBars || 0,
+      repeatStartBars: clip.repeatStartBars,
+      repeatLengthBars: clip.repeatLengthBars,
+      durationBars: getArrangementClipDuration("mel", clip),
+    });
+
+    handle.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      event.stopPropagation();
+      finishTrim(applyTrim(event.key === "ArrowRight" ? 0.25 : -0.25, getInitial()));
+    });
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (state.isPlaying && state.playbackMode === "arrangement") stopPlayback();
+      const startX = event.clientX;
+      const initial = getInitial();
+      let changed = false;
+      element.draggable = false;
+      updateClipResizeIndicator(element, "start", clip, initial.durationBars, initial.durationBars);
+      const onMove = (moveEvent) => {
+        const nextDelta = (moveEvent.clientX - startX) / BAR_WIDTH;
+        const moved = applyTrim(nextDelta, initial);
+        changed = moved || changed;
+        updateClipResizeIndicator(element, "start", clip, getArrangementClipDuration("mel", clip), initial.durationBars);
       };
       const onEnd = () => {
         document.removeEventListener("pointermove", onMove);
@@ -20405,6 +20551,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     name.className = "mel-clip-name";
     name.textContent = `${mel.name.toUpperCase()} · ${Number(bars.toFixed(2))} BAR${bars === 1 ? "" : "S"}`;
     element.setAttribute("aria-label", `${mel.name}, bar ${clip.startBar + 1}, ${bars.toFixed(2)} bars; drag to move or resize`);
+    const startHandle = makeMelClipStartTrimHandle(track, clip, element);
     const repeatHandle = makeArrangementResizeHandle("mel", clip, track, element, name, "repeat");
     const resizeHandle = makeArrangementResizeHandle("mel", clip, track, element, name);
     updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength("mel", clip), bars,
@@ -20431,7 +20578,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       if (!selectArrangementItem("mel", clip.id, event)) return;
       setArrangementCursor(clip.startBar);
     });
-    element.append(waveform, name, repeatHandle, resizeHandle);
+    element.append(waveform, name, startHandle, repeatHandle, resizeHandle);
     return element;
   }
 

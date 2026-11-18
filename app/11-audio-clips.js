@@ -547,6 +547,7 @@
     name.className = "mel-clip-name";
     name.textContent = `${mel.name.toUpperCase()} · ${Number(bars.toFixed(2))} BAR${bars === 1 ? "" : "S"}`;
     element.setAttribute("aria-label", `${mel.name}, bar ${clip.startBar + 1}, ${bars.toFixed(2)} bars; drag to move or resize`);
+    const startHandle = makeMelClipStartTrimHandle(track, clip, element);
     const repeatHandle = makeArrangementResizeHandle("mel", clip, track, element, name, "repeat");
     const resizeHandle = makeArrangementResizeHandle("mel", clip, track, element, name);
     updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength("mel", clip), bars,
@@ -573,7 +574,7 @@
       if (!selectArrangementItem("mel", clip.id, event)) return;
       setArrangementCursor(clip.startBar);
     });
-    element.append(waveform, name, repeatHandle, resizeHandle);
+    element.append(waveform, name, startHandle, repeatHandle, resizeHandle);
     return element;
   }
 

@@ -6,6 +6,22 @@ function getArrangementClipSourcePosition(sourceOffset, elapsed, repeatStart, re
   return sourceOffset + elapsed;
 }
 
+function getArrangementClipLeftResizeSourcePosition(sourceOffset, elapsed, repeatStart, repeatLength) {
+  if (elapsed < 0) return Math.max(0, sourceOffset + elapsed);
+  return getArrangementClipSourcePosition(sourceOffset, elapsed, repeatStart, repeatLength);
+}
+
+function getArrangementClipLeftResizeRepeatRegion(sourceOffset, repeatStart, repeatLength) {
+  if (!Number.isFinite(repeatStart) || !Number.isFinite(repeatLength) ||
+    repeatLength <= 0 || sourceOffset >= repeatStart) {
+    return { repeatStart, repeatLength };
+  }
+  return {
+    repeatStart: sourceOffset,
+    repeatLength: repeatStart + repeatLength - sourceOffset,
+  };
+}
+
 function getArrangementClipPlayableSourceDuration(sourceLength, sourceOffset, repeatCount, requestedDuration,
   repeatStart = null, repeatLength = null) {
   if (!(sourceLength > 0) || !(requestedDuration > 0)) return 0;

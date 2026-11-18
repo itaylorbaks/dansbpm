@@ -30,3 +30,14 @@ test("ordinary clips retain full-source repeat behavior", () => {
   const windows = context.getArrangementClipSourceWindows(2, 1.5, 2, 1.5);
   assert.deepEqual(summarize(windows), [[1.5, 0.5], [0, 1]]);
 });
+
+test("extending a repeated clip's left edge reads earlier source instead of wrapping backward", () => {
+  const sourceOffset = context.getArrangementClipLeftResizeSourcePosition(1, -0.25, 1, 1);
+  const repeatRegion = context.getArrangementClipLeftResizeRepeatRegion(sourceOffset, 1, 1);
+  assert.equal(sourceOffset, 0.75);
+  assert.deepEqual(JSON.parse(JSON.stringify(repeatRegion)), { repeatStart: 0.75, repeatLength: 1.25 });
+});
+
+test("left-edge source extension clamps at the source origin", () => {
+  assert.equal(context.getArrangementClipLeftResizeSourcePosition(0.25, -0.5, 0.25, 1), 0);
+});
