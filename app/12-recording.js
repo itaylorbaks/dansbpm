@@ -387,6 +387,10 @@
           ? normalizeAudioStemSelection(clip.audioStemSelection) : null,
         ...(clip.isMelSlice === true ? { isMelSlice: true } : {}),
         ...(typeof clip.sourceAssetId === "string" ? { sourceAssetId: clip.sourceAssetId } : {}),
+        ...(typeof clip.assetId === "string" ? { assetId: clip.assetId } : {}),
+        ...(typeof clip.segmentSourceAssetId === "string" ? { segmentSourceAssetId: clip.segmentSourceAssetId } : {}),
+        ...(Number.isFinite(clip.segmentStartSeconds) ? { segmentStartSeconds: clip.segmentStartSeconds } : {}),
+        ...(Number.isFinite(clip.segmentEndSeconds) ? { segmentEndSeconds: clip.segmentEndSeconds } : {}),
         volume: track.volume,
         muted: track.muted,
         blob: clip.blob,
@@ -400,6 +404,63 @@
       transaction.onerror = () => { database.close(); reject(transaction.error || new Error("Could not save recording")); };
       transaction.onabort = () => { database.close(); reject(transaction.error || new Error("Recording save was cancelled")); };
     }));
+  }
+
+  function persistAudioAsset(asset) {
+    if (!asset?.blob) return Promise.reject(new Error("The audio asset has no saved source file."));
+    return openRecordingDb().then((database) => new Promise((resolve, reject) => {
+      const store = database.transaction("recordings", "readwrite").objectStore("recordings");
+      store.put({
+        id: getAudioAssetRecordId(asset.id),
+        projectId: state.projectId,
+        recordType: "audio-asset",
+        audioAssetId: asset.id,
+        name: asset.name,
+        assetId: asset.assetId || asset.id,
+        sourceAssetId: asset.sourceAssetId || null,
+        segmentSourceAssetId: asset.segmentSourceAssetId || null,
+        segmentStartSeconds: asset.segmentStartSeconds,
+        segmentEndSeconds: asset.segmentEndSeconds,
+        sourceClipOffsetSeconds: asset.sourceClipOffsetSeconds,
+        segmentNameEdited: asset.segmentNameEdited === true,
+        isSourceAudioAsset: asset.isSourceAudioAsset === true,
+        durationSeconds: asset.durationSeconds,
+        sourceOffsetSeconds: asset.sourceOffsetSeconds || 0,
+        repeatCount: asset.repeatCount || 1,
+        repeatStartSeconds: asset.repeatStartSeconds,
+        repeatLengthSeconds: asset.repeatLengthSeconds,
+        clipGain: Number.isFinite(asset.clipGain) ? asset.clipGain : 1,
+        fadeInSeconds: asset.fadeInSeconds || 0,
+        fadeOutSeconds: asset.fadeOutSeconds || 0,
+        reversed: asset.reversed === true,
+        audioMetadata: normalizeAudioMetadata(asset.audioMetadata),
+        audioAdjustment: normalizeAudioAdjustment(asset.audioAdjustment),
+        audioStemGroupId: asset.audioStemGroupId || null,
+        audioStemSelection: asset.audioStemSelection
+          ? normalizeAudioStemSelection(asset.audioStemSelection) : null,
+        tempoLockBpm: asset.tempoLockBpm,
+        tempoRatioOverride: asset.tempoRatioOverride,
+        blob: asset.blob,
+      });
+      store.transaction.oncomplete = () => {
+        database.close();
+        resolve();
+        updateStorageIndicator();
+        scheduleCollaborationAssetSync();
+      };
+      store.transaction.onerror = () => {
+        database.close();
+        reject(store.transaction.error || new Error("Could not save audio asset"));
+      };
+      store.transaction.onabort = () => {
+        database.close();
+        reject(store.transaction.error || new Error("Audio asset save was cancelled"));
+      };
+    }));
+  }
+
+  function getAudioAssetRecordId(assetId, projectId = state.projectId) {
+    return `audio-asset:${projectId}:${assetId}`;
   }
 
   function getDrumSampleRecordId(trackId, projectId = state.projectId) {
@@ -546,7 +607,53 @@
         ensureSequencerTrackAudio(layer);
       });
 
-      const clipRecords = projectRecords.filter((record) => record.recordType !== "drum-sample");
+      const audioAssetRecords = projectRecords.filter((record) => record.recordType === "audio-asset");
+      for (const record of audioAssetRecords) {
+        const savedAsset = state.audioAssets.find((asset) =>
+          asset.id === (record.audioAssetId || record.id));
+        if (!savedAsset) continue;
+        try {
+          const buffer = await state.audioContext.decodeAudioData(await record.blob.arrayBuffer());
+          const assetId = record.audioAssetId || record.id;
+          const asset = savedAsset;
+          Object.assign(asset, {
+            name: record.name,
+            assetId: record.assetId || record.id,
+            sourceAssetId: record.sourceAssetId || null,
+            segmentSourceAssetId: record.segmentSourceAssetId || null,
+            segmentStartSeconds: record.segmentStartSeconds,
+            segmentEndSeconds: record.segmentEndSeconds,
+            sourceClipOffsetSeconds: Number.isFinite(record.sourceClipOffsetSeconds)
+              ? record.sourceClipOffsetSeconds : 0,
+            segmentNameEdited: record.segmentNameEdited === true,
+            isSourceAudioAsset: record.isSourceAudioAsset === true,
+            durationSeconds: Number.isFinite(record.durationSeconds) ? record.durationSeconds : buffer.duration,
+            sourceOffsetSeconds: Number.isFinite(record.sourceOffsetSeconds) ? record.sourceOffsetSeconds : 0,
+            repeatCount: Number.isInteger(record.repeatCount) ? Math.max(1, record.repeatCount) : 1,
+            repeatStartSeconds: record.repeatStartSeconds,
+            repeatLengthSeconds: record.repeatLengthSeconds,
+            clipGain: Number.isFinite(record.clipGain) ? Math.max(0, Math.min(2, record.clipGain)) : 1,
+            fadeInSeconds: Number.isFinite(record.fadeInSeconds) ? record.fadeInSeconds : 0,
+            fadeOutSeconds: Number.isFinite(record.fadeOutSeconds) ? record.fadeOutSeconds : 0,
+            reversed: record.reversed === true,
+            audioStemGroupId: record.audioStemGroupId || makeId(),
+            ...(record.audioStemSelection
+              ? { audioStemSelection: normalizeAudioStemSelection(record.audioStemSelection) } : {}),
+            audioMetadata: record.audioMetadata
+              ? normalizeAudioMetadata(record.audioMetadata)
+              : detectAudioMetadata(buffer),
+            audioAdjustment: normalizeAudioAdjustment(record.audioAdjustment),
+            buffer,
+            blob: record.blob,
+          });
+          if (!state.audioAssets.includes(asset)) state.audioAssets.push(asset);
+        } catch {
+          showToast(`Could not restore ${record.name || "an audio asset"}.`);
+        }
+      }
+
+      const clipRecords = projectRecords.filter((record) =>
+        record.recordType !== "drum-sample" && record.recordType !== "audio-asset");
       for (const record of clipRecords) {
         let track = state.arrangementTracks.find((item) => item.id === record.trackId);
         if (!track) {
@@ -592,6 +699,10 @@
               ? { audioStemSelection: normalizeAudioStemSelection(record.audioStemSelection) } : {}),
             ...(record.isMelSlice === true ? { isMelSlice: true } : {}),
             ...(typeof record.sourceAssetId === "string" ? { sourceAssetId: record.sourceAssetId } : {}),
+            assetId: typeof record.assetId === "string" ? record.assetId : record.id,
+            ...(typeof record.segmentSourceAssetId === "string" ? { segmentSourceAssetId: record.segmentSourceAssetId } : {}),
+            ...(Number.isFinite(record.segmentStartSeconds) ? { segmentStartSeconds: record.segmentStartSeconds } : {}),
+            ...(Number.isFinite(record.segmentEndSeconds) ? { segmentEndSeconds: record.segmentEndSeconds } : {}),
             buffer,
             blob: record.blob,
             audioMetadata: record.audioMetadata

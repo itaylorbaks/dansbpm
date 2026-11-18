@@ -248,6 +248,8 @@
         item.tabIndex = 0;
         item.setAttribute("role", "listitem");
         item.setAttribute("aria-label", `${asset.name}, drag to Track View`);
+        item.dataset.assetType = type.toLowerCase();
+        item.dataset.assetId = asset.id;
         const name = document.createElement("span");
         name.className = "asset-source-name";
         name.textContent = asset.name;
@@ -260,6 +262,8 @@
           event.dataTransfer.setData(dataType, JSON.stringify(getPayload(asset)));
           event.dataTransfer.effectAllowed = "copy";
         });
+        item.addEventListener("contextmenu", (event) =>
+          openAssetContextMenu(type.toLowerCase(), asset.id, event));
         browser.append(item);
       });
     };
@@ -281,6 +285,310 @@
     );
   }
 
+  let assetContextMenuHome = null;
+
+  function openAssetContextMenu(type, id, event) {
+    event.preventDefault();
+    closeArrangementTrackContextMenu();
+    const menu = $("#asset-context-menu");
+    const dialog = event.currentTarget.closest("dialog");
+    if (dialog && menu.parentElement !== dialog) {
+      assetContextMenuHome = { parent: menu.parentElement, nextSibling: menu.nextSibling };
+      dialog.append(menu);
+    }
+    menu.dataset.assetType = type;
+    menu.dataset.assetId = id;
+    menu.hidden = false;
+    menu.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - menu.offsetWidth - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(event.clientY, window.innerHeight - menu.offsetHeight - 8))}px`;
+  }
+
+  function closeAssetContextMenu() {
+    const menu = $("#asset-context-menu");
+    menu.hidden = true;
+    if (assetContextMenuHome) {
+      const { parent, nextSibling } = assetContextMenuHome;
+      parent.insertBefore(menu, nextSibling?.parentNode === parent ? nextSibling : null);
+      assetContextMenuHome = null;
+    }
+    delete menu.dataset.assetType;
+    delete menu.dataset.assetId;
+  }
+
+  function getArrangementAsset(type, id) {
+    if (type === "mel") {
+      const clip = state.melTracks.flatMap((track) => track.clips).find((item) => item.id === id);
+      return state.mels.find((mel) => mel.id === id) || (clip ? getMel(clip.melId) : null);
+    }
+    if (type === "pattern") {
+      const clip = state.patternClips.find((item) => item.id === id);
+      return state.patterns.find((pattern) => pattern.id === id) || (clip ? getPattern(clip.patternId) : null);
+    }
+    const audio = state.audioAssets.find((asset) => asset.id === id) ||
+      state.arrangementTracks.flatMap((track) => track.clips).find((clip) => clip.id === id);
+    if (!audio) return null;
+    if (state.audioAssets.includes(audio)) return audio;
+    return state.audioAssets.find((asset) => asset.id === audio.assetId) || audio;
+  }
+
+  function renameArrangementAsset(type, id) {
+    const asset = getArrangementAsset(type, id);
+    if (!asset) {
+      showToast("That asset is no longer available.");
+      return;
+    }
+    const oldName = asset.name;
+    const name = window.prompt(`Rename ${type}`, oldName)?.trim();
+    if (!name) return;
+    if (type !== "audio" && (type === "mel" ? state.mels : state.patterns)
+      .some((item) => item.id !== asset.id && item.name.toLowerCase() === name.toLowerCase())) {
+      showToast(`${type === "mel" ? "Mel" : "Pattern"} names must be unique.`);
+      return;
+    }
+    if (type === "audio") {
+      const assetId = asset.assetId || asset.id;
+      if (asset.segmentSourceAssetId) asset.segmentNameEdited = true;
+      state.audioAssets.filter((item) => (item.assetId || item.id) === assetId)
+        .forEach((item) => { item.name = name; });
+      state.arrangementTracks.forEach((track) => track.clips.forEach((clip) => {
+        if ((clip.assetId || clip.id) !== assetId) return;
+        clip.name = name;
+        persistClip(track, clip).catch(() => showToast("Audio was renamed, but browser storage could not be updated."));
+      }));
+      const audioAsset = state.audioAssets.find((item) => item.id === asset.id);
+      if (audioAsset) persistAudioAsset(audioAsset).catch(() =>
+        showToast("Audio was renamed, but browser storage could not be updated."));
+      if (audioAsset?.isSourceAudioAsset) {
+        renumberAudioSegments(audioAsset.sourceAssetId);
+        state.audioAssets.filter((item) => item.segmentSourceAssetId === audioAsset.sourceAssetId)
+          .forEach((item) => persistAudioAsset(item).catch(() =>
+            showToast("Audio was renamed, but browser storage could not be updated.")));
+        state.arrangementTracks.forEach((track) => track.clips.forEach((clip) => {
+          if (clip.segmentSourceAssetId === audioAsset.sourceAssetId) {
+            persistClip(track, clip).catch(() => showToast("Audio was renamed, but browser storage could not be updated."));
+          }
+        }));
+      }
+    } else {
+      asset.name = name;
+      if (type === "mel") {
+        if (asset.segmentSourceMelId) asset.segmentNameEdited = true;
+        state.melTracks.forEach((track) => {
+          if (track.name === oldName && track.clips.some((clip) => clip.melId === asset.id)) {
+            track.name = name;
+          }
+        });
+        refreshMelSegments(asset);
+        renderMelOptions();
+      } else {
+        if (asset.segmentSourcePatternId) asset.segmentNameEdited = true;
+        refreshPatternSegments(asset);
+        renderPatternSelectors();
+      }
+    }
+    renderArrangementAssetBrowser();
+    renderArrangement();
+    saveState();
+  }
+
+  function nextBranchName(name) {
+    const branch = /^Branch (\d+) - (.+)$/.exec(name);
+    return `Branch ${branch ? Number(branch[1]) + 1 : 1} - ${branch ? branch[2] : name}`;
+  }
+
+  function branchArrangementAsset(type, id) {
+    const source = getArrangementAsset(type, id);
+    if (!source) {
+      showToast("That asset is no longer available.");
+      return;
+    }
+    const branchName = nextBranchName(source.name);
+    if (type === "mel") {
+      const branch = {
+        ...source,
+        id: makeId(),
+        name: branchName,
+        notes: source.notes.map((note) => ({ ...note, id: makeId() })),
+      };
+      delete branch.segmentSourceMelId;
+      delete branch.segmentStartTick;
+      delete branch.segmentEndTick;
+      delete branch.segmentEdited;
+      delete branch.segmentSnapshot;
+      delete branch.segmentNameEdited;
+      delete branch.audioSourceClipId;
+      delete branch.audioSourceAssetId;
+      state.mels.push(branch);
+      renderMelOptions();
+    } else if (type === "pattern") {
+      const branch = {
+        ...source,
+        id: makeId(),
+        name: branchName,
+        arrangementCopy: false,
+        trackIds: [...getPatternTrackIds(source)],
+        cells: Object.fromEntries(Object.entries(source.cells || {}).map(([trackId, cells]) =>
+          [trackId, [...cells]])),
+        variants: { ...(source.variants || {}) },
+        ...(source.stepPianoNotes ? {
+          stepPianoNotes: Object.fromEntries(Object.entries(source.stepPianoNotes).map(([trackId, notes]) =>
+            [trackId, notes.map((note) => ({ ...note, id: makeId() }))])),
+        } : {}),
+      };
+      delete branch.segmentSourcePatternId;
+      delete branch.segmentStartBar;
+      delete branch.segmentEndBar;
+      delete branch.segmentEdited;
+      delete branch.segmentSnapshot;
+      delete branch.segmentNameEdited;
+      state.patterns.push(branch);
+      renderPatternSelectors();
+    } else {
+      const branch = {
+        ...source,
+        id: makeId(),
+        assetId: makeId(),
+        name: branchName,
+        sourceAssetId: null,
+        segmentSourceAssetId: null,
+        segmentNameEdited: false,
+        isSourceAudioAsset: false,
+      };
+      state.audioAssets.push(branch);
+      persistAudioAsset(branch).catch((error) =>
+        showToast(`Audio branch created, but browser storage could not be updated: ${error.message || "storage unavailable"}`));
+    }
+    renderArrangementAssetBrowser();
+    renderArrangement();
+    saveState();
+    showToast(`${branchName} added to the asset library`);
+  }
+
+  function renameArrangementTrack(trackId) {
+    const track = state.arrangementTracks.find((item) => item.id === trackId) ||
+      state.melTracks.find((item) => item.id === trackId) ||
+      state.patterns.find((item) => item.id === trackId &&
+        state.patternClips.some((clip) => (clip.trackId || clip.patternId) === trackId));
+    if (!track) return;
+    const currentName = track.arrangementName || track.name;
+    const name = window.prompt("Rename track", currentName)?.trim();
+    if (!name || name === currentName) return;
+    if (track.kind === "pattern") track.arrangementName = name;
+    else track.name = name;
+    renderArrangement();
+    saveState();
+  }
+
+  function duplicateArrangementTrack(trackId) {
+    const audioTrack = state.arrangementTracks.find((item) => item.id === trackId);
+    const melTrack = state.melTracks.find((item) => item.id === trackId);
+    const patternTrack = state.patterns.find((item) => item.id === trackId &&
+      state.patternClips.some((clip) => (clip.trackId || clip.patternId) === trackId));
+    const name = `Copy - ${(audioTrack || melTrack || patternTrack)?.arrangementName ||
+      (audioTrack || melTrack || patternTrack)?.name || "Track"}`;
+    let destinationId;
+    if (audioTrack) {
+      const duplicate = {
+        ...audioTrack,
+        id: makeId(),
+        name,
+        insertAfterTrackId: trackId,
+        gainNode: null,
+        fxRuntime: null,
+        analyser: null,
+        sourceGains: null,
+        automationGainNode: null,
+        panNode: null,
+        sidechainInputNode: null,
+        sidechainSourceNode: null,
+        clips: audioTrack.clips.map((clip) => ({ ...clip, id: makeId(), assetId: clip.assetId || clip.id })),
+        automation: normalizeTrackAutomation(audioTrack.automation),
+        effects: makeDefaultEffects(audioTrack.effects),
+        effectSettings: makeDefaultEffectSettings(audioTrack.effectSettings),
+        effectChain: Array.isArray(audioTrack.effectChain) ? [...audioTrack.effectChain] : [],
+      };
+      state.arrangementTracks.push(duplicate);
+      ensureArrangementTrackAudio(duplicate);
+      duplicate.clips.forEach((clip) => {
+        if (clip.blob) persistClip(duplicate, clip).catch(() =>
+          showToast("Track duplicated, but a recording could not be saved."));
+      });
+      destinationId = duplicate.id;
+    } else if (melTrack) {
+      const duplicate = {
+        ...melTrack,
+        id: makeId(),
+        name,
+        insertAfterTrackId: trackId,
+        gainNode: null,
+        fxRuntime: null,
+        analyser: null,
+        sourceGains: null,
+        automationGainNode: null,
+        panNode: null,
+        sidechainInputNode: null,
+        sidechainSourceNode: null,
+        clips: melTrack.clips.map((clip) => ({ ...clip, id: makeId() })),
+        automation: normalizeTrackAutomation(melTrack.automation),
+        effects: makeDefaultEffects(melTrack.effects),
+        effectSettings: makeDefaultEffectSettings(melTrack.effectSettings),
+        effectChain: Array.isArray(melTrack.effectChain) ? [...melTrack.effectChain] : [],
+      };
+      state.melTracks.push(duplicate);
+      destinationId = duplicate.id;
+    } else if (patternTrack) {
+      const duplicate = createPatternLaneCopy(patternTrack);
+      duplicate.arrangementName = name;
+      duplicate.insertAfterTrackId = trackId;
+      state.patternClips.filter((clip) => (clip.trackId || clip.patternId) === trackId).forEach((clip) => {
+        state.patternClips.push({ ...clip, id: makeId(), patternId: clip.patternId, trackId: duplicate.id });
+      });
+      destinationId = duplicate.id;
+    } else {
+      return;
+    }
+
+    function openArrangementAssetInEditor(type, id) {
+      if (!type || !id) return;
+      if (type === "mel") {
+        captureCurrentMel();
+        if (!getMel(id)) {
+          showToast("That Mel is no longer available.");
+          return;
+        }
+        loadMel(id);
+        renderMelOptions();
+        renderPianoInstrumentOptions();
+        renderPianoRoll();
+        setWorkspaceView("piano-roll");
+        return;
+      }
+      if (type === "pattern") {
+        if (!getPattern(id)) {
+          showToast("That pattern is no longer available.");
+          return;
+        }
+        selectPattern(id);
+        setWorkspaceView("sequencer");
+        return;
+      }
+      const asset = state.audioAssets.find((candidate) => candidate.id === id ||
+        candidate.isSourceAudioAsset && candidate.sourceAssetId === id);
+      if (asset) {
+        void openAudioAssetInPianoRoll(asset);
+        return;
+      }
+      const track = state.arrangementTracks.find((candidate) =>
+        candidate.clips.some((clip) => clip.id === id));
+      if (track) void openAudioClipInPianoRoll(track.id, id);
+    }
+    state.selectedMixerTrackId = destinationId;
+    updateArrangementLength();
+    renderArrangement();
+    saveState();
+    showToast(`${name} duplicated`);
+  }
+
   function renderRecordingBrowser() {
     const browser = $("#recording-browser");
     browser.replaceChildren();
@@ -290,7 +598,9 @@
       track.clips.forEach((clip) => {
         if (clip.isMelSlice) {
           const sourceAssetId = clip.sourceAssetId || clip.id;
-          if (!slicedSources.has(sourceAssetId)) {
+          const hasStoredSource = state.audioAssets.some((asset) =>
+            asset.isSourceAudioAsset && asset.sourceAssetId === sourceAssetId);
+          if (!hasStoredSource && !slicedSources.has(sourceAssetId)) {
             slicedSources.set(sourceAssetId, { track, clip, fullSource: true });
           }
         } else {
@@ -299,6 +609,10 @@
       });
     });
     clips.push(...slicedSources.values());
+    const listedAssetIds = new Set(clips.map(({ clip }) => clip.id));
+    state.audioAssets.forEach((clip) => {
+      if (!listedAssetIds.has(clip.id)) clips.push({ track: null, clip, fullSource: false, assetOnly: true });
+    });
     $("#recording-source-count").textContent = String(clips.length);
     if (!clips.length) {
       const empty = document.createElement("div");
@@ -307,34 +621,38 @@
       browser.append(empty);
       return;
     }
-    clips.forEach(({ track, clip, fullSource }) => {
+    clips.forEach(({ track, clip, fullSource, assetOnly = false }) => {
       const item = document.createElement("button");
       item.className = "recording-source";
       item.type = "button";
       item.draggable = true;
-      item.title = fullSource
+      item.title = assetOnly
+        ? `Drag ${clip.name} to Track View`
+        : fullSource
         ? `Drag the original ${clip.name || track.name} source to Track View`
         : `Drag ${clip.name || track.name} to Track View`;
       const color = document.createElement("span");
       color.className = "source-color";
-      color.style.background = track.color;
+      color.style.background = track?.color || "#b5a0ff";
       const name = document.createElement("span");
       name.className = "recording-source-name";
       name.textContent = clip.name || track.name;
       const count = document.createElement("span");
       count.className = "recording-source-count";
-      count.textContent = track.name;
+      count.textContent = assetOnly ? "Audio" : track.name;
       item.append(color, name, count);
       item.addEventListener("dragstart", (event) => {
         if (!event.dataTransfer) return;
         event.dataTransfer.setData("application/x-pulsegrid-audio-source", JSON.stringify({
-          sourceTrackId: track.id,
+          sourceTrackId: track?.id || "",
           clipId: clip.id,
           fullSource,
+          assetOnly,
         }));
         event.dataTransfer.effectAllowed = "copy";
       });
-      if (!fullSource) item.addEventListener("click", () => {
+      item.addEventListener("contextmenu", (event) => openAssetContextMenu("audio", clip.id, event));
+      if (!fullSource && !assetOnly) item.addEventListener("click", () => {
         setArrangementCursor(clip.startBar);
         $("#timeline-scroll").scrollLeft = clip.startBar * BAR_WIDTH;
         $("#source-browser-dialog").close();
@@ -485,14 +803,18 @@
 
   function addAudioAssetClip(sourceTrackId, clipId, destinationTrackId, startBar, fullSource = false) {
     const sourceTrack = state.arrangementTracks.find((track) => track.id === sourceTrackId);
-    const sourceClip = sourceTrack?.clips.find((clip) => clip.id === clipId);
+    const sourceClip = sourceTrack?.clips.find((clip) => clip.id === clipId) ||
+      state.audioAssets.find((asset) => asset.id === clipId);
     if (!sourceTrack || !sourceClip) {
-      showToast("That audio asset is no longer available.");
-      return;
+      if (!sourceClip) {
+        showToast("That audio asset is no longer available.");
+        return;
+      }
     }
     const clip = {
       ...sourceClip,
       id: makeId(),
+      assetId: sourceClip.assetId || sourceClip.id,
     };
     if (fullSource) {
       clip.durationSeconds = clip.buffer.duration;
@@ -507,9 +829,13 @@
       delete clip.isMelSlice;
       delete clip.sourceAssetId;
     }
+    if (sourceClip.segmentSourceAssetId) {
+      clip.assetId = sourceClip.assetId || sourceClip.id;
+      clip.sourceAssetId = sourceClip.segmentSourceAssetId;
+    }
     clip.startBar = clampArrangementStart(startBar, getArrangementClipDuration("audio", clip));
     const destination = state.arrangementTracks.find((track) => track.id === destinationTrackId)
-      || createArrangementTrack(clip.name || sourceTrack.name);
+      || createArrangementTrack(clip.name || sourceTrack?.name);
     if (!destination.clips.length && /^Track \d+$/.test(destination.name)) {
       destination.name = clip.name || sourceTrack.name;
     }

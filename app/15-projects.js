@@ -155,7 +155,9 @@
             ...metadata,
             id: metadata.recordType === "drum-sample"
               ? getDrumSampleRecordId(metadata.trackId, projectId)
-              : makeId(),
+              : metadata.recordType === "audio-asset" && typeof metadata.audioAssetId === "string"
+                ? getAudioAssetRecordId(metadata.audioAssetId, projectId)
+                : makeId(),
             projectId,
             blob,
           });
@@ -197,7 +199,9 @@
               ...metadata,
               id: metadata.recordType === "drum-sample"
                 ? getDrumSampleRecordId(metadata.trackId, projectId)
-                : makeId(),
+                : metadata.recordType === "audio-asset" && typeof metadata.audioAssetId === "string"
+                  ? getAudioAssetRecordId(metadata.audioAssetId, projectId)
+                  : makeId(),
               projectId,
               blob,
             });
@@ -232,11 +236,17 @@
       assets = projectFile.assets.map((asset) => {
         const metadata = asset?.metadata;
         if (!metadata || typeof metadata !== "object" || Array.isArray(metadata) ||
-          typeof metadata.trackId !== "string" || !metadata.trackId || typeof asset.dataUrl !== "string") {
+          typeof asset.dataUrl !== "string" ||
+          metadata.recordType !== "audio-asset" && (typeof metadata.trackId !== "string" || !metadata.trackId)) {
           throw new Error("The project contains an invalid audio attachment.");
         }
-        if (metadata.recordType !== undefined && metadata.recordType !== "drum-sample") {
+        if (metadata.recordType !== undefined &&
+          metadata.recordType !== "drum-sample" && metadata.recordType !== "audio-asset") {
           throw new Error("The project contains an unsupported audio attachment.");
+        }
+        if (metadata.recordType === "audio-asset" &&
+          (typeof metadata.audioAssetId !== "string" || !metadata.audioAssetId)) {
+          throw new Error("The project contains an invalid audio asset.");
         }
         if (metadata.recordType === "drum-sample" && !trackIds.has(metadata.trackId)) {
           throw new Error("The project contains a drum sample for a missing track.");
@@ -393,6 +403,7 @@
 
   function restoreState(snapshotOverride = null) {
     state.masterPitch = 0;
+    state.audioAssets = [];
     state.soundDurationEdits = {};
     state.soundReverseEdits = {};
     state.soundProcessingEdits = {};
@@ -519,6 +530,17 @@
             effectChain: Array.isArray(track.effectChain) ? track.effectChain : undefined,
           }));
       }
+      if (Array.isArray(saved.audioAssets)) {
+        state.audioAssets = saved.audioAssets
+          .filter((asset) => typeof asset?.id === "string" && typeof asset.name === "string")
+          .map((asset) => ({
+            ...asset,
+            assetId: typeof asset.assetId === "string" ? asset.assetId : asset.id,
+            sourceAssetId: typeof asset.sourceAssetId === "string" ? asset.sourceAssetId : null,
+            buffer: null,
+            blob: null,
+          }));
+      }
       if (Array.isArray(saved.patterns)) {
         const restoredPatterns = saved.patterns
           .filter((pattern) => typeof pattern?.id === "string" && typeof pattern.name === "string")
@@ -540,8 +562,17 @@
             return {
               id: pattern.id,
               name: pattern.name,
+              arrangementName: typeof pattern.arrangementName === "string" ? pattern.arrangementName : null,
               kind: "pattern",
               arrangementCopy: pattern.arrangementCopy === true,
+              ...(typeof pattern.segmentSourcePatternId === "string" ? {
+                segmentSourcePatternId: pattern.segmentSourcePatternId,
+                segmentStartBar: Number.isFinite(pattern.segmentStartBar) ? Math.max(0, pattern.segmentStartBar) : 0,
+                segmentEndBar: Number.isFinite(pattern.segmentEndBar) ? Math.max(0, pattern.segmentEndBar) : 1,
+                segmentEdited: pattern.segmentEdited === true,
+                segmentNameEdited: pattern.segmentNameEdited === true,
+                segmentSnapshot: typeof pattern.segmentSnapshot === "string" ? pattern.segmentSnapshot : "",
+              } : {}),
               insertAfterTrackId: typeof pattern.insertAfterTrackId === "string" ? pattern.insertAfterTrackId : null,
               color: isPatternColor(pattern.color) ? pattern.color : getPatternColor(index),
               steps: patternSteps,
@@ -728,6 +759,15 @@
               bars: [1, 2, 4, 8].includes(mel.bars) ? mel.bars : 4,
               notes,
               audioSourceClipId: typeof mel.audioSourceClipId === "string" ? mel.audioSourceClipId : null,
+              audioSourceAssetId: typeof mel.audioSourceAssetId === "string" ? mel.audioSourceAssetId : null,
+              ...(typeof mel.segmentSourceMelId === "string" ? {
+                segmentSourceMelId: mel.segmentSourceMelId,
+                segmentStartTick: Number.isFinite(mel.segmentStartTick) ? Math.max(0, mel.segmentStartTick) : 0,
+                segmentEndTick: Number.isFinite(mel.segmentEndTick) ? Math.max(0, mel.segmentEndTick) : PIANO_TICKS_PER_BAR,
+                segmentEdited: mel.segmentEdited === true,
+                segmentNameEdited: mel.segmentNameEdited === true,
+                segmentSnapshot: typeof mel.segmentSnapshot === "string" ? mel.segmentSnapshot : "",
+              } : {}),
             };
           });
       }
@@ -1211,7 +1251,11 @@
   }
 
   async function createProjectFile(snapshot = createStateSnapshot()) {
-    const recordings = window.indexedDB ? await getProjectRecordingRecords() : [];
+    const savedAudioAssetIds = new Set((snapshot.audioAssets || []).map((asset) => asset.id));
+    const recordings = window.indexedDB
+      ? (await getProjectRecordingRecords()).filter((record) =>
+        record.recordType !== "audio-asset" || savedAudioAssetIds.has(record.audioAssetId))
+      : [];
     const assets = await Promise.all(recordings.map(async (record) => {
       if (!(record.blob instanceof Blob)) {
         throw new Error(`Could not export ${record.name || record.trackName || "a project audio file"}.`);

@@ -71,6 +71,7 @@
     patterns: [],
     selectedPatternId: null,
     arrangementTracks: [],
+    audioAssets: [],
     patternClips: [],
     arrangementScale: 1,
     mels: [],

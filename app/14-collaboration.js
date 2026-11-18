@@ -72,7 +72,11 @@
   }
 
   async function getCollaborationAssets(projectId = state.projectId) {
-    const records = window.indexedDB ? await getProjectRecordingRecords(projectId) : [];
+    const currentAudioAssetIds = new Set(state.audioAssets.map((asset) => asset.id));
+    const records = window.indexedDB
+      ? (await getProjectRecordingRecords(projectId)).filter((record) =>
+        record.recordType !== "audio-asset" || currentAudioAssetIds.has(record.audioAssetId))
+      : [];
     return Promise.all(records.map(async (record) => {
       if (!(record.blob instanceof Blob)) {
         throw new Error(`Could not share ${record.name || record.trackName || "a project audio file"}.`);
@@ -99,11 +103,17 @@
     return assets.map((asset) => {
       const metadata = asset?.metadata;
       if (!metadata || typeof metadata !== "object" || Array.isArray(metadata) ||
-        typeof metadata.trackId !== "string" || !metadata.trackId || typeof asset.dataUrl !== "string") {
+        typeof asset.dataUrl !== "string" ||
+        metadata.recordType !== "audio-asset" && (typeof metadata.trackId !== "string" || !metadata.trackId)) {
         throw new Error("The shared project contains an invalid audio attachment.");
       }
-      if (metadata.recordType !== undefined && metadata.recordType !== "drum-sample") {
+      if (metadata.recordType !== undefined &&
+        metadata.recordType !== "drum-sample" && metadata.recordType !== "audio-asset") {
         throw new Error("The shared project contains an unsupported audio attachment.");
+      }
+      if (metadata.recordType === "audio-asset" &&
+        (typeof metadata.audioAssetId !== "string" || !metadata.audioAssetId)) {
+        throw new Error("The shared project contains an invalid audio asset.");
       }
       if (metadata.recordType === "drum-sample" && !trackIds.has(metadata.trackId)) {
         throw new Error("The shared project contains audio for a missing track.");
@@ -212,6 +222,7 @@
       [
         "patternClips", "arrangementBars", "arrangementCursor", "arrangementLoopEnabled",
         "arrangementLoopStartBar", "arrangementLoopEndBar", "arrangementSnap", "bpm", "swing",
+        "audioAssets",
       ].forEach((key) => { target[key] = source[key]; });
       const mixerFields = [
         "volume", "pan", "automation", "automationOpen", "muted", "solo",
@@ -1381,6 +1392,7 @@
         ...track,
         clips: audioClipState.find((item) => item.id === track.id)?.clips || [],
       })),
+      audioAssets: saved.audioAssets,
       arrangementBars: saved.arrangementBars,
       arrangementCursor: saved.arrangementCursor,
       arrangementLoopEnabled: saved.arrangementLoopEnabled,
@@ -1397,6 +1409,7 @@
       patternClips: state.patternClips.map((clip) => ({ ...clip })),
       melTracks: state.melTracks.map(cloneHistoryTrack),
       arrangementTracks: state.arrangementTracks.map(cloneHistoryTrack),
+      audioAssets: state.audioAssets.map((asset) => ({ ...asset })),
       selectedMixerTrackId: state.selectedMixerTrackId,
     };
   }
@@ -1515,6 +1528,7 @@
       state.patternClips = snapshot.patternClips.map((clip) => ({ ...clip }));
       state.melTracks = snapshot.melTracks.map(cloneHistoryTrack);
       state.arrangementTracks = snapshot.arrangementTracks.map(cloneHistoryTrack);
+      state.audioAssets = snapshot.audioAssets.map((asset) => ({ ...asset }));
       state.selectedMixerTrackId = snapshot.selectedMixerTrackId;
       state.arrangementBars = saved.arrangementBars;
       state.arrangementCursor = saved.arrangementCursor;

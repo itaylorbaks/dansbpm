@@ -1411,7 +1411,16 @@
         return {
           id: pattern.id,
           name: pattern.name,
+          arrangementName: pattern.arrangementName || null,
           arrangementCopy: pattern.arrangementCopy === true,
+          ...(pattern.segmentSourcePatternId ? {
+            segmentSourcePatternId: pattern.segmentSourcePatternId,
+            segmentStartBar: pattern.segmentStartBar,
+            segmentEndBar: pattern.segmentEndBar,
+            segmentEdited: pattern.segmentEdited === true,
+            segmentNameEdited: pattern.segmentNameEdited === true,
+            segmentSnapshot: pattern.segmentSnapshot || "",
+          } : {}),
           insertAfterTrackId: pattern.insertAfterTrackId || null,
           steps: pattern.steps,
           trackIds,
@@ -1474,6 +1483,7 @@
         effectSettings: makeDefaultEffectSettings(track.effectSettings),
         effectChain: ensureTrackMixerState(track),
       })),
+      audioAssets: state.audioAssets.map(({ buffer, blob, ...asset }) => ({ ...asset })),
       mels: state.mels.map((mel) => ({
         id: mel.id,
         name: mel.name,
@@ -1481,6 +1491,15 @@
         bars: mel.bars,
         notes: mel.notes.map((note) => ({ ...note })),
         audioSourceClipId: mel.audioSourceClipId || null,
+        audioSourceAssetId: mel.audioSourceAssetId || null,
+        ...(mel.segmentSourceMelId ? {
+          segmentSourceMelId: mel.segmentSourceMelId,
+          segmentStartTick: mel.segmentStartTick,
+          segmentEndTick: mel.segmentEndTick,
+          segmentEdited: mel.segmentEdited === true,
+          segmentNameEdited: mel.segmentNameEdited === true,
+          segmentSnapshot: mel.segmentSnapshot || "",
+        } : {}),
       })),
       selectedMelId: state.selectedMelId,
       melTracks: state.melTracks.map((track) => ({

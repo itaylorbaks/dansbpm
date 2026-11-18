@@ -486,12 +486,57 @@
       if (!menu.hidden && event.target instanceof Node && !menu.contains(event.target)) {
         closeArrangementTrackContextMenu();
       }
+      const assetMenu = $("#asset-context-menu");
+      if (!assetMenu.hidden && event.target instanceof Node && !assetMenu.contains(event.target)) {
+        closeAssetContextMenu();
+      }
     }, true);
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && !$("#arrangement-track-context-menu").hidden) {
         closeArrangementTrackContextMenu();
       }
+      if (event.key === "Escape") closeAssetContextMenu();
     }, true);
+    $("#rename-arrangement-track").addEventListener("click", () => {
+      const menu = $("#arrangement-track-context-menu");
+      const trackId = menu.dataset.trackId;
+      closeArrangementTrackContextMenu();
+      if (trackId) renameArrangementTrack(trackId);
+    });
+    $("#duplicate-arrangement-track").addEventListener("click", () => {
+      const trackId = $("#arrangement-track-context-menu").dataset.trackId;
+      closeArrangementTrackContextMenu();
+      if (trackId) duplicateArrangementTrack(trackId);
+    });
+    $("#rename-arrangement-asset").addEventListener("click", () => {
+      const menu = $("#arrangement-track-context-menu");
+      const { assetType, assetId } = menu.dataset;
+      closeArrangementTrackContextMenu();
+      if (assetType && assetId) renameArrangementAsset(assetType, assetId);
+    });
+    $("#branch-arrangement-asset").addEventListener("click", () => {
+      const menu = $("#arrangement-track-context-menu");
+      const { assetType, assetId } = menu.dataset;
+      closeArrangementTrackContextMenu();
+      if (assetType && assetId) branchArrangementAsset(assetType, assetId);
+    });
+    $("#arrangement-segment-options").addEventListener("click", (event) => {
+      const option = event.target instanceof Element ? event.target.closest("button[data-asset-id]") : null;
+      if (!option) return;
+      closeArrangementTrackContextMenu();
+      openArrangementAssetInEditor(option.dataset.assetType, option.dataset.assetId);
+    });
+    const handleLibraryAssetAction = (action) => {
+      const menu = $("#asset-context-menu");
+      const { assetType, assetId } = menu.dataset;
+      closeAssetContextMenu();
+      if (assetType && assetId) {
+        if (action === "rename") renameArrangementAsset(assetType, assetId);
+        else branchArrangementAsset(assetType, assetId);
+      }
+    };
+    $("#rename-library-asset").addEventListener("click", () => handleLibraryAssetAction("rename"));
+    $("#branch-library-asset").addEventListener("click", () => handleLibraryAssetAction("branch"));
     $("#add-empty-track-below").addEventListener("click", () => {
       const menu = $("#arrangement-track-context-menu");
       const parentTrackId = menu.dataset.trackId;
@@ -657,6 +702,7 @@
     $("#source-browser-button").addEventListener("click", () => openAssetLibrary());
     $("#source-browser-close").addEventListener("click", () => $("#source-browser-dialog").close());
     $("#source-browser-dialog").addEventListener("close", () => {
+      closeAssetContextMenu();
       closeSoundDurationMenu();
       restoreAssetLibraryDialogPosition();
     });
@@ -772,6 +818,7 @@
       state.selectedPatternId = state.patterns[0].id;
       renderPatternSelectors();
       state.patternClips = [];
+      state.audioAssets = [];
       state.mels = [];
       state.selectedMelId = "";
       state.melTracks = [];
@@ -880,6 +927,9 @@
         } else if (key === "s" && ["arrangement", "mixer"].includes(state.view)) {
           event.preventDefault();
           splitArrangementItemsAtCursor();
+        } else if (key === "t" && getLastInteractedViewArea() === "track-view") {
+          event.preventDefault();
+          setArrangementSliceMode(!arrangementSliceMode);
         }
       }
       if ((!isTyping || pianoRollSelectAll) && !dialogOpen && !event.repeat && (event.ctrlKey || event.metaKey) && !event.altKey) {

@@ -58,9 +58,11 @@
       label.dataset.trackId = pattern.id;
       label.style.setProperty("--track-color", pattern.color || "var(--accent)");
       label.innerHTML = `<span class="track-color"></span><div class="arrangement-label-info"><div class="arrangement-label-name"></div><div class="arrangement-label-type">Beat pattern · ${getPatternTrackIds(pattern).length} instruments</div></div>`;
-      label.querySelector(".arrangement-label-name").textContent = pattern.name;
+      label.querySelector(".arrangement-label-name").textContent = pattern.arrangementName || pattern.name;
       label.addEventListener("click", () => {
-        selectPattern(pattern.id);
+        const contentPatternId = state.patternClips.find((clip) =>
+          (clip.trackId || clip.patternId) === pattern.id)?.patternId || pattern.id;
+        selectPattern(contentPatternId);
         selectArrangementTrack(pattern.id);
       });
       const controls = makeArrangementTrackControls(pattern);
@@ -633,7 +635,7 @@
       const title = document.createElement("button");
       title.className = "mixer-track-title";
       title.type = "button";
-      title.textContent = track.name;
+      title.textContent = track.arrangementName || track.name;
       title.setAttribute("aria-pressed", String(track.id === state.selectedMixerTrackId));
       title.addEventListener("click", () => {
         selectArrangementTrack(track.id);

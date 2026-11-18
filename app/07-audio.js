@@ -1605,8 +1605,16 @@
     const menu = $("#arrangement-track-context-menu");
     menu.hidden = true;
     delete menu.dataset.trackId;
+    delete menu.dataset.assetType;
+    delete menu.dataset.assetId;
+    delete menu.dataset.clipTrackId;
+    delete menu.dataset.clipId;
     $("#arrangement-audio-piano-options").replaceChildren();
     $("#arrangement-audio-piano-options").hidden = true;
+    $("#arrangement-segment-options").replaceChildren();
+    $("#arrangement-segment-options").hidden = true;
+    $("#rename-arrangement-asset").hidden = true;
+    $("#branch-arrangement-asset").hidden = true;
   }
 
   function openArrangementTrackContextMenu(event) {
@@ -1618,11 +1626,13 @@
     event.preventDefault();
     const menu = $("#arrangement-track-context-menu");
     const audioOptions = $("#arrangement-audio-piano-options");
+    const segmentOptions = $("#arrangement-segment-options");
     audioOptions.replaceChildren();
+    segmentOptions.replaceChildren();
     const audioTrack = state.arrangementTracks.find((track) => track.id === trackId);
-    const targetedClipId = event.target instanceof Element
-      ? event.target.closest(".audio-clip")?.dataset.clipId
-      : null;
+    const targetElement = event.target instanceof Element ? event.target : null;
+    const targetedClip = targetElement?.closest("[data-selectable-type][data-clip-id]");
+    const targetedClipId = targetedClip?.dataset.clipId || null;
     const clips = audioTrack
       ? audioTrack.clips.filter((clip) => !targetedClipId || clip.id === targetedClipId)
       : [];
@@ -1636,6 +1646,45 @@
       audioOptions.append(option);
     });
     audioOptions.hidden = clips.length === 0;
+    const targetType = targetedClip?.dataset.selectableType;
+    const targetAsset = targetType === "audio"
+      ? audioTrack?.clips.find((clip) => clip.id === targetedClipId)
+      : targetType === "mel"
+        ? state.melTracks.flatMap((track) => track.clips).find((clip) => clip.id === targetedClipId)
+        : targetType === "pattern"
+          ? state.patternClips.find((clip) => clip.id === targetedClipId)
+          : null;
+    const assetType = targetType || "";
+    const assetId = assetType === "audio" ? targetAsset?.id
+      : assetType === "mel" ? targetAsset?.melId
+        : assetType === "pattern" ? targetAsset?.patternId : "";
+    const asset = assetId ? getArrangementAsset(assetType, assetId) : null;
+    const hasSegment = Boolean(asset?.segmentSourceMelId || asset?.segmentSourcePatternId ||
+      asset?.segmentSourceAssetId || targetAsset?.sourceAssetId || targetAsset?.segmentSourceAssetId);
+    $("#rename-arrangement-asset").hidden = !asset;
+    $("#branch-arrangement-asset").hidden = !asset;
+    if (asset) {
+      menu.dataset.assetType = assetType;
+      menu.dataset.assetId = asset.id;
+      menu.dataset.clipTrackId = audioTrack?.id || "";
+      menu.dataset.clipId = targetedClipId || "";
+    }
+    if (hasSegment) {
+      const sourceId = asset.segmentSourceMelId || asset.segmentSourcePatternId ||
+        asset.segmentSourceAssetId || targetAsset?.sourceAssetId || targetAsset?.segmentSourceAssetId;
+      const addOption = (label, id) => {
+        const option = document.createElement("button");
+        option.type = "button";
+        option.setAttribute("role", "menuitem");
+        option.dataset.assetType = assetType;
+        option.dataset.assetId = id;
+        option.textContent = label;
+        segmentOptions.append(option);
+      };
+      addOption(`Open original ${assetType}`, sourceId);
+      addOption(`Open segment ${assetType}`, asset.id);
+      segmentOptions.hidden = false;
+    }
     menu.dataset.trackId = trackId;
     menu.hidden = false;
     menu.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - menu.offsetWidth - 8))}px`;

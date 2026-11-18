@@ -456,7 +456,9 @@
   }
 
   function getAudioClipEditedMel(clip) {
-    return state.mels.slice().reverse().find((mel) => mel.audioSourceClipId === clip.id) || null;
+    const assetId = clip.assetId || clip.id;
+    return state.mels.slice().reverse().find((mel) => mel.audioSourceAssetId === assetId) ||
+      state.mels.slice().reverse().find((mel) => mel.audioSourceClipId === clip.id) || null;
   }
 
   function createAudioClip(track, clip) {
@@ -1164,6 +1166,8 @@
 
     state.patternClips.forEach((clip) => {
       if (!canSplit("pattern", clip)) return;
+      const sourcePatternId = clip.patternId;
+      const laneTrackId = clip.trackId || clip.patternId;
       const leftDuration = cursor - clip.startBar;
       const totalDuration = getArrangementClipDuration("pattern", clip);
       const tempoRatio = getArrangementClipTempoRatio(clip);
@@ -1189,6 +1193,20 @@
         repeatStartBars: rightSourceStart,
         repeatLengthBars: rightSourceDuration,
       };
+      const leftSegment = createArrangementPatternSegment(sourcePatternId, sourceStart, leftSourceDuration);
+      const rightSegment = createArrangementPatternSegment(sourcePatternId, rightSourceStart, rightSourceDuration);
+      if (leftSegment && rightSegment) {
+        clip.patternId = leftSegment.id;
+        clip.trackId = laneTrackId;
+        clip.sourceOffsetBars = 0;
+        clip.repeatStartBars = 0;
+        clip.repeatLengthBars = leftSourceDuration;
+        right.patternId = rightSegment.id;
+        right.trackId = laneTrackId;
+        right.sourceOffsetBars = 0;
+        right.repeatStartBars = 0;
+        right.repeatLengthBars = rightSourceDuration;
+      }
       state.patternClips.push(right);
       splitKeys.add(arrangementSelectionKey("pattern", clip.id));
       splitKeys.add(arrangementSelectionKey("pattern", right.id));
@@ -1199,6 +1217,7 @@
     state.melTracks.forEach((track) => {
       track.clips.slice().forEach((clip) => {
         if (!canSplit("mel", clip)) return;
+        const sourceMelId = clip.melId;
         const leftDuration = cursor - clip.startBar;
         const totalDuration = getArrangementClipDuration("mel", clip);
         const tempoRatio = getArrangementClipTempoRatio(clip);
@@ -1224,6 +1243,18 @@
           repeatStartBars: rightSourceStart,
           repeatLengthBars: rightSourceDuration,
         };
+        const leftSegment = createArrangementMelSegment(sourceMelId, sourceStart, leftSourceDuration);
+        const rightSegment = createArrangementMelSegment(sourceMelId, rightSourceStart, rightSourceDuration);
+        if (leftSegment && rightSegment) {
+          clip.melId = leftSegment.id;
+          clip.sourceOffsetBars = 0;
+          clip.repeatStartBars = 0;
+          clip.repeatLengthBars = leftSourceDuration;
+          right.melId = rightSegment.id;
+          right.sourceOffsetBars = 0;
+          right.repeatStartBars = 0;
+          right.repeatLengthBars = rightSourceDuration;
+        }
         track.clips.push(right);
         splitKeys.add(arrangementSelectionKey("mel", clip.id));
         splitKeys.add(arrangementSelectionKey("mel", right.id));
@@ -1235,6 +1266,9 @@
     state.arrangementTracks.forEach((track) => {
       track.clips.slice().forEach((clip) => {
         if (!canSplit("audio", clip)) return;
+        const linkedMel = getAudioClipEditedMel(clip);
+        ensureFullAudioAsset(clip);
+        const sourceAssetId = clip.sourceAssetId || clip.assetId || clip.id;
         const secondsPerBar = 240 / state.bpm;
         const leftDuration = (cursor - clip.startBar) * secondsPerBar * getAudioClipTempoRatio(clip);
         const totalDuration = clip.durationSeconds ?? clip.buffer.duration;
@@ -1260,7 +1294,42 @@
           repeatLengthSeconds: totalDuration - leftDuration,
           fadeInSeconds: 0,
         };
-        const sourceAssetId = clip.sourceAssetId || clip.id;
+        const leftSegment = createAudioSegmentAsset(clip, sourceAssetId);
+        const rightSegment = createAudioSegmentAsset(right, sourceAssetId);
+        if (leftSegment && rightSegment) {
+          clip.name = leftSegment.name;
+          clip.assetId = leftSegment.id;
+          clip.segmentSourceAssetId = sourceAssetId;
+          right.name = rightSegment.name;
+          right.assetId = rightSegment.id;
+          right.segmentSourceAssetId = sourceAssetId;
+          renumberAudioSegments(sourceAssetId);
+          if (linkedMel) {
+            const secondsPerBar = 240 / state.bpm;
+            const tempoRatio = getAudioClipTempoRatio(clip);
+            const sourceAudio = state.audioAssets.find((asset) =>
+              asset.isSourceAudioAsset && asset.sourceAssetId === sourceAssetId);
+            const sourceClipOffset = sourceAudio?.sourceClipOffsetSeconds || 0;
+            const leftMel = createArrangementMelSegment(
+              linkedMel.id,
+              Math.max(0, sourceStart - sourceClipOffset) / secondsPerBar / tempoRatio,
+              leftDuration / secondsPerBar / tempoRatio,
+            );
+            const rightMel = createArrangementMelSegment(
+              linkedMel.id,
+              Math.max(0, rightSourceStart - sourceClipOffset) / secondsPerBar / tempoRatio,
+              (totalDuration - leftDuration) / secondsPerBar / tempoRatio,
+            );
+            if (leftMel) {
+              leftMel.audioSourceAssetId = leftSegment.id;
+              leftMel.audioSourceClipId = clip.id;
+            }
+            if (rightMel) {
+              rightMel.audioSourceAssetId = rightSegment.id;
+              rightMel.audioSourceClipId = right.id;
+            }
+          }
+        }
         clip.isMelSlice = true;
         clip.sourceAssetId = sourceAssetId;
         right.isMelSlice = true;
@@ -1284,10 +1353,82 @@
     state.selectedArrangementItems = splitKeys;
     state.arrangementSelectionFromMarquee = false;
     if (audioMelAdded) renderMelOptions();
+    renderArrangementAssetBrowser();
+    renderRecordingBrowser();
     updateArrangementLength();
     renderArrangement();
     saveState();
     showToast(`Split ${splitCount} clip${splitCount === 1 ? "" : "s"}`);
+  }
+
+  function ensureFullAudioAsset(clip) {
+    const sourceAssetId = clip.sourceAssetId || clip.assetId || clip.id;
+    if (state.audioAssets.some((asset) =>
+      asset.isSourceAudioAsset && asset.sourceAssetId === sourceAssetId)) return;
+    const asset = {
+      ...clip,
+      id: makeId(),
+      assetId: sourceAssetId,
+      sourceAssetId,
+      sourceClipOffsetSeconds: clip.sourceOffsetSeconds || 0,
+      name: clip.name,
+      durationSeconds: clip.buffer.duration,
+      sourceOffsetSeconds: 0,
+      repeatCount: 1,
+      repeatStartSeconds: 0,
+      repeatLengthSeconds: clip.buffer.duration,
+      clipGain: 1,
+      fadeInSeconds: 0,
+      fadeOutSeconds: 0,
+      reversed: false,
+      isSourceAudioAsset: true,
+    };
+    state.audioAssets.push(asset);
+    if (asset.blob) persistAudioAsset(asset).catch((error) =>
+      showToast(`Source audio was split, but could not be saved to the library: ${error.message || "storage unavailable"}`));
+  }
+
+  function createAudioSegmentAsset(clip, sourceAssetId) {
+    const startSeconds = clip.sourceOffsetSeconds || 0;
+    const endSeconds = startSeconds + clip.durationSeconds;
+    const existing = state.audioAssets.find((asset) =>
+      asset.segmentSourceAssetId === sourceAssetId &&
+      Math.abs(asset.segmentStartSeconds - startSeconds) < 0.0001 &&
+      Math.abs(asset.segmentEndSeconds - endSeconds) < 0.0001);
+    if (existing) return existing;
+    const segment = {
+      ...clip,
+      id: makeId(),
+      assetId: "",
+      sourceAssetId,
+      segmentSourceAssetId: sourceAssetId,
+      segmentStartSeconds: startSeconds,
+      segmentEndSeconds: endSeconds,
+      sourceClipOffsetSeconds: state.audioAssets.find((asset) =>
+        asset.isSourceAudioAsset && asset.sourceAssetId === sourceAssetId)?.sourceClipOffsetSeconds || 0,
+      segmentNameEdited: false,
+      isSourceAudioAsset: false,
+    };
+    segment.assetId = segment.id;
+    segment.name = `${clip.name.replace(/ - Segment \d+$/, "")} - Segment`;
+    state.audioAssets.push(segment);
+    return segment;
+  }
+
+  function renumberAudioSegments(sourceAssetId) {
+    const source = state.audioAssets.find((asset) =>
+      asset.isSourceAudioAsset && asset.sourceAssetId === sourceAssetId);
+    const segments = state.audioAssets.filter((asset) => asset.segmentSourceAssetId === sourceAssetId)
+      .sort((left, right) => left.segmentStartSeconds - right.segmentStartSeconds ||
+        left.segmentEndSeconds - right.segmentEndSeconds);
+    segments.forEach((asset, index) => {
+      if (!asset.segmentNameEdited) asset.name = `${source?.name || "Audio"} - Segment ${index + 1}`;
+      state.arrangementTracks.forEach((track) => track.clips.forEach((clip) => {
+        if (clip.assetId === asset.id) clip.name = asset.name;
+      }));
+      persistAudioAsset(asset).catch((error) =>
+        showToast(`Segment created, but could not be saved to the library: ${error.message || "storage unavailable"}`));
+    });
   }
 
   function placeCurrentEditorAtPlayhead() {
@@ -1516,7 +1657,7 @@
       if (!track) track = createArrangementTrack(file.name);
       else if (!track.clips.length && /^Track \d+$/.test(track.name)) track.name = file.name;
       const clip = {
-        id: makeId(), name: file.name, buffer,
+        id: makeId(), assetId: "", name: file.name, buffer,
         audioStemGroupId: makeId(),
         repeatCount: 1,
         durationSeconds: buffer.duration - sourceOffsetSeconds,
@@ -1528,6 +1669,7 @@
         ...(tempoChoice.action === "audio-to-project" && audioAdjustment
           ? { tempoRatioOverride: audioAdjustment.tempoRatio } : {}),
       };
+      clip.assetId = clip.id;
       clip.startBar = snapStart
         ? clampArrangementStart(startBar, getArrangementClipDuration("audio", clip))
         : Math.max(0, Math.min(MAX_ARRANGEMENT_BARS - getArrangementClipDuration("audio", clip), startBar));

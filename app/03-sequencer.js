@@ -644,6 +644,7 @@
   function captureCurrentPattern() {
     const pattern = getPattern();
     if (!pattern) return;
+    const previousSnapshot = pattern.segmentSnapshot;
     pattern.steps = state.steps;
     const trackIds = getPatternTrackIds(pattern).filter((id) => state.tracks.some((track) => track.id === id));
     pattern.trackIds = trackIds;
@@ -654,6 +655,123 @@
       pattern.cells[track.id] = Array.from({ length: STEP_COUNT }, (_, index) => track.cells[index] === true);
       if (SOUND_VARIANTS[track.kind]) pattern.variants[track.id] = track.variant || "classic";
     });
+    if (pattern.segmentSourcePatternId) {
+      if (previousSnapshot && previousSnapshot !== getPatternSegmentSnapshot(pattern)) pattern.segmentEdited = true;
+      pattern.segmentSnapshot = getPatternSegmentSnapshot(pattern);
+    } else {
+      refreshPatternSegments(pattern);
+    }
+  }
+
+  function getPatternSegmentSnapshot(pattern) {
+    return JSON.stringify({
+      steps: pattern.steps,
+      gridResolution: getPatternGridResolution(pattern),
+      trackIds: getPatternTrackIds(pattern),
+      cells: pattern.cells,
+      variants: pattern.variants,
+      stepPianoNotes: pattern.stepPianoNotes || {},
+    });
+  }
+
+  function buildPatternSegment(source, id, startBar, endBar) {
+    const slotsPerBar = GRID_STEPS_PER_BAR[getPatternGridResolution(source)] || 16;
+    const firstStep = Math.max(0, Math.floor(startBar * slotsPerBar));
+    const lastStep = Math.max(firstStep + 1, Math.ceil(endBar * slotsPerBar));
+    const trackIds = [...getPatternTrackIds(source)];
+    const cells = Object.fromEntries(trackIds.map((trackId) => [
+      trackId,
+      Array.from({ length: STEP_COUNT }, (_, step) =>
+        step < lastStep - firstStep && source.cells?.[trackId]?.[firstStep + step] === true),
+    ]));
+    const tickStart = startBar * PIANO_TICKS_PER_BAR;
+    const tickEnd = endBar * PIANO_TICKS_PER_BAR;
+    const stepPianoNotes = Object.fromEntries(Object.entries(source.stepPianoNotes || {}).map(([trackId, notes]) => [
+      trackId,
+      notes.flatMap((note) => {
+        const noteStart = note.startTick;
+        const noteEnd = noteStart + note.durationTicks;
+        const overlapStart = Math.max(tickStart, noteStart);
+        const overlapEnd = Math.min(tickEnd, noteEnd);
+        return overlapEnd > overlapStart ? [{
+          ...note,
+          id: makeId(),
+          startTick: overlapStart - tickStart,
+          durationTicks: overlapEnd - overlapStart,
+        }] : [];
+      }),
+    ]));
+    const rootId = source.segmentSourcePatternId || source.id;
+    const root = getPattern(rootId) || source;
+    const segment = {
+      ...source,
+      id,
+      name: `${root.name} - Segment`,
+      arrangementCopy: false,
+      trackIds,
+      cells,
+      variants: { ...(source.variants || {}) },
+      stepPianoNotes,
+      segmentSourcePatternId: rootId,
+      segmentStartBar: (source.segmentStartBar || 0) + startBar,
+      segmentEndBar: (source.segmentStartBar || 0) + endBar,
+      segmentEdited: false,
+      segmentNameEdited: false,
+      volume: 1,
+      muted: false,
+      solo: false,
+      effects: makeDefaultEffects(),
+      effectSettings: makeDefaultEffectSettings(),
+      effectChain: [],
+    };
+    segment.segmentSnapshot = getPatternSegmentSnapshot(segment);
+    return segment;
+  }
+
+  function refreshPatternSegments(source) {
+    const rootId = source.segmentSourcePatternId || source.id;
+    if (rootId !== source.id) return;
+    const siblings = state.patterns.filter((pattern) => pattern.segmentSourcePatternId === source.id)
+      .sort((left, right) => left.segmentStartBar - right.segmentStartBar || left.segmentEndBar - right.segmentEndBar);
+    siblings.filter((segment) => !segment.segmentEdited).forEach((segment) => {
+      const segmentNameEdited = segment.segmentNameEdited === true;
+      const refreshed = buildPatternSegment(source, segment.id, segment.segmentStartBar, segment.segmentEndBar);
+      Object.assign(segment, refreshed, {
+        segmentSourcePatternId: source.id,
+        segmentStartBar: refreshed.segmentStartBar,
+        segmentEndBar: refreshed.segmentEndBar,
+        segmentNameEdited,
+      });
+    });
+    siblings.forEach((segment, index) => {
+      if (!segment.segmentNameEdited) segment.name = `${source.name} - Segment ${index + 1}`;
+    });
+  }
+
+  function createArrangementPatternSegment(sourceId, startBar, durationBars) {
+    const source = getPattern(sourceId);
+    if (!source) return null;
+    const rootId = source.segmentSourcePatternId || source.id;
+    const root = getPattern(rootId) || source;
+    const absoluteStart = (source.segmentStartBar || 0) + startBar;
+    const absoluteEnd = absoluteStart + durationBars;
+    const existing = state.patterns.find((pattern) =>
+      pattern.segmentSourcePatternId === rootId &&
+      Math.abs(pattern.segmentStartBar - absoluteStart) < 0.0001 &&
+      Math.abs(pattern.segmentEndBar - absoluteEnd) < 0.0001);
+    if (existing) return existing;
+    const segment = buildPatternSegment(root, makeId(), absoluteStart, absoluteStart + durationBars);
+    segment.segmentSourcePatternId = rootId;
+    segment.segmentStartBar = absoluteStart;
+    segment.segmentEndBar = absoluteEnd;
+    segment.segmentSnapshot = getPatternSegmentSnapshot(segment);
+    state.patterns.push(segment);
+    const siblings = state.patterns.filter((item) => item.segmentSourcePatternId === rootId)
+      .sort((left, right) => left.segmentStartBar - right.segmentStartBar || left.segmentEndBar - right.segmentEndBar);
+    siblings.forEach((item, index) => {
+      if (!item.segmentNameEdited) item.name = `${root.name} - Segment ${index + 1}`;
+    });
+    return segment;
   }
 
   function clearSelectedStepCells() {

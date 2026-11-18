@@ -655,14 +655,23 @@
             </div>
             <div class="arrangement-footer">
               <span><span class="legend-swatch"></span>DRUM PATTERN <span class="audio-legend"></span>AUDIO CLIP <span class="mel-legend"></span>MEL</span>
-              <span>Double-click audio clips to edit <span class="hint-divider">·</span> Upper-right handle repeats a clip or slice; lower-right trims/extends <span class="hint-divider">·</span> <kbd>P</kbd> place <span class="hint-divider">·</span> <kbd>S</kbd> split <span class="hint-divider">·</span> <kbd>DELETE</kbd> remove</span>
+              <span>Double-click audio clips to edit <span class="hint-divider">·</span> Upper-right handle repeats a clip or slice; lower-right trims/extends <span class="hint-divider">·</span> <kbd>P</kbd> place <span class="hint-divider">·</span> <kbd>S</kbd> split <span class="hint-divider">·</span> <kbd>T</kbd> slice tool <span class="hint-divider">·</span> <kbd>DELETE</kbd> remove</span>
             </div>
           </div>
         </section>
 
         <div class="arrangement-track-context-menu" id="arrangement-track-context-menu" role="menu" hidden>
           <div class="arrangement-audio-piano-options" id="arrangement-audio-piano-options" role="group" aria-label="Open audio segments in Piano Roll" hidden></div>
+          <div class="arrangement-audio-piano-options" id="arrangement-segment-options" role="group" aria-label="Open source or segment in its editor" hidden></div>
+          <button type="button" id="rename-arrangement-track" role="menuitem">Rename track</button>
+          <button type="button" id="duplicate-arrangement-track" role="menuitem">Duplicate track</button>
+          <button type="button" id="rename-arrangement-asset" role="menuitem" hidden>Rename asset</button>
+          <button type="button" id="branch-arrangement-asset" role="menuitem" hidden>Branch asset</button>
           <button type="button" id="add-empty-track-below" role="menuitem">Add empty track below</button>
+        </div>
+        <div class="arrangement-track-context-menu" id="asset-context-menu" role="menu" hidden>
+          <button type="button" id="rename-library-asset" role="menuitem">Rename asset</button>
+          <button type="button" id="branch-library-asset" role="menuitem">Branch asset</button>
         </div>
 
         <dialog class="audio-clip-edit-dialog" id="audio-clip-edit-dialog" aria-labelledby="audio-clip-edit-title">
@@ -1186,6 +1195,6 @@
       </div>
     </section>
     <script src="assets/vendor/lame.min.js"></script>
-    <script src="app.js?v=b3e02fad4318"></script>
+    <script src="app.js?v=c3aee2269eda"></script>
   </body>
 </html>

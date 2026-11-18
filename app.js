@@ -6691,6 +6691,7 @@ const DRIVE_SAMPLE_TRACKS = [
     patterns: [],
     selectedPatternId: null,
     arrangementTracks: [],
+    audioAssets: [],
     patternClips: [],
     arrangementScale: 1,
     mels: [],
@@ -7727,6 +7728,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   function captureCurrentPattern() {
     const pattern = getPattern();
     if (!pattern) return;
+    const previousSnapshot = pattern.segmentSnapshot;
     pattern.steps = state.steps;
     const trackIds = getPatternTrackIds(pattern).filter((id) => state.tracks.some((track) => track.id === id));
     pattern.trackIds = trackIds;
@@ -7737,6 +7739,123 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       pattern.cells[track.id] = Array.from({ length: STEP_COUNT }, (_, index) => track.cells[index] === true);
       if (SOUND_VARIANTS[track.kind]) pattern.variants[track.id] = track.variant || "classic";
     });
+    if (pattern.segmentSourcePatternId) {
+      if (previousSnapshot && previousSnapshot !== getPatternSegmentSnapshot(pattern)) pattern.segmentEdited = true;
+      pattern.segmentSnapshot = getPatternSegmentSnapshot(pattern);
+    } else {
+      refreshPatternSegments(pattern);
+    }
+  }
+
+  function getPatternSegmentSnapshot(pattern) {
+    return JSON.stringify({
+      steps: pattern.steps,
+      gridResolution: getPatternGridResolution(pattern),
+      trackIds: getPatternTrackIds(pattern),
+      cells: pattern.cells,
+      variants: pattern.variants,
+      stepPianoNotes: pattern.stepPianoNotes || {},
+    });
+  }
+
+  function buildPatternSegment(source, id, startBar, endBar) {
+    const slotsPerBar = GRID_STEPS_PER_BAR[getPatternGridResolution(source)] || 16;
+    const firstStep = Math.max(0, Math.floor(startBar * slotsPerBar));
+    const lastStep = Math.max(firstStep + 1, Math.ceil(endBar * slotsPerBar));
+    const trackIds = [...getPatternTrackIds(source)];
+    const cells = Object.fromEntries(trackIds.map((trackId) => [
+      trackId,
+      Array.from({ length: STEP_COUNT }, (_, step) =>
+        step < lastStep - firstStep && source.cells?.[trackId]?.[firstStep + step] === true),
+    ]));
+    const tickStart = startBar * PIANO_TICKS_PER_BAR;
+    const tickEnd = endBar * PIANO_TICKS_PER_BAR;
+    const stepPianoNotes = Object.fromEntries(Object.entries(source.stepPianoNotes || {}).map(([trackId, notes]) => [
+      trackId,
+      notes.flatMap((note) => {
+        const noteStart = note.startTick;
+        const noteEnd = noteStart + note.durationTicks;
+        const overlapStart = Math.max(tickStart, noteStart);
+        const overlapEnd = Math.min(tickEnd, noteEnd);
+        return overlapEnd > overlapStart ? [{
+          ...note,
+          id: makeId(),
+          startTick: overlapStart - tickStart,
+          durationTicks: overlapEnd - overlapStart,
+        }] : [];
+      }),
+    ]));
+    const rootId = source.segmentSourcePatternId || source.id;
+    const root = getPattern(rootId) || source;
+    const segment = {
+      ...source,
+      id,
+      name: `${root.name} - Segment`,
+      arrangementCopy: false,
+      trackIds,
+      cells,
+      variants: { ...(source.variants || {}) },
+      stepPianoNotes,
+      segmentSourcePatternId: rootId,
+      segmentStartBar: (source.segmentStartBar || 0) + startBar,
+      segmentEndBar: (source.segmentStartBar || 0) + endBar,
+      segmentEdited: false,
+      segmentNameEdited: false,
+      volume: 1,
+      muted: false,
+      solo: false,
+      effects: makeDefaultEffects(),
+      effectSettings: makeDefaultEffectSettings(),
+      effectChain: [],
+    };
+    segment.segmentSnapshot = getPatternSegmentSnapshot(segment);
+    return segment;
+  }
+
+  function refreshPatternSegments(source) {
+    const rootId = source.segmentSourcePatternId || source.id;
+    if (rootId !== source.id) return;
+    const siblings = state.patterns.filter((pattern) => pattern.segmentSourcePatternId === source.id)
+      .sort((left, right) => left.segmentStartBar - right.segmentStartBar || left.segmentEndBar - right.segmentEndBar);
+    siblings.filter((segment) => !segment.segmentEdited).forEach((segment) => {
+      const segmentNameEdited = segment.segmentNameEdited === true;
+      const refreshed = buildPatternSegment(source, segment.id, segment.segmentStartBar, segment.segmentEndBar);
+      Object.assign(segment, refreshed, {
+        segmentSourcePatternId: source.id,
+        segmentStartBar: refreshed.segmentStartBar,
+        segmentEndBar: refreshed.segmentEndBar,
+        segmentNameEdited,
+      });
+    });
+    siblings.forEach((segment, index) => {
+      if (!segment.segmentNameEdited) segment.name = `${source.name} - Segment ${index + 1}`;
+    });
+  }
+
+  function createArrangementPatternSegment(sourceId, startBar, durationBars) {
+    const source = getPattern(sourceId);
+    if (!source) return null;
+    const rootId = source.segmentSourcePatternId || source.id;
+    const root = getPattern(rootId) || source;
+    const absoluteStart = (source.segmentStartBar || 0) + startBar;
+    const absoluteEnd = absoluteStart + durationBars;
+    const existing = state.patterns.find((pattern) =>
+      pattern.segmentSourcePatternId === rootId &&
+      Math.abs(pattern.segmentStartBar - absoluteStart) < 0.0001 &&
+      Math.abs(pattern.segmentEndBar - absoluteEnd) < 0.0001);
+    if (existing) return existing;
+    const segment = buildPatternSegment(root, makeId(), absoluteStart, absoluteStart + durationBars);
+    segment.segmentSourcePatternId = rootId;
+    segment.segmentStartBar = absoluteStart;
+    segment.segmentEndBar = absoluteEnd;
+    segment.segmentSnapshot = getPatternSegmentSnapshot(segment);
+    state.patterns.push(segment);
+    const siblings = state.patterns.filter((item) => item.segmentSourcePatternId === rootId)
+      .sort((left, right) => left.segmentStartBar - right.segmentStartBar || left.segmentEndBar - right.segmentEndBar);
+    siblings.forEach((item, index) => {
+      if (!item.segmentNameEdited) item.name = `${root.name} - Segment ${index + 1}`;
+    });
+    return segment;
   }
 
   function clearSelectedStepCells() {
@@ -7807,7 +7926,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   }
 
   function ensureAudioClipMel(clip) {
-    if (state.mels.some((mel) => mel.audioSourceClipId === clip.id)) return false;
+    const audioAssetId = clip.assetId || clip.id;
+    if (state.mels.some((mel) =>
+      mel.audioSourceAssetId === audioAssetId || mel.audioSourceClipId === clip.id)) return false;
     const baseName = `${clip.name.replace(/\.[^.]+$/, "").trim() || "Audio"} Mel`.slice(0, 48);
     let name = baseName;
     let suffix = 2;
@@ -7817,6 +7938,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     }
     const mel = makeMel(name);
     mel.audioSourceClipId = clip.id;
+    mel.audioSourceAssetId = audioAssetId;
     state.mels.push(mel);
     return true;
   }
@@ -7825,9 +7947,138 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     if (state.stepPianoEditContext) return;
     const mel = getMel();
     if (!mel) return;
+    const previousSnapshot = mel.segmentSnapshot;
     mel.instrumentId = state.selectedPianoTrackId;
     mel.bars = state.pianoBars;
     mel.notes = state.pianoNotes.map((note) => ({ ...note, trackId: mel.instrumentId }));
+    if (mel.segmentSourceMelId) {
+      if (previousSnapshot && previousSnapshot !== getMelSegmentSnapshot(mel)) mel.segmentEdited = true;
+      mel.segmentSnapshot = getMelSegmentSnapshot(mel);
+    } else {
+      refreshMelSegments(mel);
+      refreshAudioMelSegments(mel);
+    }
+  }
+
+  function getMelSegmentSnapshot(mel) {
+    return JSON.stringify({ bars: mel.bars, instrumentId: mel.instrumentId, notes: mel.notes });
+  }
+
+  function buildMelSegment(source, id, startTick, endTick) {
+    const notes = source.notes.flatMap((note) => {
+      const start = note.startTick;
+      const end = start + note.durationTicks;
+      const overlapStart = Math.max(startTick, start);
+      const overlapEnd = Math.min(endTick, end);
+      return overlapEnd > overlapStart ? [{
+        ...note,
+        id: makeId(),
+        startTick: overlapStart - startTick,
+        durationTicks: overlapEnd - overlapStart,
+      }] : [];
+    });
+    const rootId = source.segmentSourceMelId || source.id;
+    const root = getMel(rootId) || source;
+    const segment = {
+      ...source,
+      id,
+      name: `${root.name} - Segment`,
+      notes,
+      bars: Math.max(1, Math.min(8, Math.ceil((endTick - startTick) / PIANO_TICKS_PER_BAR))),
+      audioSourceClipId: source.audioSourceClipId || null,
+      segmentSourceMelId: rootId,
+      segmentStartTick: (source.segmentStartTick || 0) + startTick,
+      segmentEndTick: (source.segmentStartTick || 0) + endTick,
+      segmentEdited: false,
+      segmentNameEdited: false,
+    };
+    segment.segmentSnapshot = getMelSegmentSnapshot(segment);
+    return segment;
+  }
+
+  function refreshMelSegments(source) {
+    const rootId = source.segmentSourceMelId || source.id;
+    if (rootId !== source.id) return;
+    const siblings = state.mels.filter((mel) => mel.segmentSourceMelId === source.id)
+      .sort((left, right) => left.segmentStartTick - right.segmentStartTick || left.segmentEndTick - right.segmentEndTick);
+    siblings.filter((segment) => !segment.segmentEdited).forEach((segment) => {
+      const segmentNameEdited = segment.segmentNameEdited === true;
+      const refreshed = buildMelSegment(source, segment.id, segment.segmentStartTick, segment.segmentEndTick);
+      Object.assign(segment, refreshed, {
+        segmentSourceMelId: source.id,
+        segmentStartTick: refreshed.segmentStartTick,
+        segmentEndTick: refreshed.segmentEndTick,
+        segmentNameEdited,
+      });
+    });
+    siblings.forEach((segment, index) => {
+      if (!segment.segmentNameEdited) segment.name = `${source.name} - Segment ${index + 1}`;
+    });
+  }
+
+  function createArrangementMelSegment(sourceId, startBar, durationBars) {
+    const source = getMel(sourceId);
+    if (!source) return null;
+    const rootId = source.segmentSourceMelId || source.id;
+    const root = getMel(rootId) || source;
+    const absoluteStart = (source.segmentStartTick || 0) + startBar * PIANO_TICKS_PER_BAR;
+    const absoluteEnd = absoluteStart + durationBars * PIANO_TICKS_PER_BAR;
+    const existing = state.mels.find((mel) =>
+      mel.segmentSourceMelId === rootId &&
+      Math.abs(mel.segmentStartTick - absoluteStart) < 0.0001 &&
+      Math.abs(mel.segmentEndTick - absoluteEnd) < 0.0001);
+    if (existing) return existing;
+    const segment = buildMelSegment(
+      root,
+      makeId(),
+      absoluteStart,
+      absoluteEnd,
+    );
+    segment.segmentSourceMelId = rootId;
+    segment.segmentStartTick = absoluteStart;
+    segment.segmentEndTick = absoluteEnd;
+    segment.segmentSnapshot = getMelSegmentSnapshot(segment);
+    state.mels.push(segment);
+    const siblings = state.mels.filter((item) => item.segmentSourceMelId === rootId)
+      .sort((left, right) => left.segmentStartTick - right.segmentStartTick || left.segmentEndTick - right.segmentEndTick);
+    siblings.forEach((item, index) => {
+      if (!item.segmentNameEdited) item.name = `${root.name} - Segment ${index + 1}`;
+    });
+    return segment;
+  }
+
+  function refreshAudioMelSegments(sourceMel) {
+    const rootMelId = sourceMel.segmentSourceMelId || sourceMel.id;
+    if (rootMelId !== sourceMel.id) return;
+    const sourceAssetId = sourceMel.audioSourceAssetId || sourceMel.audioSourceClipId;
+    if (!sourceAssetId) return;
+    const secondsPerBar = 240 / state.bpm;
+    const assets = state.audioAssets.filter((asset) =>
+      asset.segmentSourceAssetId === sourceAssetId)
+      .sort((left, right) => left.segmentStartSeconds - right.segmentStartSeconds);
+    assets.forEach((asset) => {
+      const segmentMel = state.mels.find((mel) => mel.audioSourceAssetId === asset.id);
+      if (!segmentMel || segmentMel.segmentEdited) return;
+      const ratio = getAudioClipTempoRatio(asset);
+      const sourceStartSeconds = Math.max(0, asset.segmentStartSeconds - (asset.sourceClipOffsetSeconds || 0));
+      const sourceEndSeconds = Math.max(sourceStartSeconds, asset.segmentEndSeconds - (asset.sourceClipOffsetSeconds || 0));
+      const startTick = sourceStartSeconds / ratio / secondsPerBar * PIANO_TICKS_PER_BAR;
+      const endTick = sourceEndSeconds / ratio / secondsPerBar * PIANO_TICKS_PER_BAR;
+      const refreshed = buildMelSegment(sourceMel, segmentMel.id, startTick, endTick);
+      Object.assign(segmentMel, refreshed, {
+        audioSourceClipId: segmentMel.audioSourceClipId,
+        audioSourceAssetId: asset.id,
+        segmentSourceMelId: sourceMel.id,
+        segmentStartTick: startTick,
+        segmentEndTick: endTick,
+      });
+    });
+    assets.forEach((asset, index) => {
+      const segmentMel = state.mels.find((mel) => mel.audioSourceAssetId === asset.id);
+      if (segmentMel && !segmentMel.segmentNameEdited) {
+        segmentMel.name = `${sourceMel.name} - Segment ${index + 1}`;
+      }
+    });
   }
 
   function loadMel(melId) {
@@ -8426,14 +8677,17 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       const clip = track.clips.find((item) => item.id === clipId);
       if (clip) return clip;
     }
-    return null;
+    return state.audioAssets.find((asset) => asset.id === clipId) || null;
   }
 
   function selectPianoRollAudioSource(clipId) {
     const clip = getPianoRollAudioClipById(clipId);
     state.pianoRollAudioClipId = clip?.id || null;
     const mel = getMel();
-    if (mel) mel.audioSourceClipId = state.pianoRollAudioClipId;
+    if (mel) {
+      mel.audioSourceClipId = state.pianoRollAudioClipId;
+      mel.audioSourceAssetId = clip?.assetId || null;
+    }
     renderPianoRoll();
     saveState();
   }
@@ -8627,6 +8881,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     state.pianoRollAudioClipId = clip.id;
     if (mel) {
       mel.audioSourceClipId = clip.id;
+      mel.audioSourceAssetId = clip.assetId || clip.id;
       mel.bars = Math.max(mel.bars || 1, [1, 2, 4, 8].find((bars) => bars * PIANO_TICKS_PER_BAR >= durationTicks) || 8);
     }
     state.pianoBars = Math.max(state.pianoBars,
@@ -8716,6 +8971,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         mel.audioSourceClipId = clip.id;
         state.mels.push(mel);
       }
+      mel.audioSourceAssetId = clip.assetId || clip.id;
       state.selectedMelId = mel.id;
       loadMel(mel.id);
       const detectedKey = clip.audioMetadata?.key?.match(/^([A-G]#?) (major|minor)$/i);
@@ -8764,7 +9020,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
 
     captureCurrentMel();
     stopAllWorkspacePlayers();
-    const linkedMel = state.mels.slice().reverse().find((mel) => mel.audioSourceClipId === clip.id);
+    const linkedMel = getAudioClipEditedMel(clip);
     if (linkedMel) {
       loadMel(linkedMel.id);
     } else {
@@ -8785,6 +9041,37 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       return;
     }
     await transcribeAudioClipToPianoRoll(clip);
+  }
+
+  async function openAudioAssetInPianoRoll(asset) {
+    if (!asset?.buffer) {
+      showToast("That audio asset is no longer available.");
+      return;
+    }
+    if (state.stepPianoEditContext) {
+      showToast("Return to the Piano Roll before editing an audio asset.");
+      return;
+    }
+    captureCurrentMel();
+    stopAllWorkspacePlayers();
+    const linkedMel = getAudioClipEditedMel(asset);
+    if (linkedMel) loadMel(linkedMel.id);
+    else state.pianoRollAudioClipId = asset.id;
+    setWorkspaceView("piano-roll", true);
+    $("#piano-audio-mode-select").value = "audio";
+    const audioOptions = $("#piano-toolbar-audio-options");
+    const audioToggle = document.querySelector('[aria-controls="piano-toolbar-audio-options"]');
+    audioOptions.hidden = false;
+    audioToggle?.setAttribute("aria-expanded", "true");
+    if (audioToggle) audioToggle.title = "Collapse Audio options";
+    if (linkedMel?.notes.length) {
+      renderMelOptions();
+      renderPianoInstrumentOptions();
+      renderPianoRoll();
+      saveState();
+      return;
+    }
+    await transcribeAudioClipToPianoRoll(asset);
   }
 
   function updatePianoRulerViewport() {
@@ -9369,7 +9656,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=b3e02fad4318");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=c3aee2269eda");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -17279,8 +17566,16 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     const menu = $("#arrangement-track-context-menu");
     menu.hidden = true;
     delete menu.dataset.trackId;
+    delete menu.dataset.assetType;
+    delete menu.dataset.assetId;
+    delete menu.dataset.clipTrackId;
+    delete menu.dataset.clipId;
     $("#arrangement-audio-piano-options").replaceChildren();
     $("#arrangement-audio-piano-options").hidden = true;
+    $("#arrangement-segment-options").replaceChildren();
+    $("#arrangement-segment-options").hidden = true;
+    $("#rename-arrangement-asset").hidden = true;
+    $("#branch-arrangement-asset").hidden = true;
   }
 
   function openArrangementTrackContextMenu(event) {
@@ -17292,11 +17587,13 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     event.preventDefault();
     const menu = $("#arrangement-track-context-menu");
     const audioOptions = $("#arrangement-audio-piano-options");
+    const segmentOptions = $("#arrangement-segment-options");
     audioOptions.replaceChildren();
+    segmentOptions.replaceChildren();
     const audioTrack = state.arrangementTracks.find((track) => track.id === trackId);
-    const targetedClipId = event.target instanceof Element
-      ? event.target.closest(".audio-clip")?.dataset.clipId
-      : null;
+    const targetElement = event.target instanceof Element ? event.target : null;
+    const targetedClip = targetElement?.closest("[data-selectable-type][data-clip-id]");
+    const targetedClipId = targetedClip?.dataset.clipId || null;
     const clips = audioTrack
       ? audioTrack.clips.filter((clip) => !targetedClipId || clip.id === targetedClipId)
       : [];
@@ -17310,6 +17607,45 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       audioOptions.append(option);
     });
     audioOptions.hidden = clips.length === 0;
+    const targetType = targetedClip?.dataset.selectableType;
+    const targetAsset = targetType === "audio"
+      ? audioTrack?.clips.find((clip) => clip.id === targetedClipId)
+      : targetType === "mel"
+        ? state.melTracks.flatMap((track) => track.clips).find((clip) => clip.id === targetedClipId)
+        : targetType === "pattern"
+          ? state.patternClips.find((clip) => clip.id === targetedClipId)
+          : null;
+    const assetType = targetType || "";
+    const assetId = assetType === "audio" ? targetAsset?.id
+      : assetType === "mel" ? targetAsset?.melId
+        : assetType === "pattern" ? targetAsset?.patternId : "";
+    const asset = assetId ? getArrangementAsset(assetType, assetId) : null;
+    const hasSegment = Boolean(asset?.segmentSourceMelId || asset?.segmentSourcePatternId ||
+      asset?.segmentSourceAssetId || targetAsset?.sourceAssetId || targetAsset?.segmentSourceAssetId);
+    $("#rename-arrangement-asset").hidden = !asset;
+    $("#branch-arrangement-asset").hidden = !asset;
+    if (asset) {
+      menu.dataset.assetType = assetType;
+      menu.dataset.assetId = asset.id;
+      menu.dataset.clipTrackId = audioTrack?.id || "";
+      menu.dataset.clipId = targetedClipId || "";
+    }
+    if (hasSegment) {
+      const sourceId = asset.segmentSourceMelId || asset.segmentSourcePatternId ||
+        asset.segmentSourceAssetId || targetAsset?.sourceAssetId || targetAsset?.segmentSourceAssetId;
+      const addOption = (label, id) => {
+        const option = document.createElement("button");
+        option.type = "button";
+        option.setAttribute("role", "menuitem");
+        option.dataset.assetType = assetType;
+        option.dataset.assetId = id;
+        option.textContent = label;
+        segmentOptions.append(option);
+      };
+      addOption(`Open original ${assetType}`, sourceId);
+      addOption(`Open segment ${assetType}`, asset.id);
+      segmentOptions.hidden = false;
+    }
     menu.dataset.trackId = trackId;
     menu.hidden = false;
     menu.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - menu.offsetWidth - 8))}px`;
@@ -17376,9 +17712,11 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       label.dataset.trackId = pattern.id;
       label.style.setProperty("--track-color", pattern.color || "var(--accent)");
       label.innerHTML = `<span class="track-color"></span><div class="arrangement-label-info"><div class="arrangement-label-name"></div><div class="arrangement-label-type">Beat pattern · ${getPatternTrackIds(pattern).length} instruments</div></div>`;
-      label.querySelector(".arrangement-label-name").textContent = pattern.name;
+      label.querySelector(".arrangement-label-name").textContent = pattern.arrangementName || pattern.name;
       label.addEventListener("click", () => {
-        selectPattern(pattern.id);
+        const contentPatternId = state.patternClips.find((clip) =>
+          (clip.trackId || clip.patternId) === pattern.id)?.patternId || pattern.id;
+        selectPattern(contentPatternId);
         selectArrangementTrack(pattern.id);
       });
       const controls = makeArrangementTrackControls(pattern);
@@ -17951,7 +18289,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       const title = document.createElement("button");
       title.className = "mixer-track-title";
       title.type = "button";
-      title.textContent = track.name;
+      title.textContent = track.arrangementName || track.name;
       title.setAttribute("aria-pressed", String(track.id === state.selectedMixerTrackId));
       title.addEventListener("click", () => {
         selectArrangementTrack(track.id);
@@ -18796,6 +19134,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         item.tabIndex = 0;
         item.setAttribute("role", "listitem");
         item.setAttribute("aria-label", `${asset.name}, drag to Track View`);
+        item.dataset.assetType = type.toLowerCase();
+        item.dataset.assetId = asset.id;
         const name = document.createElement("span");
         name.className = "asset-source-name";
         name.textContent = asset.name;
@@ -18808,6 +19148,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
           event.dataTransfer.setData(dataType, JSON.stringify(getPayload(asset)));
           event.dataTransfer.effectAllowed = "copy";
         });
+        item.addEventListener("contextmenu", (event) =>
+          openAssetContextMenu(type.toLowerCase(), asset.id, event));
         browser.append(item);
       });
     };
@@ -18829,6 +19171,310 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     );
   }
 
+  let assetContextMenuHome = null;
+
+  function openAssetContextMenu(type, id, event) {
+    event.preventDefault();
+    closeArrangementTrackContextMenu();
+    const menu = $("#asset-context-menu");
+    const dialog = event.currentTarget.closest("dialog");
+    if (dialog && menu.parentElement !== dialog) {
+      assetContextMenuHome = { parent: menu.parentElement, nextSibling: menu.nextSibling };
+      dialog.append(menu);
+    }
+    menu.dataset.assetType = type;
+    menu.dataset.assetId = id;
+    menu.hidden = false;
+    menu.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - menu.offsetWidth - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(event.clientY, window.innerHeight - menu.offsetHeight - 8))}px`;
+  }
+
+  function closeAssetContextMenu() {
+    const menu = $("#asset-context-menu");
+    menu.hidden = true;
+    if (assetContextMenuHome) {
+      const { parent, nextSibling } = assetContextMenuHome;
+      parent.insertBefore(menu, nextSibling?.parentNode === parent ? nextSibling : null);
+      assetContextMenuHome = null;
+    }
+    delete menu.dataset.assetType;
+    delete menu.dataset.assetId;
+  }
+
+  function getArrangementAsset(type, id) {
+    if (type === "mel") {
+      const clip = state.melTracks.flatMap((track) => track.clips).find((item) => item.id === id);
+      return state.mels.find((mel) => mel.id === id) || (clip ? getMel(clip.melId) : null);
+    }
+    if (type === "pattern") {
+      const clip = state.patternClips.find((item) => item.id === id);
+      return state.patterns.find((pattern) => pattern.id === id) || (clip ? getPattern(clip.patternId) : null);
+    }
+    const audio = state.audioAssets.find((asset) => asset.id === id) ||
+      state.arrangementTracks.flatMap((track) => track.clips).find((clip) => clip.id === id);
+    if (!audio) return null;
+    if (state.audioAssets.includes(audio)) return audio;
+    return state.audioAssets.find((asset) => asset.id === audio.assetId) || audio;
+  }
+
+  function renameArrangementAsset(type, id) {
+    const asset = getArrangementAsset(type, id);
+    if (!asset) {
+      showToast("That asset is no longer available.");
+      return;
+    }
+    const oldName = asset.name;
+    const name = window.prompt(`Rename ${type}`, oldName)?.trim();
+    if (!name) return;
+    if (type !== "audio" && (type === "mel" ? state.mels : state.patterns)
+      .some((item) => item.id !== asset.id && item.name.toLowerCase() === name.toLowerCase())) {
+      showToast(`${type === "mel" ? "Mel" : "Pattern"} names must be unique.`);
+      return;
+    }
+    if (type === "audio") {
+      const assetId = asset.assetId || asset.id;
+      if (asset.segmentSourceAssetId) asset.segmentNameEdited = true;
+      state.audioAssets.filter((item) => (item.assetId || item.id) === assetId)
+        .forEach((item) => { item.name = name; });
+      state.arrangementTracks.forEach((track) => track.clips.forEach((clip) => {
+        if ((clip.assetId || clip.id) !== assetId) return;
+        clip.name = name;
+        persistClip(track, clip).catch(() => showToast("Audio was renamed, but browser storage could not be updated."));
+      }));
+      const audioAsset = state.audioAssets.find((item) => item.id === asset.id);
+      if (audioAsset) persistAudioAsset(audioAsset).catch(() =>
+        showToast("Audio was renamed, but browser storage could not be updated."));
+      if (audioAsset?.isSourceAudioAsset) {
+        renumberAudioSegments(audioAsset.sourceAssetId);
+        state.audioAssets.filter((item) => item.segmentSourceAssetId === audioAsset.sourceAssetId)
+          .forEach((item) => persistAudioAsset(item).catch(() =>
+            showToast("Audio was renamed, but browser storage could not be updated.")));
+        state.arrangementTracks.forEach((track) => track.clips.forEach((clip) => {
+          if (clip.segmentSourceAssetId === audioAsset.sourceAssetId) {
+            persistClip(track, clip).catch(() => showToast("Audio was renamed, but browser storage could not be updated."));
+          }
+        }));
+      }
+    } else {
+      asset.name = name;
+      if (type === "mel") {
+        if (asset.segmentSourceMelId) asset.segmentNameEdited = true;
+        state.melTracks.forEach((track) => {
+          if (track.name === oldName && track.clips.some((clip) => clip.melId === asset.id)) {
+            track.name = name;
+          }
+        });
+        refreshMelSegments(asset);
+        renderMelOptions();
+      } else {
+        if (asset.segmentSourcePatternId) asset.segmentNameEdited = true;
+        refreshPatternSegments(asset);
+        renderPatternSelectors();
+      }
+    }
+    renderArrangementAssetBrowser();
+    renderArrangement();
+    saveState();
+  }
+
+  function nextBranchName(name) {
+    const branch = /^Branch (\d+) - (.+)$/.exec(name);
+    return `Branch ${branch ? Number(branch[1]) + 1 : 1} - ${branch ? branch[2] : name}`;
+  }
+
+  function branchArrangementAsset(type, id) {
+    const source = getArrangementAsset(type, id);
+    if (!source) {
+      showToast("That asset is no longer available.");
+      return;
+    }
+    const branchName = nextBranchName(source.name);
+    if (type === "mel") {
+      const branch = {
+        ...source,
+        id: makeId(),
+        name: branchName,
+        notes: source.notes.map((note) => ({ ...note, id: makeId() })),
+      };
+      delete branch.segmentSourceMelId;
+      delete branch.segmentStartTick;
+      delete branch.segmentEndTick;
+      delete branch.segmentEdited;
+      delete branch.segmentSnapshot;
+      delete branch.segmentNameEdited;
+      delete branch.audioSourceClipId;
+      delete branch.audioSourceAssetId;
+      state.mels.push(branch);
+      renderMelOptions();
+    } else if (type === "pattern") {
+      const branch = {
+        ...source,
+        id: makeId(),
+        name: branchName,
+        arrangementCopy: false,
+        trackIds: [...getPatternTrackIds(source)],
+        cells: Object.fromEntries(Object.entries(source.cells || {}).map(([trackId, cells]) =>
+          [trackId, [...cells]])),
+        variants: { ...(source.variants || {}) },
+        ...(source.stepPianoNotes ? {
+          stepPianoNotes: Object.fromEntries(Object.entries(source.stepPianoNotes).map(([trackId, notes]) =>
+            [trackId, notes.map((note) => ({ ...note, id: makeId() }))])),
+        } : {}),
+      };
+      delete branch.segmentSourcePatternId;
+      delete branch.segmentStartBar;
+      delete branch.segmentEndBar;
+      delete branch.segmentEdited;
+      delete branch.segmentSnapshot;
+      delete branch.segmentNameEdited;
+      state.patterns.push(branch);
+      renderPatternSelectors();
+    } else {
+      const branch = {
+        ...source,
+        id: makeId(),
+        assetId: makeId(),
+        name: branchName,
+        sourceAssetId: null,
+        segmentSourceAssetId: null,
+        segmentNameEdited: false,
+        isSourceAudioAsset: false,
+      };
+      state.audioAssets.push(branch);
+      persistAudioAsset(branch).catch((error) =>
+        showToast(`Audio branch created, but browser storage could not be updated: ${error.message || "storage unavailable"}`));
+    }
+    renderArrangementAssetBrowser();
+    renderArrangement();
+    saveState();
+    showToast(`${branchName} added to the asset library`);
+  }
+
+  function renameArrangementTrack(trackId) {
+    const track = state.arrangementTracks.find((item) => item.id === trackId) ||
+      state.melTracks.find((item) => item.id === trackId) ||
+      state.patterns.find((item) => item.id === trackId &&
+        state.patternClips.some((clip) => (clip.trackId || clip.patternId) === trackId));
+    if (!track) return;
+    const currentName = track.arrangementName || track.name;
+    const name = window.prompt("Rename track", currentName)?.trim();
+    if (!name || name === currentName) return;
+    if (track.kind === "pattern") track.arrangementName = name;
+    else track.name = name;
+    renderArrangement();
+    saveState();
+  }
+
+  function duplicateArrangementTrack(trackId) {
+    const audioTrack = state.arrangementTracks.find((item) => item.id === trackId);
+    const melTrack = state.melTracks.find((item) => item.id === trackId);
+    const patternTrack = state.patterns.find((item) => item.id === trackId &&
+      state.patternClips.some((clip) => (clip.trackId || clip.patternId) === trackId));
+    const name = `Copy - ${(audioTrack || melTrack || patternTrack)?.arrangementName ||
+      (audioTrack || melTrack || patternTrack)?.name || "Track"}`;
+    let destinationId;
+    if (audioTrack) {
+      const duplicate = {
+        ...audioTrack,
+        id: makeId(),
+        name,
+        insertAfterTrackId: trackId,
+        gainNode: null,
+        fxRuntime: null,
+        analyser: null,
+        sourceGains: null,
+        automationGainNode: null,
+        panNode: null,
+        sidechainInputNode: null,
+        sidechainSourceNode: null,
+        clips: audioTrack.clips.map((clip) => ({ ...clip, id: makeId(), assetId: clip.assetId || clip.id })),
+        automation: normalizeTrackAutomation(audioTrack.automation),
+        effects: makeDefaultEffects(audioTrack.effects),
+        effectSettings: makeDefaultEffectSettings(audioTrack.effectSettings),
+        effectChain: Array.isArray(audioTrack.effectChain) ? [...audioTrack.effectChain] : [],
+      };
+      state.arrangementTracks.push(duplicate);
+      ensureArrangementTrackAudio(duplicate);
+      duplicate.clips.forEach((clip) => {
+        if (clip.blob) persistClip(duplicate, clip).catch(() =>
+          showToast("Track duplicated, but a recording could not be saved."));
+      });
+      destinationId = duplicate.id;
+    } else if (melTrack) {
+      const duplicate = {
+        ...melTrack,
+        id: makeId(),
+        name,
+        insertAfterTrackId: trackId,
+        gainNode: null,
+        fxRuntime: null,
+        analyser: null,
+        sourceGains: null,
+        automationGainNode: null,
+        panNode: null,
+        sidechainInputNode: null,
+        sidechainSourceNode: null,
+        clips: melTrack.clips.map((clip) => ({ ...clip, id: makeId() })),
+        automation: normalizeTrackAutomation(melTrack.automation),
+        effects: makeDefaultEffects(melTrack.effects),
+        effectSettings: makeDefaultEffectSettings(melTrack.effectSettings),
+        effectChain: Array.isArray(melTrack.effectChain) ? [...melTrack.effectChain] : [],
+      };
+      state.melTracks.push(duplicate);
+      destinationId = duplicate.id;
+    } else if (patternTrack) {
+      const duplicate = createPatternLaneCopy(patternTrack);
+      duplicate.arrangementName = name;
+      duplicate.insertAfterTrackId = trackId;
+      state.patternClips.filter((clip) => (clip.trackId || clip.patternId) === trackId).forEach((clip) => {
+        state.patternClips.push({ ...clip, id: makeId(), patternId: clip.patternId, trackId: duplicate.id });
+      });
+      destinationId = duplicate.id;
+    } else {
+      return;
+    }
+
+    function openArrangementAssetInEditor(type, id) {
+      if (!type || !id) return;
+      if (type === "mel") {
+        captureCurrentMel();
+        if (!getMel(id)) {
+          showToast("That Mel is no longer available.");
+          return;
+        }
+        loadMel(id);
+        renderMelOptions();
+        renderPianoInstrumentOptions();
+        renderPianoRoll();
+        setWorkspaceView("piano-roll");
+        return;
+      }
+      if (type === "pattern") {
+        if (!getPattern(id)) {
+          showToast("That pattern is no longer available.");
+          return;
+        }
+        selectPattern(id);
+        setWorkspaceView("sequencer");
+        return;
+      }
+      const asset = state.audioAssets.find((candidate) => candidate.id === id ||
+        candidate.isSourceAudioAsset && candidate.sourceAssetId === id);
+      if (asset) {
+        void openAudioAssetInPianoRoll(asset);
+        return;
+      }
+      const track = state.arrangementTracks.find((candidate) =>
+        candidate.clips.some((clip) => clip.id === id));
+      if (track) void openAudioClipInPianoRoll(track.id, id);
+    }
+    state.selectedMixerTrackId = destinationId;
+    updateArrangementLength();
+    renderArrangement();
+    saveState();
+    showToast(`${name} duplicated`);
+  }
+
   function renderRecordingBrowser() {
     const browser = $("#recording-browser");
     browser.replaceChildren();
@@ -18838,7 +19484,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       track.clips.forEach((clip) => {
         if (clip.isMelSlice) {
           const sourceAssetId = clip.sourceAssetId || clip.id;
-          if (!slicedSources.has(sourceAssetId)) {
+          const hasStoredSource = state.audioAssets.some((asset) =>
+            asset.isSourceAudioAsset && asset.sourceAssetId === sourceAssetId);
+          if (!hasStoredSource && !slicedSources.has(sourceAssetId)) {
             slicedSources.set(sourceAssetId, { track, clip, fullSource: true });
           }
         } else {
@@ -18847,6 +19495,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       });
     });
     clips.push(...slicedSources.values());
+    const listedAssetIds = new Set(clips.map(({ clip }) => clip.id));
+    state.audioAssets.forEach((clip) => {
+      if (!listedAssetIds.has(clip.id)) clips.push({ track: null, clip, fullSource: false, assetOnly: true });
+    });
     $("#recording-source-count").textContent = String(clips.length);
     if (!clips.length) {
       const empty = document.createElement("div");
@@ -18855,34 +19507,38 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       browser.append(empty);
       return;
     }
-    clips.forEach(({ track, clip, fullSource }) => {
+    clips.forEach(({ track, clip, fullSource, assetOnly = false }) => {
       const item = document.createElement("button");
       item.className = "recording-source";
       item.type = "button";
       item.draggable = true;
-      item.title = fullSource
+      item.title = assetOnly
+        ? `Drag ${clip.name} to Track View`
+        : fullSource
         ? `Drag the original ${clip.name || track.name} source to Track View`
         : `Drag ${clip.name || track.name} to Track View`;
       const color = document.createElement("span");
       color.className = "source-color";
-      color.style.background = track.color;
+      color.style.background = track?.color || "#b5a0ff";
       const name = document.createElement("span");
       name.className = "recording-source-name";
       name.textContent = clip.name || track.name;
       const count = document.createElement("span");
       count.className = "recording-source-count";
-      count.textContent = track.name;
+      count.textContent = assetOnly ? "Audio" : track.name;
       item.append(color, name, count);
       item.addEventListener("dragstart", (event) => {
         if (!event.dataTransfer) return;
         event.dataTransfer.setData("application/x-pulsegrid-audio-source", JSON.stringify({
-          sourceTrackId: track.id,
+          sourceTrackId: track?.id || "",
           clipId: clip.id,
           fullSource,
+          assetOnly,
         }));
         event.dataTransfer.effectAllowed = "copy";
       });
-      if (!fullSource) item.addEventListener("click", () => {
+      item.addEventListener("contextmenu", (event) => openAssetContextMenu("audio", clip.id, event));
+      if (!fullSource && !assetOnly) item.addEventListener("click", () => {
         setArrangementCursor(clip.startBar);
         $("#timeline-scroll").scrollLeft = clip.startBar * BAR_WIDTH;
         $("#source-browser-dialog").close();
@@ -19033,14 +19689,18 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
 
   function addAudioAssetClip(sourceTrackId, clipId, destinationTrackId, startBar, fullSource = false) {
     const sourceTrack = state.arrangementTracks.find((track) => track.id === sourceTrackId);
-    const sourceClip = sourceTrack?.clips.find((clip) => clip.id === clipId);
+    const sourceClip = sourceTrack?.clips.find((clip) => clip.id === clipId) ||
+      state.audioAssets.find((asset) => asset.id === clipId);
     if (!sourceTrack || !sourceClip) {
-      showToast("That audio asset is no longer available.");
-      return;
+      if (!sourceClip) {
+        showToast("That audio asset is no longer available.");
+        return;
+      }
     }
     const clip = {
       ...sourceClip,
       id: makeId(),
+      assetId: sourceClip.assetId || sourceClip.id,
     };
     if (fullSource) {
       clip.durationSeconds = clip.buffer.duration;
@@ -19055,9 +19715,13 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       delete clip.isMelSlice;
       delete clip.sourceAssetId;
     }
+    if (sourceClip.segmentSourceAssetId) {
+      clip.assetId = sourceClip.assetId || sourceClip.id;
+      clip.sourceAssetId = sourceClip.segmentSourceAssetId;
+    }
     clip.startBar = clampArrangementStart(startBar, getArrangementClipDuration("audio", clip));
     const destination = state.arrangementTracks.find((track) => track.id === destinationTrackId)
-      || createArrangementTrack(clip.name || sourceTrack.name);
+      || createArrangementTrack(clip.name || sourceTrack?.name);
     if (!destination.clips.length && /^Track \d+$/.test(destination.name)) {
       destination.name = clip.name || sourceTrack.name;
     }
@@ -20489,7 +21153,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   }
 
   function getAudioClipEditedMel(clip) {
-    return state.mels.slice().reverse().find((mel) => mel.audioSourceClipId === clip.id) || null;
+    const assetId = clip.assetId || clip.id;
+    return state.mels.slice().reverse().find((mel) => mel.audioSourceAssetId === assetId) ||
+      state.mels.slice().reverse().find((mel) => mel.audioSourceClipId === clip.id) || null;
   }
 
   function createAudioClip(track, clip) {
@@ -21197,6 +21863,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
 
     state.patternClips.forEach((clip) => {
       if (!canSplit("pattern", clip)) return;
+      const sourcePatternId = clip.patternId;
+      const laneTrackId = clip.trackId || clip.patternId;
       const leftDuration = cursor - clip.startBar;
       const totalDuration = getArrangementClipDuration("pattern", clip);
       const tempoRatio = getArrangementClipTempoRatio(clip);
@@ -21222,6 +21890,20 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         repeatStartBars: rightSourceStart,
         repeatLengthBars: rightSourceDuration,
       };
+      const leftSegment = createArrangementPatternSegment(sourcePatternId, sourceStart, leftSourceDuration);
+      const rightSegment = createArrangementPatternSegment(sourcePatternId, rightSourceStart, rightSourceDuration);
+      if (leftSegment && rightSegment) {
+        clip.patternId = leftSegment.id;
+        clip.trackId = laneTrackId;
+        clip.sourceOffsetBars = 0;
+        clip.repeatStartBars = 0;
+        clip.repeatLengthBars = leftSourceDuration;
+        right.patternId = rightSegment.id;
+        right.trackId = laneTrackId;
+        right.sourceOffsetBars = 0;
+        right.repeatStartBars = 0;
+        right.repeatLengthBars = rightSourceDuration;
+      }
       state.patternClips.push(right);
       splitKeys.add(arrangementSelectionKey("pattern", clip.id));
       splitKeys.add(arrangementSelectionKey("pattern", right.id));
@@ -21232,6 +21914,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     state.melTracks.forEach((track) => {
       track.clips.slice().forEach((clip) => {
         if (!canSplit("mel", clip)) return;
+        const sourceMelId = clip.melId;
         const leftDuration = cursor - clip.startBar;
         const totalDuration = getArrangementClipDuration("mel", clip);
         const tempoRatio = getArrangementClipTempoRatio(clip);
@@ -21257,6 +21940,18 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
           repeatStartBars: rightSourceStart,
           repeatLengthBars: rightSourceDuration,
         };
+        const leftSegment = createArrangementMelSegment(sourceMelId, sourceStart, leftSourceDuration);
+        const rightSegment = createArrangementMelSegment(sourceMelId, rightSourceStart, rightSourceDuration);
+        if (leftSegment && rightSegment) {
+          clip.melId = leftSegment.id;
+          clip.sourceOffsetBars = 0;
+          clip.repeatStartBars = 0;
+          clip.repeatLengthBars = leftSourceDuration;
+          right.melId = rightSegment.id;
+          right.sourceOffsetBars = 0;
+          right.repeatStartBars = 0;
+          right.repeatLengthBars = rightSourceDuration;
+        }
         track.clips.push(right);
         splitKeys.add(arrangementSelectionKey("mel", clip.id));
         splitKeys.add(arrangementSelectionKey("mel", right.id));
@@ -21268,6 +21963,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     state.arrangementTracks.forEach((track) => {
       track.clips.slice().forEach((clip) => {
         if (!canSplit("audio", clip)) return;
+        const linkedMel = getAudioClipEditedMel(clip);
+        ensureFullAudioAsset(clip);
+        const sourceAssetId = clip.sourceAssetId || clip.assetId || clip.id;
         const secondsPerBar = 240 / state.bpm;
         const leftDuration = (cursor - clip.startBar) * secondsPerBar * getAudioClipTempoRatio(clip);
         const totalDuration = clip.durationSeconds ?? clip.buffer.duration;
@@ -21293,7 +21991,42 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
           repeatLengthSeconds: totalDuration - leftDuration,
           fadeInSeconds: 0,
         };
-        const sourceAssetId = clip.sourceAssetId || clip.id;
+        const leftSegment = createAudioSegmentAsset(clip, sourceAssetId);
+        const rightSegment = createAudioSegmentAsset(right, sourceAssetId);
+        if (leftSegment && rightSegment) {
+          clip.name = leftSegment.name;
+          clip.assetId = leftSegment.id;
+          clip.segmentSourceAssetId = sourceAssetId;
+          right.name = rightSegment.name;
+          right.assetId = rightSegment.id;
+          right.segmentSourceAssetId = sourceAssetId;
+          renumberAudioSegments(sourceAssetId);
+          if (linkedMel) {
+            const secondsPerBar = 240 / state.bpm;
+            const tempoRatio = getAudioClipTempoRatio(clip);
+            const sourceAudio = state.audioAssets.find((asset) =>
+              asset.isSourceAudioAsset && asset.sourceAssetId === sourceAssetId);
+            const sourceClipOffset = sourceAudio?.sourceClipOffsetSeconds || 0;
+            const leftMel = createArrangementMelSegment(
+              linkedMel.id,
+              Math.max(0, sourceStart - sourceClipOffset) / secondsPerBar / tempoRatio,
+              leftDuration / secondsPerBar / tempoRatio,
+            );
+            const rightMel = createArrangementMelSegment(
+              linkedMel.id,
+              Math.max(0, rightSourceStart - sourceClipOffset) / secondsPerBar / tempoRatio,
+              (totalDuration - leftDuration) / secondsPerBar / tempoRatio,
+            );
+            if (leftMel) {
+              leftMel.audioSourceAssetId = leftSegment.id;
+              leftMel.audioSourceClipId = clip.id;
+            }
+            if (rightMel) {
+              rightMel.audioSourceAssetId = rightSegment.id;
+              rightMel.audioSourceClipId = right.id;
+            }
+          }
+        }
         clip.isMelSlice = true;
         clip.sourceAssetId = sourceAssetId;
         right.isMelSlice = true;
@@ -21317,10 +22050,82 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     state.selectedArrangementItems = splitKeys;
     state.arrangementSelectionFromMarquee = false;
     if (audioMelAdded) renderMelOptions();
+    renderArrangementAssetBrowser();
+    renderRecordingBrowser();
     updateArrangementLength();
     renderArrangement();
     saveState();
     showToast(`Split ${splitCount} clip${splitCount === 1 ? "" : "s"}`);
+  }
+
+  function ensureFullAudioAsset(clip) {
+    const sourceAssetId = clip.sourceAssetId || clip.assetId || clip.id;
+    if (state.audioAssets.some((asset) =>
+      asset.isSourceAudioAsset && asset.sourceAssetId === sourceAssetId)) return;
+    const asset = {
+      ...clip,
+      id: makeId(),
+      assetId: sourceAssetId,
+      sourceAssetId,
+      sourceClipOffsetSeconds: clip.sourceOffsetSeconds || 0,
+      name: clip.name,
+      durationSeconds: clip.buffer.duration,
+      sourceOffsetSeconds: 0,
+      repeatCount: 1,
+      repeatStartSeconds: 0,
+      repeatLengthSeconds: clip.buffer.duration,
+      clipGain: 1,
+      fadeInSeconds: 0,
+      fadeOutSeconds: 0,
+      reversed: false,
+      isSourceAudioAsset: true,
+    };
+    state.audioAssets.push(asset);
+    if (asset.blob) persistAudioAsset(asset).catch((error) =>
+      showToast(`Source audio was split, but could not be saved to the library: ${error.message || "storage unavailable"}`));
+  }
+
+  function createAudioSegmentAsset(clip, sourceAssetId) {
+    const startSeconds = clip.sourceOffsetSeconds || 0;
+    const endSeconds = startSeconds + clip.durationSeconds;
+    const existing = state.audioAssets.find((asset) =>
+      asset.segmentSourceAssetId === sourceAssetId &&
+      Math.abs(asset.segmentStartSeconds - startSeconds) < 0.0001 &&
+      Math.abs(asset.segmentEndSeconds - endSeconds) < 0.0001);
+    if (existing) return existing;
+    const segment = {
+      ...clip,
+      id: makeId(),
+      assetId: "",
+      sourceAssetId,
+      segmentSourceAssetId: sourceAssetId,
+      segmentStartSeconds: startSeconds,
+      segmentEndSeconds: endSeconds,
+      sourceClipOffsetSeconds: state.audioAssets.find((asset) =>
+        asset.isSourceAudioAsset && asset.sourceAssetId === sourceAssetId)?.sourceClipOffsetSeconds || 0,
+      segmentNameEdited: false,
+      isSourceAudioAsset: false,
+    };
+    segment.assetId = segment.id;
+    segment.name = `${clip.name.replace(/ - Segment \d+$/, "")} - Segment`;
+    state.audioAssets.push(segment);
+    return segment;
+  }
+
+  function renumberAudioSegments(sourceAssetId) {
+    const source = state.audioAssets.find((asset) =>
+      asset.isSourceAudioAsset && asset.sourceAssetId === sourceAssetId);
+    const segments = state.audioAssets.filter((asset) => asset.segmentSourceAssetId === sourceAssetId)
+      .sort((left, right) => left.segmentStartSeconds - right.segmentStartSeconds ||
+        left.segmentEndSeconds - right.segmentEndSeconds);
+    segments.forEach((asset, index) => {
+      if (!asset.segmentNameEdited) asset.name = `${source?.name || "Audio"} - Segment ${index + 1}`;
+      state.arrangementTracks.forEach((track) => track.clips.forEach((clip) => {
+        if (clip.assetId === asset.id) clip.name = asset.name;
+      }));
+      persistAudioAsset(asset).catch((error) =>
+        showToast(`Segment created, but could not be saved to the library: ${error.message || "storage unavailable"}`));
+    });
   }
 
   function placeCurrentEditorAtPlayhead() {
@@ -21549,7 +22354,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       if (!track) track = createArrangementTrack(file.name);
       else if (!track.clips.length && /^Track \d+$/.test(track.name)) track.name = file.name;
       const clip = {
-        id: makeId(), name: file.name, buffer,
+        id: makeId(), assetId: "", name: file.name, buffer,
         audioStemGroupId: makeId(),
         repeatCount: 1,
         durationSeconds: buffer.duration - sourceOffsetSeconds,
@@ -21561,6 +22366,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         ...(tempoChoice.action === "audio-to-project" && audioAdjustment
           ? { tempoRatioOverride: audioAdjustment.tempoRatio } : {}),
       };
+      clip.assetId = clip.id;
       clip.startBar = snapStart
         ? clampArrangementStart(startBar, getArrangementClipDuration("audio", clip))
         : Math.max(0, Math.min(MAX_ARRANGEMENT_BARS - getArrangementClipDuration("audio", clip), startBar));
@@ -22172,6 +22978,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
           ? normalizeAudioStemSelection(clip.audioStemSelection) : null,
         ...(clip.isMelSlice === true ? { isMelSlice: true } : {}),
         ...(typeof clip.sourceAssetId === "string" ? { sourceAssetId: clip.sourceAssetId } : {}),
+        ...(typeof clip.assetId === "string" ? { assetId: clip.assetId } : {}),
+        ...(typeof clip.segmentSourceAssetId === "string" ? { segmentSourceAssetId: clip.segmentSourceAssetId } : {}),
+        ...(Number.isFinite(clip.segmentStartSeconds) ? { segmentStartSeconds: clip.segmentStartSeconds } : {}),
+        ...(Number.isFinite(clip.segmentEndSeconds) ? { segmentEndSeconds: clip.segmentEndSeconds } : {}),
         volume: track.volume,
         muted: track.muted,
         blob: clip.blob,
@@ -22185,6 +22995,63 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       transaction.onerror = () => { database.close(); reject(transaction.error || new Error("Could not save recording")); };
       transaction.onabort = () => { database.close(); reject(transaction.error || new Error("Recording save was cancelled")); };
     }));
+  }
+
+  function persistAudioAsset(asset) {
+    if (!asset?.blob) return Promise.reject(new Error("The audio asset has no saved source file."));
+    return openRecordingDb().then((database) => new Promise((resolve, reject) => {
+      const store = database.transaction("recordings", "readwrite").objectStore("recordings");
+      store.put({
+        id: getAudioAssetRecordId(asset.id),
+        projectId: state.projectId,
+        recordType: "audio-asset",
+        audioAssetId: asset.id,
+        name: asset.name,
+        assetId: asset.assetId || asset.id,
+        sourceAssetId: asset.sourceAssetId || null,
+        segmentSourceAssetId: asset.segmentSourceAssetId || null,
+        segmentStartSeconds: asset.segmentStartSeconds,
+        segmentEndSeconds: asset.segmentEndSeconds,
+        sourceClipOffsetSeconds: asset.sourceClipOffsetSeconds,
+        segmentNameEdited: asset.segmentNameEdited === true,
+        isSourceAudioAsset: asset.isSourceAudioAsset === true,
+        durationSeconds: asset.durationSeconds,
+        sourceOffsetSeconds: asset.sourceOffsetSeconds || 0,
+        repeatCount: asset.repeatCount || 1,
+        repeatStartSeconds: asset.repeatStartSeconds,
+        repeatLengthSeconds: asset.repeatLengthSeconds,
+        clipGain: Number.isFinite(asset.clipGain) ? asset.clipGain : 1,
+        fadeInSeconds: asset.fadeInSeconds || 0,
+        fadeOutSeconds: asset.fadeOutSeconds || 0,
+        reversed: asset.reversed === true,
+        audioMetadata: normalizeAudioMetadata(asset.audioMetadata),
+        audioAdjustment: normalizeAudioAdjustment(asset.audioAdjustment),
+        audioStemGroupId: asset.audioStemGroupId || null,
+        audioStemSelection: asset.audioStemSelection
+          ? normalizeAudioStemSelection(asset.audioStemSelection) : null,
+        tempoLockBpm: asset.tempoLockBpm,
+        tempoRatioOverride: asset.tempoRatioOverride,
+        blob: asset.blob,
+      });
+      store.transaction.oncomplete = () => {
+        database.close();
+        resolve();
+        updateStorageIndicator();
+        scheduleCollaborationAssetSync();
+      };
+      store.transaction.onerror = () => {
+        database.close();
+        reject(store.transaction.error || new Error("Could not save audio asset"));
+      };
+      store.transaction.onabort = () => {
+        database.close();
+        reject(store.transaction.error || new Error("Audio asset save was cancelled"));
+      };
+    }));
+  }
+
+  function getAudioAssetRecordId(assetId, projectId = state.projectId) {
+    return `audio-asset:${projectId}:${assetId}`;
   }
 
   function getDrumSampleRecordId(trackId, projectId = state.projectId) {
@@ -22331,7 +23198,53 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         ensureSequencerTrackAudio(layer);
       });
 
-      const clipRecords = projectRecords.filter((record) => record.recordType !== "drum-sample");
+      const audioAssetRecords = projectRecords.filter((record) => record.recordType === "audio-asset");
+      for (const record of audioAssetRecords) {
+        const savedAsset = state.audioAssets.find((asset) =>
+          asset.id === (record.audioAssetId || record.id));
+        if (!savedAsset) continue;
+        try {
+          const buffer = await state.audioContext.decodeAudioData(await record.blob.arrayBuffer());
+          const assetId = record.audioAssetId || record.id;
+          const asset = savedAsset;
+          Object.assign(asset, {
+            name: record.name,
+            assetId: record.assetId || record.id,
+            sourceAssetId: record.sourceAssetId || null,
+            segmentSourceAssetId: record.segmentSourceAssetId || null,
+            segmentStartSeconds: record.segmentStartSeconds,
+            segmentEndSeconds: record.segmentEndSeconds,
+            sourceClipOffsetSeconds: Number.isFinite(record.sourceClipOffsetSeconds)
+              ? record.sourceClipOffsetSeconds : 0,
+            segmentNameEdited: record.segmentNameEdited === true,
+            isSourceAudioAsset: record.isSourceAudioAsset === true,
+            durationSeconds: Number.isFinite(record.durationSeconds) ? record.durationSeconds : buffer.duration,
+            sourceOffsetSeconds: Number.isFinite(record.sourceOffsetSeconds) ? record.sourceOffsetSeconds : 0,
+            repeatCount: Number.isInteger(record.repeatCount) ? Math.max(1, record.repeatCount) : 1,
+            repeatStartSeconds: record.repeatStartSeconds,
+            repeatLengthSeconds: record.repeatLengthSeconds,
+            clipGain: Number.isFinite(record.clipGain) ? Math.max(0, Math.min(2, record.clipGain)) : 1,
+            fadeInSeconds: Number.isFinite(record.fadeInSeconds) ? record.fadeInSeconds : 0,
+            fadeOutSeconds: Number.isFinite(record.fadeOutSeconds) ? record.fadeOutSeconds : 0,
+            reversed: record.reversed === true,
+            audioStemGroupId: record.audioStemGroupId || makeId(),
+            ...(record.audioStemSelection
+              ? { audioStemSelection: normalizeAudioStemSelection(record.audioStemSelection) } : {}),
+            audioMetadata: record.audioMetadata
+              ? normalizeAudioMetadata(record.audioMetadata)
+              : detectAudioMetadata(buffer),
+            audioAdjustment: normalizeAudioAdjustment(record.audioAdjustment),
+            buffer,
+            blob: record.blob,
+          });
+          if (!state.audioAssets.includes(asset)) state.audioAssets.push(asset);
+        } catch {
+          showToast(`Could not restore ${record.name || "an audio asset"}.`);
+        }
+      }
+
+      const clipRecords = projectRecords.filter((record) =>
+        record.recordType !== "drum-sample" && record.recordType !== "audio-asset");
       for (const record of clipRecords) {
         let track = state.arrangementTracks.find((item) => item.id === record.trackId);
         if (!track) {
@@ -22377,6 +23290,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
               ? { audioStemSelection: normalizeAudioStemSelection(record.audioStemSelection) } : {}),
             ...(record.isMelSlice === true ? { isMelSlice: true } : {}),
             ...(typeof record.sourceAssetId === "string" ? { sourceAssetId: record.sourceAssetId } : {}),
+            assetId: typeof record.assetId === "string" ? record.assetId : record.id,
+            ...(typeof record.segmentSourceAssetId === "string" ? { segmentSourceAssetId: record.segmentSourceAssetId } : {}),
+            ...(Number.isFinite(record.segmentStartSeconds) ? { segmentStartSeconds: record.segmentStartSeconds } : {}),
+            ...(Number.isFinite(record.segmentEndSeconds) ? { segmentEndSeconds: record.segmentEndSeconds } : {}),
             buffer,
             blob: record.blob,
             audioMetadata: record.audioMetadata
@@ -23846,7 +24763,16 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         return {
           id: pattern.id,
           name: pattern.name,
+          arrangementName: pattern.arrangementName || null,
           arrangementCopy: pattern.arrangementCopy === true,
+          ...(pattern.segmentSourcePatternId ? {
+            segmentSourcePatternId: pattern.segmentSourcePatternId,
+            segmentStartBar: pattern.segmentStartBar,
+            segmentEndBar: pattern.segmentEndBar,
+            segmentEdited: pattern.segmentEdited === true,
+            segmentNameEdited: pattern.segmentNameEdited === true,
+            segmentSnapshot: pattern.segmentSnapshot || "",
+          } : {}),
           insertAfterTrackId: pattern.insertAfterTrackId || null,
           steps: pattern.steps,
           trackIds,
@@ -23909,6 +24835,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         effectSettings: makeDefaultEffectSettings(track.effectSettings),
         effectChain: ensureTrackMixerState(track),
       })),
+      audioAssets: state.audioAssets.map(({ buffer, blob, ...asset }) => ({ ...asset })),
       mels: state.mels.map((mel) => ({
         id: mel.id,
         name: mel.name,
@@ -23916,6 +24843,15 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         bars: mel.bars,
         notes: mel.notes.map((note) => ({ ...note })),
         audioSourceClipId: mel.audioSourceClipId || null,
+        audioSourceAssetId: mel.audioSourceAssetId || null,
+        ...(mel.segmentSourceMelId ? {
+          segmentSourceMelId: mel.segmentSourceMelId,
+          segmentStartTick: mel.segmentStartTick,
+          segmentEndTick: mel.segmentEndTick,
+          segmentEdited: mel.segmentEdited === true,
+          segmentNameEdited: mel.segmentNameEdited === true,
+          segmentSnapshot: mel.segmentSnapshot || "",
+        } : {}),
       })),
       selectedMelId: state.selectedMelId,
       melTracks: state.melTracks.map((track) => ({
@@ -24061,7 +24997,11 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   }
 
   async function getCollaborationAssets(projectId = state.projectId) {
-    const records = window.indexedDB ? await getProjectRecordingRecords(projectId) : [];
+    const currentAudioAssetIds = new Set(state.audioAssets.map((asset) => asset.id));
+    const records = window.indexedDB
+      ? (await getProjectRecordingRecords(projectId)).filter((record) =>
+        record.recordType !== "audio-asset" || currentAudioAssetIds.has(record.audioAssetId))
+      : [];
     return Promise.all(records.map(async (record) => {
       if (!(record.blob instanceof Blob)) {
         throw new Error(`Could not share ${record.name || record.trackName || "a project audio file"}.`);
@@ -24088,11 +25028,17 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     return assets.map((asset) => {
       const metadata = asset?.metadata;
       if (!metadata || typeof metadata !== "object" || Array.isArray(metadata) ||
-        typeof metadata.trackId !== "string" || !metadata.trackId || typeof asset.dataUrl !== "string") {
+        typeof asset.dataUrl !== "string" ||
+        metadata.recordType !== "audio-asset" && (typeof metadata.trackId !== "string" || !metadata.trackId)) {
         throw new Error("The shared project contains an invalid audio attachment.");
       }
-      if (metadata.recordType !== undefined && metadata.recordType !== "drum-sample") {
+      if (metadata.recordType !== undefined &&
+        metadata.recordType !== "drum-sample" && metadata.recordType !== "audio-asset") {
         throw new Error("The shared project contains an unsupported audio attachment.");
+      }
+      if (metadata.recordType === "audio-asset" &&
+        (typeof metadata.audioAssetId !== "string" || !metadata.audioAssetId)) {
+        throw new Error("The shared project contains an invalid audio asset.");
       }
       if (metadata.recordType === "drum-sample" && !trackIds.has(metadata.trackId)) {
         throw new Error("The shared project contains audio for a missing track.");
@@ -24201,6 +25147,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       [
         "patternClips", "arrangementBars", "arrangementCursor", "arrangementLoopEnabled",
         "arrangementLoopStartBar", "arrangementLoopEndBar", "arrangementSnap", "bpm", "swing",
+        "audioAssets",
       ].forEach((key) => { target[key] = source[key]; });
       const mixerFields = [
         "volume", "pan", "automation", "automationOpen", "muted", "solo",
@@ -25370,6 +26317,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         ...track,
         clips: audioClipState.find((item) => item.id === track.id)?.clips || [],
       })),
+      audioAssets: saved.audioAssets,
       arrangementBars: saved.arrangementBars,
       arrangementCursor: saved.arrangementCursor,
       arrangementLoopEnabled: saved.arrangementLoopEnabled,
@@ -25386,6 +26334,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       patternClips: state.patternClips.map((clip) => ({ ...clip })),
       melTracks: state.melTracks.map(cloneHistoryTrack),
       arrangementTracks: state.arrangementTracks.map(cloneHistoryTrack),
+      audioAssets: state.audioAssets.map((asset) => ({ ...asset })),
       selectedMixerTrackId: state.selectedMixerTrackId,
     };
   }
@@ -25504,6 +26453,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       state.patternClips = snapshot.patternClips.map((clip) => ({ ...clip }));
       state.melTracks = snapshot.melTracks.map(cloneHistoryTrack);
       state.arrangementTracks = snapshot.arrangementTracks.map(cloneHistoryTrack);
+      state.audioAssets = snapshot.audioAssets.map((asset) => ({ ...asset }));
       state.selectedMixerTrackId = snapshot.selectedMixerTrackId;
       state.arrangementBars = saved.arrangementBars;
       state.arrangementCursor = saved.arrangementCursor;
@@ -25999,7 +26949,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
             ...metadata,
             id: metadata.recordType === "drum-sample"
               ? getDrumSampleRecordId(metadata.trackId, projectId)
-              : makeId(),
+              : metadata.recordType === "audio-asset" && typeof metadata.audioAssetId === "string"
+                ? getAudioAssetRecordId(metadata.audioAssetId, projectId)
+                : makeId(),
             projectId,
             blob,
           });
@@ -26041,7 +26993,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
               ...metadata,
               id: metadata.recordType === "drum-sample"
                 ? getDrumSampleRecordId(metadata.trackId, projectId)
-                : makeId(),
+                : metadata.recordType === "audio-asset" && typeof metadata.audioAssetId === "string"
+                  ? getAudioAssetRecordId(metadata.audioAssetId, projectId)
+                  : makeId(),
               projectId,
               blob,
             });
@@ -26076,11 +27030,17 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       assets = projectFile.assets.map((asset) => {
         const metadata = asset?.metadata;
         if (!metadata || typeof metadata !== "object" || Array.isArray(metadata) ||
-          typeof metadata.trackId !== "string" || !metadata.trackId || typeof asset.dataUrl !== "string") {
+          typeof asset.dataUrl !== "string" ||
+          metadata.recordType !== "audio-asset" && (typeof metadata.trackId !== "string" || !metadata.trackId)) {
           throw new Error("The project contains an invalid audio attachment.");
         }
-        if (metadata.recordType !== undefined && metadata.recordType !== "drum-sample") {
+        if (metadata.recordType !== undefined &&
+          metadata.recordType !== "drum-sample" && metadata.recordType !== "audio-asset") {
           throw new Error("The project contains an unsupported audio attachment.");
+        }
+        if (metadata.recordType === "audio-asset" &&
+          (typeof metadata.audioAssetId !== "string" || !metadata.audioAssetId)) {
+          throw new Error("The project contains an invalid audio asset.");
         }
         if (metadata.recordType === "drum-sample" && !trackIds.has(metadata.trackId)) {
           throw new Error("The project contains a drum sample for a missing track.");
@@ -26237,6 +27197,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
 
   function restoreState(snapshotOverride = null) {
     state.masterPitch = 0;
+    state.audioAssets = [];
     state.soundDurationEdits = {};
     state.soundReverseEdits = {};
     state.soundProcessingEdits = {};
@@ -26363,6 +27324,17 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
             effectChain: Array.isArray(track.effectChain) ? track.effectChain : undefined,
           }));
       }
+      if (Array.isArray(saved.audioAssets)) {
+        state.audioAssets = saved.audioAssets
+          .filter((asset) => typeof asset?.id === "string" && typeof asset.name === "string")
+          .map((asset) => ({
+            ...asset,
+            assetId: typeof asset.assetId === "string" ? asset.assetId : asset.id,
+            sourceAssetId: typeof asset.sourceAssetId === "string" ? asset.sourceAssetId : null,
+            buffer: null,
+            blob: null,
+          }));
+      }
       if (Array.isArray(saved.patterns)) {
         const restoredPatterns = saved.patterns
           .filter((pattern) => typeof pattern?.id === "string" && typeof pattern.name === "string")
@@ -26384,8 +27356,17 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
             return {
               id: pattern.id,
               name: pattern.name,
+              arrangementName: typeof pattern.arrangementName === "string" ? pattern.arrangementName : null,
               kind: "pattern",
               arrangementCopy: pattern.arrangementCopy === true,
+              ...(typeof pattern.segmentSourcePatternId === "string" ? {
+                segmentSourcePatternId: pattern.segmentSourcePatternId,
+                segmentStartBar: Number.isFinite(pattern.segmentStartBar) ? Math.max(0, pattern.segmentStartBar) : 0,
+                segmentEndBar: Number.isFinite(pattern.segmentEndBar) ? Math.max(0, pattern.segmentEndBar) : 1,
+                segmentEdited: pattern.segmentEdited === true,
+                segmentNameEdited: pattern.segmentNameEdited === true,
+                segmentSnapshot: typeof pattern.segmentSnapshot === "string" ? pattern.segmentSnapshot : "",
+              } : {}),
               insertAfterTrackId: typeof pattern.insertAfterTrackId === "string" ? pattern.insertAfterTrackId : null,
               color: isPatternColor(pattern.color) ? pattern.color : getPatternColor(index),
               steps: patternSteps,
@@ -26572,6 +27553,15 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
               bars: [1, 2, 4, 8].includes(mel.bars) ? mel.bars : 4,
               notes,
               audioSourceClipId: typeof mel.audioSourceClipId === "string" ? mel.audioSourceClipId : null,
+              audioSourceAssetId: typeof mel.audioSourceAssetId === "string" ? mel.audioSourceAssetId : null,
+              ...(typeof mel.segmentSourceMelId === "string" ? {
+                segmentSourceMelId: mel.segmentSourceMelId,
+                segmentStartTick: Number.isFinite(mel.segmentStartTick) ? Math.max(0, mel.segmentStartTick) : 0,
+                segmentEndTick: Number.isFinite(mel.segmentEndTick) ? Math.max(0, mel.segmentEndTick) : PIANO_TICKS_PER_BAR,
+                segmentEdited: mel.segmentEdited === true,
+                segmentNameEdited: mel.segmentNameEdited === true,
+                segmentSnapshot: typeof mel.segmentSnapshot === "string" ? mel.segmentSnapshot : "",
+              } : {}),
             };
           });
       }
@@ -27055,7 +28045,11 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   }
 
   async function createProjectFile(snapshot = createStateSnapshot()) {
-    const recordings = window.indexedDB ? await getProjectRecordingRecords() : [];
+    const savedAudioAssetIds = new Set((snapshot.audioAssets || []).map((asset) => asset.id));
+    const recordings = window.indexedDB
+      ? (await getProjectRecordingRecords()).filter((record) =>
+        record.recordType !== "audio-asset" || savedAudioAssetIds.has(record.audioAssetId))
+      : [];
     const assets = await Promise.all(recordings.map(async (record) => {
       if (!(record.blob instanceof Blob)) {
         throw new Error(`Could not export ${record.name || record.trackName || "a project audio file"}.`);
@@ -28540,12 +29534,57 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       if (!menu.hidden && event.target instanceof Node && !menu.contains(event.target)) {
         closeArrangementTrackContextMenu();
       }
+      const assetMenu = $("#asset-context-menu");
+      if (!assetMenu.hidden && event.target instanceof Node && !assetMenu.contains(event.target)) {
+        closeAssetContextMenu();
+      }
     }, true);
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && !$("#arrangement-track-context-menu").hidden) {
         closeArrangementTrackContextMenu();
       }
+      if (event.key === "Escape") closeAssetContextMenu();
     }, true);
+    $("#rename-arrangement-track").addEventListener("click", () => {
+      const menu = $("#arrangement-track-context-menu");
+      const trackId = menu.dataset.trackId;
+      closeArrangementTrackContextMenu();
+      if (trackId) renameArrangementTrack(trackId);
+    });
+    $("#duplicate-arrangement-track").addEventListener("click", () => {
+      const trackId = $("#arrangement-track-context-menu").dataset.trackId;
+      closeArrangementTrackContextMenu();
+      if (trackId) duplicateArrangementTrack(trackId);
+    });
+    $("#rename-arrangement-asset").addEventListener("click", () => {
+      const menu = $("#arrangement-track-context-menu");
+      const { assetType, assetId } = menu.dataset;
+      closeArrangementTrackContextMenu();
+      if (assetType && assetId) renameArrangementAsset(assetType, assetId);
+    });
+    $("#branch-arrangement-asset").addEventListener("click", () => {
+      const menu = $("#arrangement-track-context-menu");
+      const { assetType, assetId } = menu.dataset;
+      closeArrangementTrackContextMenu();
+      if (assetType && assetId) branchArrangementAsset(assetType, assetId);
+    });
+    $("#arrangement-segment-options").addEventListener("click", (event) => {
+      const option = event.target instanceof Element ? event.target.closest("button[data-asset-id]") : null;
+      if (!option) return;
+      closeArrangementTrackContextMenu();
+      openArrangementAssetInEditor(option.dataset.assetType, option.dataset.assetId);
+    });
+    const handleLibraryAssetAction = (action) => {
+      const menu = $("#asset-context-menu");
+      const { assetType, assetId } = menu.dataset;
+      closeAssetContextMenu();
+      if (assetType && assetId) {
+        if (action === "rename") renameArrangementAsset(assetType, assetId);
+        else branchArrangementAsset(assetType, assetId);
+      }
+    };
+    $("#rename-library-asset").addEventListener("click", () => handleLibraryAssetAction("rename"));
+    $("#branch-library-asset").addEventListener("click", () => handleLibraryAssetAction("branch"));
     $("#add-empty-track-below").addEventListener("click", () => {
       const menu = $("#arrangement-track-context-menu");
       const parentTrackId = menu.dataset.trackId;
@@ -28711,6 +29750,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     $("#source-browser-button").addEventListener("click", () => openAssetLibrary());
     $("#source-browser-close").addEventListener("click", () => $("#source-browser-dialog").close());
     $("#source-browser-dialog").addEventListener("close", () => {
+      closeAssetContextMenu();
       closeSoundDurationMenu();
       restoreAssetLibraryDialogPosition();
     });
@@ -28826,6 +29866,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       state.selectedPatternId = state.patterns[0].id;
       renderPatternSelectors();
       state.patternClips = [];
+      state.audioAssets = [];
       state.mels = [];
       state.selectedMelId = "";
       state.melTracks = [];
@@ -28934,6 +29975,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         } else if (key === "s" && ["arrangement", "mixer"].includes(state.view)) {
           event.preventDefault();
           splitArrangementItemsAtCursor();
+        } else if (key === "t" && getLastInteractedViewArea() === "track-view") {
+          event.preventDefault();
+          setArrangementSliceMode(!arrangementSliceMode);
         }
       }
       if ((!isTyping || pianoRollSelectAll) && !dialogOpen && !event.repeat && (event.ctrlKey || event.metaKey) && !event.altKey) {

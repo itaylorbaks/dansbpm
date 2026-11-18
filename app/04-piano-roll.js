@@ -14,7 +14,9 @@
   }
 
   function ensureAudioClipMel(clip) {
-    if (state.mels.some((mel) => mel.audioSourceClipId === clip.id)) return false;
+    const audioAssetId = clip.assetId || clip.id;
+    if (state.mels.some((mel) =>
+      mel.audioSourceAssetId === audioAssetId || mel.audioSourceClipId === clip.id)) return false;
     const baseName = `${clip.name.replace(/\.[^.]+$/, "").trim() || "Audio"} Mel`.slice(0, 48);
     let name = baseName;
     let suffix = 2;
@@ -24,6 +26,7 @@
     }
     const mel = makeMel(name);
     mel.audioSourceClipId = clip.id;
+    mel.audioSourceAssetId = audioAssetId;
     state.mels.push(mel);
     return true;
   }
@@ -32,9 +35,138 @@
     if (state.stepPianoEditContext) return;
     const mel = getMel();
     if (!mel) return;
+    const previousSnapshot = mel.segmentSnapshot;
     mel.instrumentId = state.selectedPianoTrackId;
     mel.bars = state.pianoBars;
     mel.notes = state.pianoNotes.map((note) => ({ ...note, trackId: mel.instrumentId }));
+    if (mel.segmentSourceMelId) {
+      if (previousSnapshot && previousSnapshot !== getMelSegmentSnapshot(mel)) mel.segmentEdited = true;
+      mel.segmentSnapshot = getMelSegmentSnapshot(mel);
+    } else {
+      refreshMelSegments(mel);
+      refreshAudioMelSegments(mel);
+    }
+  }
+
+  function getMelSegmentSnapshot(mel) {
+    return JSON.stringify({ bars: mel.bars, instrumentId: mel.instrumentId, notes: mel.notes });
+  }
+
+  function buildMelSegment(source, id, startTick, endTick) {
+    const notes = source.notes.flatMap((note) => {
+      const start = note.startTick;
+      const end = start + note.durationTicks;
+      const overlapStart = Math.max(startTick, start);
+      const overlapEnd = Math.min(endTick, end);
+      return overlapEnd > overlapStart ? [{
+        ...note,
+        id: makeId(),
+        startTick: overlapStart - startTick,
+        durationTicks: overlapEnd - overlapStart,
+      }] : [];
+    });
+    const rootId = source.segmentSourceMelId || source.id;
+    const root = getMel(rootId) || source;
+    const segment = {
+      ...source,
+      id,
+      name: `${root.name} - Segment`,
+      notes,
+      bars: Math.max(1, Math.min(8, Math.ceil((endTick - startTick) / PIANO_TICKS_PER_BAR))),
+      audioSourceClipId: source.audioSourceClipId || null,
+      segmentSourceMelId: rootId,
+      segmentStartTick: (source.segmentStartTick || 0) + startTick,
+      segmentEndTick: (source.segmentStartTick || 0) + endTick,
+      segmentEdited: false,
+      segmentNameEdited: false,
+    };
+    segment.segmentSnapshot = getMelSegmentSnapshot(segment);
+    return segment;
+  }
+
+  function refreshMelSegments(source) {
+    const rootId = source.segmentSourceMelId || source.id;
+    if (rootId !== source.id) return;
+    const siblings = state.mels.filter((mel) => mel.segmentSourceMelId === source.id)
+      .sort((left, right) => left.segmentStartTick - right.segmentStartTick || left.segmentEndTick - right.segmentEndTick);
+    siblings.filter((segment) => !segment.segmentEdited).forEach((segment) => {
+      const segmentNameEdited = segment.segmentNameEdited === true;
+      const refreshed = buildMelSegment(source, segment.id, segment.segmentStartTick, segment.segmentEndTick);
+      Object.assign(segment, refreshed, {
+        segmentSourceMelId: source.id,
+        segmentStartTick: refreshed.segmentStartTick,
+        segmentEndTick: refreshed.segmentEndTick,
+        segmentNameEdited,
+      });
+    });
+    siblings.forEach((segment, index) => {
+      if (!segment.segmentNameEdited) segment.name = `${source.name} - Segment ${index + 1}`;
+    });
+  }
+
+  function createArrangementMelSegment(sourceId, startBar, durationBars) {
+    const source = getMel(sourceId);
+    if (!source) return null;
+    const rootId = source.segmentSourceMelId || source.id;
+    const root = getMel(rootId) || source;
+    const absoluteStart = (source.segmentStartTick || 0) + startBar * PIANO_TICKS_PER_BAR;
+    const absoluteEnd = absoluteStart + durationBars * PIANO_TICKS_PER_BAR;
+    const existing = state.mels.find((mel) =>
+      mel.segmentSourceMelId === rootId &&
+      Math.abs(mel.segmentStartTick - absoluteStart) < 0.0001 &&
+      Math.abs(mel.segmentEndTick - absoluteEnd) < 0.0001);
+    if (existing) return existing;
+    const segment = buildMelSegment(
+      root,
+      makeId(),
+      absoluteStart,
+      absoluteEnd,
+    );
+    segment.segmentSourceMelId = rootId;
+    segment.segmentStartTick = absoluteStart;
+    segment.segmentEndTick = absoluteEnd;
+    segment.segmentSnapshot = getMelSegmentSnapshot(segment);
+    state.mels.push(segment);
+    const siblings = state.mels.filter((item) => item.segmentSourceMelId === rootId)
+      .sort((left, right) => left.segmentStartTick - right.segmentStartTick || left.segmentEndTick - right.segmentEndTick);
+    siblings.forEach((item, index) => {
+      if (!item.segmentNameEdited) item.name = `${root.name} - Segment ${index + 1}`;
+    });
+    return segment;
+  }
+
+  function refreshAudioMelSegments(sourceMel) {
+    const rootMelId = sourceMel.segmentSourceMelId || sourceMel.id;
+    if (rootMelId !== sourceMel.id) return;
+    const sourceAssetId = sourceMel.audioSourceAssetId || sourceMel.audioSourceClipId;
+    if (!sourceAssetId) return;
+    const secondsPerBar = 240 / state.bpm;
+    const assets = state.audioAssets.filter((asset) =>
+      asset.segmentSourceAssetId === sourceAssetId)
+      .sort((left, right) => left.segmentStartSeconds - right.segmentStartSeconds);
+    assets.forEach((asset) => {
+      const segmentMel = state.mels.find((mel) => mel.audioSourceAssetId === asset.id);
+      if (!segmentMel || segmentMel.segmentEdited) return;
+      const ratio = getAudioClipTempoRatio(asset);
+      const sourceStartSeconds = Math.max(0, asset.segmentStartSeconds - (asset.sourceClipOffsetSeconds || 0));
+      const sourceEndSeconds = Math.max(sourceStartSeconds, asset.segmentEndSeconds - (asset.sourceClipOffsetSeconds || 0));
+      const startTick = sourceStartSeconds / ratio / secondsPerBar * PIANO_TICKS_PER_BAR;
+      const endTick = sourceEndSeconds / ratio / secondsPerBar * PIANO_TICKS_PER_BAR;
+      const refreshed = buildMelSegment(sourceMel, segmentMel.id, startTick, endTick);
+      Object.assign(segmentMel, refreshed, {
+        audioSourceClipId: segmentMel.audioSourceClipId,
+        audioSourceAssetId: asset.id,
+        segmentSourceMelId: sourceMel.id,
+        segmentStartTick: startTick,
+        segmentEndTick: endTick,
+      });
+    });
+    assets.forEach((asset, index) => {
+      const segmentMel = state.mels.find((mel) => mel.audioSourceAssetId === asset.id);
+      if (segmentMel && !segmentMel.segmentNameEdited) {
+        segmentMel.name = `${sourceMel.name} - Segment ${index + 1}`;
+      }
+    });
   }
 
   function loadMel(melId) {
@@ -633,14 +765,17 @@
       const clip = track.clips.find((item) => item.id === clipId);
       if (clip) return clip;
     }
-    return null;
+    return state.audioAssets.find((asset) => asset.id === clipId) || null;
   }
 
   function selectPianoRollAudioSource(clipId) {
     const clip = getPianoRollAudioClipById(clipId);
     state.pianoRollAudioClipId = clip?.id || null;
     const mel = getMel();
-    if (mel) mel.audioSourceClipId = state.pianoRollAudioClipId;
+    if (mel) {
+      mel.audioSourceClipId = state.pianoRollAudioClipId;
+      mel.audioSourceAssetId = clip?.assetId || null;
+    }
     renderPianoRoll();
     saveState();
   }
@@ -834,6 +969,7 @@
     state.pianoRollAudioClipId = clip.id;
     if (mel) {
       mel.audioSourceClipId = clip.id;
+      mel.audioSourceAssetId = clip.assetId || clip.id;
       mel.bars = Math.max(mel.bars || 1, [1, 2, 4, 8].find((bars) => bars * PIANO_TICKS_PER_BAR >= durationTicks) || 8);
     }
     state.pianoBars = Math.max(state.pianoBars,
@@ -923,6 +1059,7 @@
         mel.audioSourceClipId = clip.id;
         state.mels.push(mel);
       }
+      mel.audioSourceAssetId = clip.assetId || clip.id;
       state.selectedMelId = mel.id;
       loadMel(mel.id);
       const detectedKey = clip.audioMetadata?.key?.match(/^([A-G]#?) (major|minor)$/i);
@@ -971,7 +1108,7 @@
 
     captureCurrentMel();
     stopAllWorkspacePlayers();
-    const linkedMel = state.mels.slice().reverse().find((mel) => mel.audioSourceClipId === clip.id);
+    const linkedMel = getAudioClipEditedMel(clip);
     if (linkedMel) {
       loadMel(linkedMel.id);
     } else {
@@ -992,6 +1129,37 @@
       return;
     }
     await transcribeAudioClipToPianoRoll(clip);
+  }
+
+  async function openAudioAssetInPianoRoll(asset) {
+    if (!asset?.buffer) {
+      showToast("That audio asset is no longer available.");
+      return;
+    }
+    if (state.stepPianoEditContext) {
+      showToast("Return to the Piano Roll before editing an audio asset.");
+      return;
+    }
+    captureCurrentMel();
+    stopAllWorkspacePlayers();
+    const linkedMel = getAudioClipEditedMel(asset);
+    if (linkedMel) loadMel(linkedMel.id);
+    else state.pianoRollAudioClipId = asset.id;
+    setWorkspaceView("piano-roll", true);
+    $("#piano-audio-mode-select").value = "audio";
+    const audioOptions = $("#piano-toolbar-audio-options");
+    const audioToggle = document.querySelector('[aria-controls="piano-toolbar-audio-options"]');
+    audioOptions.hidden = false;
+    audioToggle?.setAttribute("aria-expanded", "true");
+    if (audioToggle) audioToggle.title = "Collapse Audio options";
+    if (linkedMel?.notes.length) {
+      renderMelOptions();
+      renderPianoInstrumentOptions();
+      renderPianoRoll();
+      saveState();
+      return;
+    }
+    await transcribeAudioClipToPianoRoll(asset);
   }
 
   function updatePianoRulerViewport() {
