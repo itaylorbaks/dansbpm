@@ -9800,7 +9800,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=ebb3bc359f72");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=d0bf4f929c60");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -18838,9 +18838,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         deleteButton.setAttribute("aria-label", `Delete ${track.name}`);
         deleteButton.addEventListener("click", () => removeEffectTrack(track));
         titleGroup.append(title, renameButton, routeButton, deleteButton);
-        row.append(titleGroup, makeMixerVolumeMonitor(track), makeMixerVolumeKnob(track), makeMixerPanKnob(track));
+        row.append(titleGroup, makeMixerVolumeKnob(track, true), makeMixerPanKnob(track));
       } else {
-        row.append(title, makeMixerVolumeMonitor(track), makeMixerVolumeKnob(track), makeMixerPanKnob(track));
+        row.append(title, makeMixerVolumeKnob(track, true), makeMixerPanKnob(track));
       }
       const effectTarget = document.createElement("div");
       effectTarget.className = "mixer-track-effects";
@@ -18983,9 +18983,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderQuickActionPanel();
   }
 
-  function makeMixerVolumeMonitor(track) {
+  function makeMixerVolumeMonitor(track, vertical = false) {
     const meter = document.createElement("div");
     meter.className = "mixer-volume-monitor";
+    if (vertical) meter.classList.add("is-vertical");
     meter.dataset.trackId = track.id;
     meter.dataset.level = "0";
     meter.setAttribute("role", "meter");
@@ -19015,7 +19016,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     const resetMeters = () => meters.forEach(({ element, fill }) => {
       element.dataset.level = "0";
       element.setAttribute("aria-valuenow", "0");
-      if (fill) fill.style.width = "0%";
+      if (fill) {
+        fill.style.width = element.classList.contains("is-vertical") ? "100%" : "0%";
+        fill.style.height = element.classList.contains("is-vertical") ? "0%" : "100%";
+      }
     });
     if ((state.view !== "mixer" && !(userSettings.quickActionEnabled && userSettings.quickActionView === "mixer")) ||
       !isPlaying()) {
@@ -19053,14 +19057,19 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
           : Math.max(target, previous - 2.5);
         meter.element.dataset.level = String(level);
         meter.element.setAttribute("aria-valuenow", String(Math.round(level)));
-        if (meter.fill) meter.fill.style.width = `${level}%`;
+        if (meter.fill) {
+          if (meter.element.classList.contains("is-vertical")) {
+            meter.fill.style.width = "100%";
+            meter.fill.style.height = `${level}%`;
+          } else meter.fill.style.width = `${level}%`;
+        }
       });
       state.mixerMeterAnimation = requestAnimationFrame(draw);
     };
     draw();
   }
 
-  function makeMixerVolumeKnob(track) {
+  function makeMixerVolumeKnob(track, verticalFader = false) {
     return makeMixerKnob(track, {
       label: "VOL",
       min: 0,
@@ -19070,7 +19079,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       percentToValue: (percent) => percent / 100,
       formatValue: (value) => `${Math.round(value * 100)}%`,
       setTrackValue: (value) => { track.volume = value; },
-    });
+    }, verticalFader);
   }
 
   function makeMixerPanKnob(track) {
@@ -19091,13 +19100,13 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
 
   function makeMixerKnob(track, {
     label, min, max, getTrackValue, valueToPercent, percentToValue, formatValue, setTrackValue,
-  }) {
+  }, verticalFader = false) {
     const wrapper = document.createElement("label");
-    wrapper.className = "mixer-track-knob";
+    wrapper.className = `mixer-track-knob${verticalFader ? " mixer-track-volume-control" : ""}`;
     const caption = document.createElement("span");
     caption.textContent = label;
     const knob = document.createElement("div");
-    knob.className = "mixer-volume-knob";
+    knob.className = `mixer-volume-knob${verticalFader ? " mixer-volume-fader" : ""}`;
     knob.setAttribute("role", "slider");
     knob.tabIndex = 0;
     knob.setAttribute("aria-label", `${track.name} ${label.toLowerCase()}`);
@@ -19117,6 +19126,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       knob.setAttribute("aria-valuetext", displayText);
       knob.style.setProperty("--knob-angle", `${-135 + percent * 2.7}deg`);
       knob.style.setProperty("--knob-fill", `${percent * 0.75}%`);
+      if (verticalFader) knob.style.setProperty("--fader-position", `${100 - percent}%`);
       value.textContent = displayText;
       updateTrackGains();
       syncQuickMixerControls(track);
@@ -19124,6 +19134,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     };
     const setFromPointer = (event) => {
       const bounds = knob.getBoundingClientRect();
+      if (verticalFader) {
+        setValue((bounds.bottom - event.clientY) / bounds.height * 100);
+        return;
+      }
       const angle = Math.atan2(event.clientY - bounds.top - bounds.height / 2, event.clientX - bounds.left - bounds.width / 2) * 180 / Math.PI;
       setValue(((angle - 135 + 360) % 360) / 270 * 100);
     };
@@ -19150,7 +19164,12 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       setValue(valueToPercent(getTrackValue()) + direction * (event.shiftKey ? 5 : 1), true);
     });
     setValue(valueToPercent(getTrackValue()));
-    wrapper.append(caption, knob, value);
+    if (verticalFader) {
+      const faderGroup = document.createElement("div");
+      faderGroup.className = "mixer-fader-control";
+      faderGroup.append(makeMixerVolumeMonitor(track, true), knob);
+      wrapper.append(caption, faderGroup, value);
+    } else wrapper.append(caption, knob, value);
     return wrapper;
   }
 
