@@ -9656,7 +9656,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=942a7401be40");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=47fe83bf0d23");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -17648,8 +17648,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       } else {
         const source = getArrangementAsset(assetType, sourceId);
         const editor = assetType === "mel" ? "Piano Roll" : "Grid";
-        if (source) addOption(`Open ${source.name} - Source in ${editor}`, source.id);
         addOption(`Open ${asset.name} in ${editor}`, asset.id);
+        if (source) addOption(`Open ${source.name} - Source in ${editor}`, source.id);
       }
       segmentOptions.hidden = false;
     }

@@ -1687,8 +1687,8 @@
       } else {
         const source = getArrangementAsset(assetType, sourceId);
         const editor = assetType === "mel" ? "Piano Roll" : "Grid";
-        if (source) addOption(`Open ${source.name} - Source in ${editor}`, source.id);
         addOption(`Open ${asset.name} in ${editor}`, asset.id);
+        if (source) addOption(`Open ${source.name} - Source in ${editor}`, source.id);
       }
       segmentOptions.hidden = false;
     }
