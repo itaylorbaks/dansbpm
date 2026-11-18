@@ -9657,7 +9657,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=610b249415b8");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=31cee16adb63");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -15861,56 +15861,80 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     sequencer: "sequencer-workspace-play-button",
     "piano-roll": "piano-workspace-play-button",
   };
+  const quickActionWorkspacePlayers = {
+    sequencer: null,
+    "piano-roll": null,
+  };
 
-  function updateWorkspacePlayButton(workspace, playing) {
+  function isQuickActionPlaybackActive(workspace) {
+    return Boolean(quickActionWorkspacePlayers[workspace]);
+  }
+
+  function updateWorkspacePlayButton(workspace, playing, quickAction = false) {
     const label = playing ? "Stop" : "Play";
-    const buttons = [
-      document.getElementById(WORKSPACE_PLAY_BUTTONS[workspace]),
-      ...document.querySelectorAll(`[data-workspace-play="${workspace}"]`),
-    ].filter(Boolean);
+    const buttons = quickAction
+      ? document.querySelectorAll(`[data-workspace-play="${workspace}"]`)
+      : [document.getElementById(WORKSPACE_PLAY_BUTTONS[workspace])].filter(Boolean);
     buttons.forEach((button) => {
-      button.querySelector(".workspace-play-label").textContent = label;
-      button.setAttribute("aria-label", `${playing ? "Stop" : "Play"} ${workspace === "piano-roll" ? "piano roll" : workspace} workspace`);
+      const labelElement = button.querySelector(".workspace-play-label");
+      if (labelElement) labelElement.textContent = label;
+      button.setAttribute("aria-label", quickAction
+        ? `${playing ? "Pause" : "Play"} Quick Action ${workspace === "piano-roll" ? "Piano Roll" : "Step Grid"}`
+        : `${playing ? "Stop" : "Play"} ${workspace === "piano-roll" ? "piano roll" : workspace} workspace`);
       button.setAttribute("aria-pressed", String(playing));
       button.classList.toggle("is-playing", playing);
     });
   }
 
-  function stopWorkspacePlayback(workspace, pausedByUser = false) {
-    const player = state.workspacePlayers[workspace];
+  function stopWorkspacePlayback(workspace, pausedByUser = false, quickAction = false) {
+    const players = quickAction ? quickActionWorkspacePlayers : state.workspacePlayers;
+    const player = players[workspace];
     if (!player) return;
     if (player.timerId !== null) window.clearInterval(player.timerId);
     player.timerId = null;
     player.playheadTimers.forEach((timerId) => window.clearTimeout(timerId));
     player.playheadTimers.clear();
     player.scheduledMelNotes.clear();
-    if (pausedByUser && workspace === "piano-roll") {
+    if (!quickAction && pausedByUser && workspace === "piano-roll") {
       if (userSettings.pauseBehavior === "playback-start") {
         setPianoCursorTick(player.startTick || 0, false, false);
       } else if (userSettings.pauseBehavior === "track-origin") {
         setPianoCursorTick(0, false, false, true);
       }
     }
-    state.workspacePlayers[workspace] = null;
-    if (workspace === "sequencer" && !(state.isPlaying && state.view === "sequencer")) {
+    players[workspace] = null;
+    if (!quickAction && workspace === "sequencer" && !(state.isPlaying && state.view === "sequencer")) {
       if (pausedByUser && userSettings.pauseBehavior === "track-origin") setPlayhead(0);
       else if (pausedByUser && userSettings.pauseBehavior === "playback-start") setPlayhead(player.startStep || 0);
       else if (!pausedByUser) setPlayhead(-1);
     }
-    updateWorkspacePlayButton(workspace, false);
+    updateWorkspacePlayButton(workspace, false, quickAction);
   }
 
   function stopAllWorkspacePlayers(pausedByUser = false) {
-    Object.keys(WORKSPACE_PLAY_BUTTONS).forEach((workspace) => stopWorkspacePlayback(workspace, pausedByUser));
+    Object.keys(WORKSPACE_PLAY_BUTTONS).forEach((workspace) => {
+      stopWorkspacePlayback(workspace, pausedByUser);
+      stopWorkspacePlayback(workspace, pausedByUser, true);
+    });
   }
 
   async function toggleWorkspacePlayback(workspace) {
-    const existingPlayer = state.workspacePlayers[workspace];
+    return toggleWorkspacePlaybackMode(workspace, false);
+  }
+
+  async function toggleQuickActionPlayback(workspace) {
+    return toggleWorkspacePlaybackMode(workspace, true);
+  }
+
+  async function toggleWorkspacePlaybackMode(workspace, quickAction) {
+    const players = quickAction ? quickActionWorkspacePlayers : state.workspacePlayers;
+    const existingPlayer = players[workspace];
     if (existingPlayer) {
-      stopWorkspacePlayback(workspace, true);
+      stopWorkspacePlayback(workspace, true, quickAction);
       return;
     }
-    const startStep = workspace === "sequencer" && state.currentStep >= 0
+    stopWorkspacePlayback(workspace, false, !quickAction);
+    const startStep = !quickAction && workspace === "sequencer" && state.currentStep >= 0
       ? state.currentStep
       : 0;
     const player = {
@@ -15923,12 +15947,12 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       nextStepTime: 0,
       stepIndex: startStep,
     };
-    state.workspacePlayers[workspace] = player;
-    updateWorkspacePlayButton(workspace, true);
+    players[workspace] = player;
+    updateWorkspacePlayButton(workspace, true, quickAction);
     try {
       await ensureAudio();
       await loadLibrarySamplesForPlayback(workspace);
-      if (state.workspacePlayers[workspace] !== player) return;
+      if (players[workspace] !== player) return;
       player.startTime = state.audioContext.currentTime + 0.04;
       if (workspace === "piano-roll") {
         const loopTicks = Math.max(1, getPianoPlaybackSource().loopBars * PIANO_TICKS_PER_BAR);
@@ -15939,7 +15963,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
           (state.pianoCursorTick < loopStartTick || state.pianoCursorTick >= loopEndTick)
           ? loopStartTick
           : state.pianoCursorTick % loopTicks;
-        state.pianoCursorTick = cursorTick;
+        if (!quickAction) state.pianoCursorTick = cursorTick;
         player.startTick = cursorTick;
         player.startTime -= cursorTick / PIANO_TICKS_PER_BAR * (240 / state.bpm);
         player.nextStepTime = state.audioContext.currentTime + 0.04;
@@ -15948,19 +15972,19 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         player.nextStepTime = player.startTime;
       }
       updateTrackGains();
-      updateWorkspacePlayButton(workspace, true);
-      workspacePlaybackScheduler(workspace);
+      updateWorkspacePlayButton(workspace, true, quickAction);
+      workspacePlaybackScheduler(workspace, player, quickAction);
       player.timerId = window.setInterval(() => {
         try {
-          workspacePlaybackScheduler(workspace);
+          workspacePlaybackScheduler(workspace, player, quickAction);
         } catch (error) {
-          stopWorkspacePlayback(workspace);
+          stopWorkspacePlayback(workspace, false, quickAction);
           showToast(error.message || "Workspace playback stopped unexpectedly.");
         }
       }, 25);
     } catch (error) {
-      if (state.workspacePlayers[workspace] === player) {
-        stopWorkspacePlayback(workspace);
+      if (players[workspace] === player) {
+        stopWorkspacePlayback(workspace, false, quickAction);
         showToast(error.message || "Workspace audio could not start.");
       }
     }
@@ -15984,8 +16008,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     else startPlayback("arrangement");
   }
 
-  function workspacePlaybackScheduler(workspace) {
-    const player = state.workspacePlayers[workspace];
+  function workspacePlaybackScheduler(workspace, playbackPlayer = state.workspacePlayers[workspace], quickAction = false) {
+    const player = playbackPlayer;
     if (!player || !state.audioContext) return;
     const now = state.audioContext.currentTime;
     const lookAhead = AUDIO_SCHEDULER_LOOKAHEAD;
@@ -15998,13 +16022,14 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
             const eventTick = clockStep + tickOffset;
             const swingOffset = Math.floor(eventTick / 2) % 2 === 1 ? getStepDuration() * (state.swing / 100) : 0;
             const eventTime = player.nextStepTime + tickOffset * getSchedulerTickDuration();
-            scheduleStep(step % getGridStepCount(pattern), eventTime + swingOffset, pattern, null, false, player);
+            scheduleStep(step % getGridStepCount(pattern), eventTime + swingOffset, pattern, null, false,
+              quickAction ? null : player);
           });
           schedulePatternPianoNotes(pattern, clockStep % (pattern.steps * 2), player.nextStepTime);
         }
       } else {
         scheduleWorkspaceMelLoop(player, now, lookAhead);
-        updatePianoCursorFromTime(player.startTime);
+        if (!quickAction) updatePianoCursorFromTime(player.startTime);
       }
       if (state.metronome && state.recordingMetronomeTimer === null && clockStep % 8 === 0) {
         triggerClick(player.nextStepTime, clockStep % 32 === 0);
@@ -28424,7 +28449,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     });
     $("#quick-action-play-button").addEventListener("click", (event) => {
       const workspace = event.currentTarget.dataset.workspacePlay;
-      if (workspace) toggleWorkspacePlayback(workspace);
+      if (workspace) toggleQuickActionPlayback(workspace);
     });
     $("#settings-recording-track").addEventListener("change", (event) => {
       userSettings.recordingTrackId = event.target.value;
@@ -28697,7 +28722,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     const playButton = $("#quick-action-play-button");
     playButton.hidden = !workspace;
     playButton.dataset.workspacePlay = workspace || "";
-    if (workspace) updateWorkspacePlayButton(workspace, Boolean(state.workspacePlayers[workspace]));
+    if (workspace) updateWorkspacePlayButton(workspace, isQuickActionPlaybackActive(workspace), true);
     if (!userSettings.quickActionEnabled) return;
     content.replaceChildren();
     content.dataset.quickView = userSettings.quickActionView;
@@ -28717,15 +28742,13 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     const effectList = document.createElement("div");
     effectList.className = "quick-mixer-effect-list";
     EFFECT_CATEGORIES.forEach((category) => {
-      const heading = document.createElement("h4");
-      heading.textContent = category.name;
-      effectList.append(heading);
       category.effects.forEach(([id, name]) => {
         const button = document.createElement("button");
         button.className = "mixer-library-effect";
         button.type = "button";
         button.draggable = true;
         button.textContent = name;
+        button.title = `${category.name}: ${name}`;
         button.addEventListener("dragstart", (event) => {
           event.dataTransfer?.setData("application/x-dansbpm-effect", id);
           if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";

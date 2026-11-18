@@ -16,8 +16,8 @@
     else startPlayback("arrangement");
   }
 
-  function workspacePlaybackScheduler(workspace) {
-    const player = state.workspacePlayers[workspace];
+  function workspacePlaybackScheduler(workspace, playbackPlayer = state.workspacePlayers[workspace], quickAction = false) {
+    const player = playbackPlayer;
     if (!player || !state.audioContext) return;
     const now = state.audioContext.currentTime;
     const lookAhead = AUDIO_SCHEDULER_LOOKAHEAD;
@@ -30,13 +30,14 @@
             const eventTick = clockStep + tickOffset;
             const swingOffset = Math.floor(eventTick / 2) % 2 === 1 ? getStepDuration() * (state.swing / 100) : 0;
             const eventTime = player.nextStepTime + tickOffset * getSchedulerTickDuration();
-            scheduleStep(step % getGridStepCount(pattern), eventTime + swingOffset, pattern, null, false, player);
+            scheduleStep(step % getGridStepCount(pattern), eventTime + swingOffset, pattern, null, false,
+              quickAction ? null : player);
           });
           schedulePatternPianoNotes(pattern, clockStep % (pattern.steps * 2), player.nextStepTime);
         }
       } else {
         scheduleWorkspaceMelLoop(player, now, lookAhead);
-        updatePianoCursorFromTime(player.startTime);
+        if (!quickAction) updatePianoCursorFromTime(player.startTime);
       }
       if (state.metronome && state.recordingMetronomeTimer === null && clockStep % 8 === 0) {
         triggerClick(player.nextStepTime, clockStep % 32 === 0);

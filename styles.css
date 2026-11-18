@@ -1198,9 +1198,9 @@ body:has(#arrangement-view:not([hidden])) .workspace-tabs {
 .quick-action-content { min-width: 0; min-height: 0; flex: 1; overflow: auto; padding: 7px; scrollbar-width: thin; }
 .quick-action-content[data-quick-view="sequencer"], .quick-action-content[data-quick-view="piano-roll"] { display: flex; flex-direction: column; overflow: hidden; }
 .quick-action-menu-row { min-width: 0; flex: 0 0 auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
-.quick-action-toolbar { min-width: 0; display: grid; align-content: start; gap: 6px; margin-bottom: 0; padding: 5px; border: 1px solid var(--stroke); border-radius: 4px; background: var(--panel); }
+.quick-action-toolbar { min-width: 0; display: grid; align-content: start; gap: 5px; margin-bottom: 0; padding: 4px; border: 1px solid var(--stroke); border-radius: 4px; background: var(--panel); }
 .quick-action-toolbar summary, .quick-mixer-effect-picker summary { cursor: pointer; color: var(--muted); font: 8px var(--mono); letter-spacing: .5px; }
-.quick-action-toolbar select { width: 100%; min-width: 0; height: 26px; border: 1px solid var(--stroke); border-radius: 4px; background: var(--panel-raised); padding: 0 6px; color: var(--text); font: 9px var(--sans); }
+.quick-action-toolbar select { width: 100%; min-width: 0; height: 22px; border: 1px solid var(--stroke); border-radius: 4px; background: var(--panel-raised); padding: 0 5px; color: var(--text); font: 9px var(--sans); }
 .quick-step-viewport, .quick-piano-viewport { min-width: 0; min-height: 0; flex: 1; overflow: auto; scrollbar-width: thin; }
 .quick-step-viewport { display: flex; flex-direction: column; }
 .quick-step-bar-meter, .quick-step-row { width: max-content; min-width: 100%; display: grid; grid-template-columns: 42px max-content; }
@@ -1225,8 +1225,7 @@ body:has(#arrangement-view:not([hidden])) .workspace-tabs {
 .quick-piano-row.is-black .quick-piano-cell { background-color: color-mix(in srgb, var(--panel-raised), black 20%); }
 .quick-piano-row.is-black .quick-piano-cell.is-on { background-color: var(--accent); }
 .quick-mixer-effect-picker { position: sticky; top: -7px; z-index: 3; display: grid; gap: 7px; margin: -7px -7px 8px; padding: 7px; border-bottom: 1px solid var(--stroke); background: var(--panel); }
-.quick-mixer-effect-list { max-height: 170px; overflow-y: auto; }
-.quick-mixer-effect-list h4 { margin: 8px 0 4px; color: var(--muted); font: 8px var(--mono); }
+.quick-mixer-effect-list { height: 36px; max-height: 36px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .quick-mixer-effect-list .mixer-library-effect { width: 100%; margin-bottom: 3px; }
 .quick-mixer-track-list { display: grid; gap: 7px; }
 .quick-mixer-lane { min-width: 0; display: grid; justify-items: center; gap: calc(8px * var(--density-scale)); overflow: hidden; border: 1px solid var(--stroke); border-radius: 5px; background: var(--panel-raised); padding: calc(8px * var(--density-scale)); }

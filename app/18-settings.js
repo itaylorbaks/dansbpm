@@ -193,7 +193,7 @@
     });
     $("#quick-action-play-button").addEventListener("click", (event) => {
       const workspace = event.currentTarget.dataset.workspacePlay;
-      if (workspace) toggleWorkspacePlayback(workspace);
+      if (workspace) toggleQuickActionPlayback(workspace);
     });
     $("#settings-recording-track").addEventListener("change", (event) => {
       userSettings.recordingTrackId = event.target.value;
@@ -466,7 +466,7 @@
     const playButton = $("#quick-action-play-button");
     playButton.hidden = !workspace;
     playButton.dataset.workspacePlay = workspace || "";
-    if (workspace) updateWorkspacePlayButton(workspace, Boolean(state.workspacePlayers[workspace]));
+    if (workspace) updateWorkspacePlayButton(workspace, isQuickActionPlaybackActive(workspace), true);
     if (!userSettings.quickActionEnabled) return;
     content.replaceChildren();
     content.dataset.quickView = userSettings.quickActionView;
@@ -486,15 +486,13 @@
     const effectList = document.createElement("div");
     effectList.className = "quick-mixer-effect-list";
     EFFECT_CATEGORIES.forEach((category) => {
-      const heading = document.createElement("h4");
-      heading.textContent = category.name;
-      effectList.append(heading);
       category.effects.forEach(([id, name]) => {
         const button = document.createElement("button");
         button.className = "mixer-library-effect";
         button.type = "button";
         button.draggable = true;
         button.textContent = name;
+        button.title = `${category.name}: ${name}`;
         button.addEventListener("dragstart", (event) => {
           event.dataTransfer?.setData("application/x-dansbpm-effect", id);
           if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
