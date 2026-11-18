@@ -995,8 +995,15 @@
         event.preventDefault();
         if (event.repeat) return;
         if (state.keyboardRecordingCountdown) cancelKeyboardRecordingCountdown();
-        if (state.isPlaying && state.playbackMode === "arrangement") stopPlayback(false, true);
-        else {
+        const fullscreenElement = document.fullscreenElement;
+        const workspaceExpanded = fullscreenElement
+          ? fullscreenElement === $("#workspace-area")
+          : state.trackViewHidden;
+        if (workspaceExpanded) {
+          toggleCurrentWorkspacePlayback();
+        } else if (state.isPlaying && state.playbackMode === "arrangement") {
+          stopPlayback(false, true);
+        } else {
           if (state.isPlaying) stopPlayback();
           startPlayback("arrangement");
         }

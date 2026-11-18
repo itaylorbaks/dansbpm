@@ -9656,7 +9656,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=7868c6d205fa");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=e1535f10481a");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -30053,8 +30053,15 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         event.preventDefault();
         if (event.repeat) return;
         if (state.keyboardRecordingCountdown) cancelKeyboardRecordingCountdown();
-        if (state.isPlaying && state.playbackMode === "arrangement") stopPlayback(false, true);
-        else {
+        const fullscreenElement = document.fullscreenElement;
+        const workspaceExpanded = fullscreenElement
+          ? fullscreenElement === $("#workspace-area")
+          : state.trackViewHidden;
+        if (workspaceExpanded) {
+          toggleCurrentWorkspacePlayback();
+        } else if (state.isPlaying && state.playbackMode === "arrangement") {
+          stopPlayback(false, true);
+        } else {
           if (state.isPlaying) stopPlayback();
           startPlayback("arrangement");
         }
