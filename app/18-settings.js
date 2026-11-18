@@ -46,6 +46,11 @@
   let quickMixerEffectsOpen = false;
   let quickActionStepPlayhead = -1;
   let quickActionPianoPlayheadTick = 0;
+  let quickActionPanelHome = null;
+  let quickActionFloatingBounds = null;
+  let quickActionDockedWidth = 290;
+  let quickActionDockedHeight = 250;
+  let quickActionDragClickSuppressed = false;
 
   function initializeSettings() {
     try {
@@ -197,6 +202,7 @@
       const workspace = event.currentTarget.dataset.workspacePlay;
       if (workspace) toggleQuickActionPlayback(workspace);
     });
+    bindQuickActionPanelInteractions();
     $("#settings-recording-track").addEventListener("change", (event) => {
       userSettings.recordingTrackId = event.target.value;
       persistUserSettings();
@@ -322,6 +328,312 @@
     $("#quick-action-view-select").value = userSettings.quickActionView;
     renderQuickActionPanel();
     persistUserSettings();
+  }
+
+  function applyQuickActionFloatingBounds(bounds) {
+    const panel = $("#quick-action-panel");
+    const width = Math.min(Math.max(250, bounds.width), Math.max(250, window.innerWidth - 16));
+    const height = Math.min(Math.max(190, bounds.height), Math.max(190, window.innerHeight - 16));
+    const left = Math.max(8, Math.min(bounds.left, window.innerWidth - width - 8));
+    const top = Math.max(8, Math.min(bounds.top, window.innerHeight - height - 8));
+    quickActionFloatingBounds = { left, top, width, height };
+    panel.style.left = `${left}px`;
+    panel.style.top = `${top}px`;
+    panel.style.width = `${width}px`;
+    panel.style.height = `${height}px`;
+  }
+
+  function setQuickActionFloating(floating) {
+    const panel = $("#quick-action-panel");
+    const divider = $("#quick-action-divider");
+    const dockButton = $("#quick-action-dock-button");
+    if (floating === panel.classList.contains("is-floating")) return;
+    if (floating) {
+      const bounds = panel.getBoundingClientRect();
+      quickActionDockedWidth = bounds.width || quickActionDockedWidth;
+      quickActionPanelHome = { parent: panel.parentElement, nextSibling: panel.nextSibling };
+      document.body.append(panel);
+      panel.classList.add("is-floating");
+      if (!quickActionFloatingBounds) {
+        const width = Math.min(380, Math.max(280, bounds.width || 320), window.innerWidth - 16);
+        const height = Math.min(420, Math.max(260, Math.round(window.innerHeight * 0.62)), window.innerHeight - 16);
+        quickActionFloatingBounds = {
+          left: Math.max(8, window.innerWidth - width - 24),
+          top: Math.max(8, Math.round((window.innerHeight - height) / 2)),
+          width,
+          height,
+        };
+      }
+      applyQuickActionFloatingBounds(quickActionFloatingBounds);
+    } else {
+      if (quickActionPanelHome) {
+        const { parent, nextSibling } = quickActionPanelHome;
+        parent.insertBefore(panel, nextSibling?.parentNode === parent ? nextSibling : null);
+      }
+      quickActionPanelHome = null;
+      panel.classList.remove("is-floating");
+      panel.style.removeProperty("left");
+      panel.style.removeProperty("top");
+      syncQuickActionDockedSize();
+    }
+    divider.hidden = !userSettings.quickActionEnabled || floating;
+    dockButton.hidden = !floating;
+  }
+
+  function bindQuickActionPanelInteractions() {
+    const panel = $("#quick-action-panel");
+    const dragHandle = $("#quick-action-drag-handle");
+    const dockButton = $("#quick-action-dock-button");
+    const divider = $("#quick-action-divider");
+    dragHandle.addEventListener("click", () => {
+      if (quickActionDragClickSuppressed) {
+        quickActionDragClickSuppressed = false;
+        return;
+      }
+      setQuickActionFloating(!panel.classList.contains("is-floating"));
+    });
+    dragHandle.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      const start = { x: event.clientX, y: event.clientY };
+      const bounds = panel.getBoundingClientRect();
+      const offset = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+      let moved = false;
+      const move = (moveEvent) => {
+        if (!moved && Math.hypot(moveEvent.clientX - start.x, moveEvent.clientY - start.y) < 5) return;
+        if (!moved) {
+          moved = true;
+          if (!panel.classList.contains("is-floating")) setQuickActionFloating(true);
+        }
+        applyQuickActionFloatingBounds({
+          ...quickActionFloatingBounds,
+          left: moveEvent.clientX - offset.x,
+          top: moveEvent.clientY - offset.y,
+        });
+      };
+      const finish = () => {
+        document.removeEventListener("pointermove", move);
+        document.removeEventListener("pointerup", finish);
+        document.removeEventListener("pointercancel", finish);
+        if (moved) {
+          quickActionDragClickSuppressed = true;
+          window.setTimeout(() => { quickActionDragClickSuppressed = false; }, 0);
+        }
+      };
+      document.addEventListener("pointermove", move);
+      document.addEventListener("pointerup", finish);
+      document.addEventListener("pointercancel", finish);
+    });
+    dockButton.addEventListener("click", () => setQuickActionFloating(false));
+
+    divider.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || panel.classList.contains("is-floating")) return;
+      event.preventDefault();
+      const parent = $("#track-view-content");
+      const vertical = window.getComputedStyle(parent).flexDirection !== "column";
+      divider.setAttribute("aria-orientation", vertical ? "vertical" : "horizontal");
+      const resize = (moveEvent) => {
+        const bounds = parent.getBoundingClientRect();
+        if (vertical) {
+          quickActionDockedWidth = Math.max(190, Math.min(bounds.width * 0.62, bounds.right - moveEvent.clientX));
+          panel.style.width = `${quickActionDockedWidth}px`;
+          panel.style.flexBasis = `${quickActionDockedWidth}px`;
+          divider.setAttribute("aria-valuenow", String(Math.round(quickActionDockedWidth)));
+        } else {
+          quickActionDockedHeight = Math.max(120, Math.min(bounds.height * 0.7, bounds.bottom - moveEvent.clientY));
+          panel.style.height = `${quickActionDockedHeight}px`;
+          panel.style.flexBasis = `${quickActionDockedHeight}px`;
+          divider.setAttribute("aria-valuenow", String(Math.round(quickActionDockedHeight)));
+        }
+      };
+      const finish = () => {
+        document.removeEventListener("pointermove", resize);
+        document.removeEventListener("pointerup", finish);
+        document.removeEventListener("pointercancel", finish);
+      };
+      document.addEventListener("pointermove", resize);
+      document.addEventListener("pointerup", finish);
+      document.addEventListener("pointercancel", finish);
+    });
+    divider.addEventListener("keydown", (event) => {
+      const parent = $("#track-view-content");
+      const vertical = window.getComputedStyle(parent).flexDirection !== "column";
+      divider.setAttribute("aria-orientation", vertical ? "vertical" : "horizontal");
+      const direction = vertical
+        ? event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : 0
+        : event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : 0;
+      if (direction) {
+        event.preventDefault();
+        if (vertical) {
+          quickActionDockedWidth = Math.max(190, Math.min(parent.clientWidth * 0.62,
+            quickActionDockedWidth - direction * 20));
+          panel.style.width = `${quickActionDockedWidth}px`;
+          panel.style.flexBasis = `${quickActionDockedWidth}px`;
+        } else {
+          quickActionDockedHeight = Math.max(120, Math.min(parent.clientHeight * 0.7,
+            (panel.getBoundingClientRect().height || quickActionDockedHeight) - direction * 20));
+          panel.style.height = `${quickActionDockedHeight}px`;
+          panel.style.flexBasis = `${quickActionDockedHeight}px`;
+        }
+      }
+    });
+    panel.querySelectorAll(".quick-action-resize-handle").forEach((handle) => {
+      handle.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0 || !panel.classList.contains("is-floating")) return;
+        event.preventDefault();
+        const edge = handle.dataset.resizeEdge;
+        const start = panel.getBoundingClientRect();
+        const resize = (moveEvent) => {
+          const bounds = {
+            left: start.left,
+            top: start.top,
+            width: start.width,
+            height: start.height,
+          };
+          if (edge === "left") {
+            bounds.width = start.right - moveEvent.clientX;
+            bounds.left = start.right - bounds.width;
+          } else if (edge === "right") bounds.width = moveEvent.clientX - start.left;
+          else if (edge === "top") {
+            bounds.height = start.bottom - moveEvent.clientY;
+            bounds.top = start.bottom - bounds.height;
+          } else if (edge === "bottom") bounds.height = moveEvent.clientY - start.top;
+          applyQuickActionFloatingBounds(bounds);
+        };
+        const finish = () => {
+          document.removeEventListener("pointermove", resize);
+          document.removeEventListener("pointerup", finish);
+          document.removeEventListener("pointercancel", finish);
+        };
+        document.addEventListener("pointermove", resize);
+        document.addEventListener("pointerup", finish);
+        document.addEventListener("pointercancel", finish);
+      });
+    });
+    window.addEventListener("resize", () => {
+      if (panel.classList.contains("is-floating") && quickActionFloatingBounds) {
+        applyQuickActionFloatingBounds(quickActionFloatingBounds);
+      } else {
+        syncQuickActionDockedSize();
+      }
+    });
+  }
+
+  function syncQuickActionDockedSize() {
+    const panel = $("#quick-action-panel");
+    const parent = $("#track-view-content");
+    if (!panel || !parent || panel.classList.contains("is-floating")) return;
+    const vertical = window.getComputedStyle(parent).flexDirection !== "column";
+    const divider = $("#quick-action-divider");
+    divider.setAttribute("aria-orientation", vertical ? "vertical" : "horizontal");
+    if (vertical) {
+      quickActionDockedWidth = Math.max(190, Math.min(quickActionDockedWidth, parent.clientWidth * 0.62));
+      panel.style.removeProperty("height");
+      panel.style.width = `${quickActionDockedWidth}px`;
+      panel.style.flexBasis = `${quickActionDockedWidth}px`;
+    } else {
+      panel.style.width = "100%";
+      panel.style.height = `${quickActionDockedHeight}px`;
+      panel.style.flexBasis = `${quickActionDockedHeight}px`;
+    }
+  }
+
+  function makeQuickActionMenuStrip(root) {
+    const toolbar = document.createElement("div");
+    toolbar.className = "quick-action-menu-strip";
+    root.append(toolbar);
+    return toolbar;
+  }
+
+  function addQuickActionButton(toolbar, text, action, title = text) {
+    const button = document.createElement("button");
+    button.className = "quick-action-menu-button";
+    button.type = "button";
+    button.textContent = text;
+    button.title = title;
+    button.addEventListener("click", action);
+    toolbar.append(button);
+    return button;
+  }
+
+  function addQuickActionSelect(toolbar, label, options, value, action) {
+    const select = document.createElement("select");
+    select.className = "quick-action-menu-select";
+    select.setAttribute("aria-label", label);
+    select.title = label;
+    options.forEach(([optionValue, optionLabel]) => select.add(new Option(optionLabel, optionValue)));
+    select.value = String(value ?? "");
+    select.addEventListener("change", () => action(select.value));
+    toolbar.append(select);
+    return select;
+  }
+
+  function addQuickActionProxyButton(toolbar, label, selector, title = label) {
+    const source = $(selector);
+    const button = addQuickActionButton(toolbar, label, () => source.click(), title);
+    button.disabled = source.disabled || source.hidden;
+    return button;
+  }
+
+  function addQuickActionProxySelect(toolbar, label, selector) {
+    const source = $(selector);
+    return addQuickActionSelect(toolbar, label,
+      Array.from(source.options, (option) => [option.value, option.textContent]),
+      source.value,
+      (value) => {
+        source.value = value;
+        source.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+  }
+
+  function addQuickActionProxyRange(toolbar, label, selector) {
+    const source = $(selector);
+    const range = document.createElement("input");
+    range.className = "quick-action-menu-range";
+    range.type = "range";
+    range.min = source.min;
+    range.max = source.max;
+    range.step = source.step;
+    range.value = source.value;
+    range.setAttribute("aria-label", label);
+    range.title = label;
+    range.addEventListener("input", () => {
+      source.value = range.value;
+      source.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    range.addEventListener("change", () => {
+      source.value = range.value;
+      source.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    toolbar.append(range);
+    return range;
+  }
+
+  function addQuickActionProxyCheckbox(toolbar, label, selector) {
+    const source = $(selector);
+    const wrapper = document.createElement("label");
+    wrapper.className = "quick-action-menu-check";
+    wrapper.title = label;
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = source.checked;
+    input.setAttribute("aria-label", label);
+    input.addEventListener("change", () => {
+      source.checked = input.checked;
+      source.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const text = document.createElement("span");
+    text.textContent = label;
+    wrapper.append(input, text);
+    toolbar.append(wrapper);
+    return input;
+  }
+
+  function addQuickActionSeparator(toolbar) {
+    const separator = document.createElement("span");
+    separator.className = "quick-action-menu-separator";
+    separator.setAttribute("aria-hidden", "true");
+    toolbar.append(separator);
   }
 
   function getShortcutBinding(actionId) {
@@ -462,6 +774,9 @@
     const content = $("#quick-action-content");
     if (!panel || !content) return;
     panel.hidden = !userSettings.quickActionEnabled;
+    syncQuickActionDockedSize();
+    $("#quick-action-divider").hidden = !userSettings.quickActionEnabled || panel.classList.contains("is-floating");
+    $("#quick-action-dock-button").hidden = !panel.classList.contains("is-floating");
     $("#quick-action-view-select").value = userSettings.quickActionView;
     const workspace = userSettings.quickActionView === "sequencer" ||
       userSettings.quickActionView === "piano-roll" ? userSettings.quickActionView : null;
@@ -478,38 +793,56 @@
   }
 
   function renderQuickMixer(root) {
+    const toolbar = makeQuickActionMenuStrip(root);
+    addQuickActionButton(toolbar, "+ Effects Track", createEffectTrack);
     const effects = document.createElement("details");
-    effects.className = "quick-mixer-effect-picker";
+    effects.className = "quick-action-menu-dropdown";
     effects.open = quickMixerEffectsOpen;
-    effects.addEventListener("toggle", () => { quickMixerEffectsOpen = effects.open; });
     const summary = document.createElement("summary");
     summary.textContent = "ADD EFFECT";
     effects.append(summary);
     const effectList = document.createElement("div");
     effectList.className = "quick-mixer-effect-list";
     EFFECT_CATEGORIES.forEach((category) => {
+      const categoryGroup = document.createElement("section");
+      categoryGroup.className = "quick-mixer-effect-category";
+      const categoryHeading = document.createElement("span");
+      categoryHeading.textContent = category.name;
+      categoryGroup.append(categoryHeading);
       category.effects.forEach(([id, name]) => {
         const button = document.createElement("button");
-        button.className = "mixer-library-effect";
+        button.className = "mixer-library-effect quick-action-menu-button";
         button.type = "button";
-        button.draggable = true;
         button.textContent = name;
         button.title = `${category.name}: ${name}`;
-        button.addEventListener("dragstart", (event) => {
-          event.dataTransfer?.setData("application/x-dansbpm-effect", id);
-          if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
-        });
         button.addEventListener("click", () => {
           const channels = getMixerTracks();
           const target = channels.find(({ track }) => track.id === state.selectedMixerTrackId)?.track ||
             channels.find(({ type }) => type === "Master")?.track;
-          if (target) addMixerEffect(target, id);
+          if (target) addMixerEffect(target, id, true);
         });
-        effectList.append(button);
+        categoryGroup.append(button);
       });
+      effectList.append(categoryGroup);
     });
     effects.append(effectList);
-    root.append(effects);
+    const positionEffectList = () => {
+      if (!effects.open) return;
+      const bounds = summary.getBoundingClientRect();
+      const width = Math.min(250, window.innerWidth - 16);
+      const height = Math.min(360, window.innerHeight * 0.5);
+      const top = bounds.bottom + height + 8 > window.innerHeight
+        ? Math.max(8, bounds.top - height - 3)
+        : bounds.bottom + 3;
+      effectList.style.left = `${Math.max(8, Math.min(bounds.left, window.innerWidth - width - 8))}px`;
+      effectList.style.top = `${top}px`;
+    };
+    effects.addEventListener("toggle", () => {
+      quickMixerEffectsOpen = effects.open;
+      positionEffectList();
+    });
+    toolbar.append(effects);
+    positionEffectList();
 
     const trackList = document.createElement("div");
     trackList.className = "quick-mixer-track-list";
@@ -530,6 +863,14 @@
       const controls = document.createElement("div");
       controls.className = "quick-mixer-knobs";
       controls.append(makeMixerVolumeMonitor(track), makeMixerVolumeKnob(track), makeMixerPanKnob(track));
+      const titleGroup = document.createElement("div");
+      titleGroup.className = "quick-mixer-title-group";
+      titleGroup.append(title);
+      if (track.kind === "mixer-effects") {
+        addQuickActionButton(titleGroup, "Rename", () => renameEffectTrack(track));
+        addQuickActionButton(titleGroup, "Route", () => openMixerRoutingDialog(track));
+        addQuickActionButton(titleGroup, "Delete", () => removeEffectTrack(track));
+      }
       const effectTarget = document.createElement("div");
       effectTarget.className = "mixer-track-effects quick-mixer-effects";
       effectTarget.setAttribute("aria-label", `${track.name} effects; drop effects here`);
@@ -547,8 +888,25 @@
         const effectId = event.dataTransfer?.getData("application/x-dansbpm-effect");
         if (effectId) addMixerEffect(track, effectId);
       });
+      if (track.kind === "mixer-effects") {
+        const presetControls = document.createElement("div");
+        presetControls.className = "quick-mixer-preset-controls";
+        addQuickActionButton(presetControls, "Save preset", () => saveEffectTrackPreset(track));
+        const presetSelect = document.createElement("select");
+        presetSelect.setAttribute("aria-label", `Saved effects presets for ${track.name}`);
+        presetSelect.add(new Option(state.effectPresets.length ? "Choose preset…" : "No saved presets", ""));
+        state.effectPresets.forEach((preset) => presetSelect.add(new Option(preset.name, preset.id)));
+        presetSelect.disabled = state.effectPresets.length === 0;
+        const applyButton = addQuickActionButton(presetControls, "Apply", () => {
+          if (presetSelect.value) applyEffectTrackPreset(track, presetSelect.value);
+        });
+        applyButton.disabled = true;
+        presetSelect.addEventListener("change", () => { applyButton.disabled = !presetSelect.value; });
+        presetControls.insertBefore(presetSelect, applyButton);
+        effectTarget.append(presetControls);
+      }
       effectTarget.append(makeMixerEffectSlots(track));
-      lane.append(title, controls, effectTarget);
+      lane.append(titleGroup, controls, effectTarget);
       trackList.append(lane);
     });
     root.append(trackList);
@@ -583,38 +941,40 @@
       root.textContent = "Create a pattern to edit it here.";
       return;
     }
-    const menuRow = document.createElement("div");
-    menuRow.className = "quick-action-menu-row";
-    const toolbar = document.createElement("details");
-    toolbar.className = "quick-action-toolbar";
-    const summary = document.createElement("summary");
-    summary.textContent = "PATTERN";
-    const select = document.createElement("select");
-    select.setAttribute("aria-label", "Quick Action pattern");
-    state.patterns.forEach((item) => select.add(new Option(item.name, item.id)));
-    select.value = pattern.id;
-    select.addEventListener("change", () => selectPattern(select.value));
-    toolbar.append(summary, select);
-    menuRow.append(toolbar);
-
-    const gridToolbar = document.createElement("details");
-    gridToolbar.className = "quick-action-toolbar";
-    const gridSummary = document.createElement("summary");
-    gridSummary.textContent = "GRID";
-    const lengthSelect = document.createElement("select");
-    lengthSelect.setAttribute("aria-label", "Quick Action Rack length");
-    [1, 2, 4, 8].forEach((bars) => lengthSelect.add(new Option(`${bars} BAR${bars === 1 ? "" : "S"}`, String(bars))));
-    lengthSelect.value = String(pattern.steps / 16);
-    lengthSelect.addEventListener("change", () => setLength(Number(lengthSelect.value) * 16));
-    const resolutionSelect = document.createElement("select");
-    resolutionSelect.setAttribute("aria-label", "Quick Action Rack subdivision");
-    ["1/4", "1/8", "1/16", "1/32", "1/64"].forEach((resolution) =>
-      resolutionSelect.add(new Option(resolution, resolution)));
-    resolutionSelect.value = getPatternGridResolution(pattern);
-    resolutionSelect.addEventListener("change", () => setPatternGridResolution(resolutionSelect.value));
-    gridToolbar.append(gridSummary, lengthSelect, resolutionSelect);
-    menuRow.append(gridToolbar);
-    root.append(menuRow);
+    const toolbar = makeQuickActionMenuStrip(root);
+    addQuickActionSelect(toolbar, "Pattern", state.patterns.map((item) => [item.id, item.name]),
+      pattern.id, selectPattern);
+    addQuickActionButton(toolbar, "Rename", renamePattern);
+    addQuickActionButton(toolbar, "New", () => createPattern());
+    addQuickActionSelect(toolbar, "Step size",
+      ["1/4", "1/8", "1/16", "1/32", "1/64"].map((item) => [item, item]),
+      getPatternGridResolution(pattern), setPatternGridResolution);
+    addQuickActionButton(toolbar, "− Bar", () => setLength(state.steps - 16), "Remove one Rack bar");
+    addQuickActionButton(toolbar, "+ Bar", () => setLength(state.steps + 16), "Add one Rack bar");
+    const scale = document.createElement("input");
+    scale.className = "quick-action-menu-range";
+    scale.type = "range";
+    scale.min = "50";
+    scale.max = "400";
+    scale.step = "1";
+    scale.value = String(Math.round(state.sequencerScale * 100));
+    scale.setAttribute("aria-label", "Rack scale");
+    scale.title = "Rack scale";
+    scale.addEventListener("input", () => setSequencerScale(Number(scale.value) / 100));
+    toolbar.append(scale);
+    const recordButton = addQuickActionButton(toolbar, "Record keys",
+      () => toggleKeyboardRecording("sequencer"), "Record keyboard notes into the Rack");
+    recordButton.setAttribute("aria-pressed", String(state.keyboardRecording?.mode === "sequencer"));
+    addQuickActionButton(toolbar, "Browser", openAssetLibrary, "Open the asset library");
+    addQuickActionButton(toolbar, "Export", exportPattern);
+    addQuickActionButton(toolbar, "Clear", clearPattern);
+    addQuickActionButton(toolbar, "Reset", () => $("#reset-session").click(), "Reset session");
+    addQuickActionSelect(toolbar, "Preload pattern",
+      [["", "Preload"], ...PRESETS.map((preset) => [preset.id, preset.title])],
+      "", (presetId) => {
+        const preset = PRESETS.find((item) => item.id === presetId);
+        if (preset) loadPreset(preset);
+      });
 
     const grid = document.createElement("div");
     grid.className = "quick-step-grid";
@@ -627,7 +987,10 @@
     viewport.className = "quick-step-viewport";
     const ruler = document.createElement("div");
     ruler.className = "quick-action-bar-meter quick-step-bar-meter";
-    ruler.style.gridTemplateColumns = `42px repeat(${stepCount}, 12px)`;
+    const labelWidth = 94;
+    const cellWidth = 20 * state.sequencerScale;
+    const gap = 3 * state.sequencerScale;
+    ruler.style.gridTemplateColumns = `${labelWidth}px repeat(${stepCount}, ${cellWidth}px)`;
     const rulerSpacer = document.createElement("span");
     rulerSpacer.className = "quick-action-bar-meter-spacer";
     ruler.append(rulerSpacer);
@@ -643,13 +1006,16 @@
     tracks.forEach((track) => {
       const row = document.createElement("div");
       row.className = "quick-step-row";
+      row.style.gridTemplateColumns = `${labelWidth}px max-content`;
       const name = document.createElement("span");
       name.className = "quick-step-track-name";
       name.textContent = track.name;
+      name.style.setProperty("--quick-track-color", track.color);
       row.append(name);
       const cells = document.createElement("div");
       cells.className = "quick-step-cells";
-      cells.style.gridTemplateColumns = `repeat(${stepCount}, 10px)`;
+      cells.style.gridTemplateColumns = `repeat(${stepCount}, ${cellWidth}px)`;
+      cells.style.gap = `${gap}px`;
       for (let step = 0; step < stepCount; step += 1) {
         const cell = document.createElement("button");
         cell.type = "button";
@@ -677,51 +1043,76 @@
   }
 
   function renderQuickPianoRoll(root) {
-    const menuRow = document.createElement("div");
-    menuRow.className = "quick-action-menu-row";
-    const toolbar = document.createElement("details");
-    toolbar.className = "quick-action-toolbar";
-    const summary = document.createElement("summary");
-    summary.textContent = "MELODY";
-    const melSelect = document.createElement("select");
-    melSelect.setAttribute("aria-label", "Quick Action Mel");
-    state.mels.forEach((mel) => melSelect.add(new Option(mel.name, mel.id)));
-    melSelect.value = state.selectedMelId || "";
-    melSelect.addEventListener("change", () => {
-      loadMel(melSelect.value);
-      renderPianoRoll();
-      saveState();
+    const toolbar = makeQuickActionMenuStrip(root);
+    addQuickActionProxyButton(toolbar, "Loop", "#piano-loop-button");
+    addQuickActionProxyButton(toolbar, "Record keys", "#piano-keyboard-record-button");
+    addQuickActionSeparator(toolbar);
+    addQuickActionProxyButton(toolbar, "Draw", "#piano-draw-mode-button");
+    addQuickActionProxyButton(toolbar, "Humanize", "#piano-humanize-button");
+    addQuickActionProxyButton(toolbar, "Quantize", "#piano-quantize-button");
+    addQuickActionProxyButton(toolbar, "Clear", "#clear-piano-roll-button", "Clear notes");
+    addQuickActionSeparator(toolbar);
+    addQuickActionProxyButton(toolbar, "Import audio", "#piano-audio-import-button");
+    addQuickActionProxySelect(toolbar, "Audio source", "#piano-audio-source-select");
+    addQuickActionProxySelect(toolbar, "Transcription mode", "#piano-audio-mode-select");
+    addQuickActionProxyButton(toolbar, "Transcribe", "#piano-audio-transcribe-button");
+    addQuickActionProxyButton(toolbar, "Scan", "#piano-audio-scan-button");
+    addQuickActionProxyButton(toolbar, "Chop", "#piano-audio-chop-button");
+    ["melody", "vocals", "percussion", "bass"].forEach((stem) => {
+      const source = $(`#piano-audio-stems [data-audio-stem="${stem}"]`);
+      const wrapper = document.createElement("label");
+      wrapper.className = "quick-action-menu-check";
+      wrapper.title = `Use ${stem} stem`;
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = source.checked;
+      input.setAttribute("aria-label", `${stem} audio stem`);
+      input.addEventListener("change", () => {
+        source.checked = input.checked;
+        source.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      const text = document.createElement("span");
+      text.textContent = stem;
+      wrapper.append(input, text);
+      toolbar.append(wrapper);
     });
-    toolbar.append(summary, melSelect);
-    menuRow.append(toolbar);
-
-    const gridToolbar = document.createElement("details");
-    gridToolbar.className = "quick-action-toolbar";
-    const gridSummary = document.createElement("summary");
-    gridSummary.textContent = "GRID";
-    const barsSelect = document.createElement("select");
-    barsSelect.setAttribute("aria-label", "Quick Action Piano Roll length");
-    [1, 2, 4, 8].forEach((bars) => barsSelect.add(new Option(`${bars} BAR${bars === 1 ? "" : "S"}`, String(bars))));
-    barsSelect.value = String(state.pianoBars);
-    barsSelect.addEventListener("change", () => {
-      state.pianoBars = Number(barsSelect.value);
-      renderPianoRoll();
-      saveState();
+    addQuickActionSeparator(toolbar);
+    addQuickActionProxySelect(toolbar, "Key", "#piano-scale-root");
+    addQuickActionProxySelect(toolbar, "Scale", "#piano-scale-type");
+    addQuickActionProxyCheckbox(toolbar, "Scale lock", "#piano-scale-lock");
+    addQuickActionProxyButton(toolbar, "Tune", "#piano-autotune-button", "Tune notes to the selected key");
+    addQuickActionSeparator(toolbar);
+    addQuickActionProxySelect(toolbar, "Melody", "#mel-select");
+    addQuickActionProxyButton(toolbar, "New Mel", "#new-mel-button");
+    addQuickActionProxyButton(toolbar, "Rename Mel", "#rename-mel-button");
+    addQuickActionProxyButton(toolbar, "Export Mel", "#export-mel-button");
+    const dragMel = addQuickActionButton(toolbar, "Drag Mel", () => {}, "Drag the selected Mel to Track View");
+    dragMel.draggable = true;
+    dragMel.disabled = $("#mel-drag-source").disabled;
+    dragMel.addEventListener("dragstart", (event) => {
+      if (!event.dataTransfer) return;
+      if (state.stepPianoEditContext) {
+        syncStepPianoEdit();
+        const pattern = getPattern(state.stepPianoEditContext.patternId);
+        if (!pattern) return;
+        event.dataTransfer.setData("application/x-pulsegrid-pattern-source", JSON.stringify({ patternId: pattern.id }));
+      } else {
+        const mel = getMel();
+        if (!mel) return;
+        event.dataTransfer.setData("application/x-pulsegrid-mel-source", JSON.stringify({ melId: mel.id }));
+      }
+      event.dataTransfer.effectAllowed = "copy";
     });
-    const snapSelect = document.createElement("select");
-    snapSelect.setAttribute("aria-label", "Quick Action Piano Roll snap");
-    [["off", "Off"], ["1", "1/32"], ["2", "1/16"], ["4", "1/8"], ["8", "1/4"]]
-      .forEach(([value, label]) => snapSelect.add(new Option(label, value)));
-    snapSelect.value = state.pianoSnapEnabled ? String(state.pianoSnap) : "off";
-    snapSelect.addEventListener("change", () => {
-      state.pianoSnapEnabled = snapSelect.value !== "off";
-      if (state.pianoSnapEnabled) state.pianoSnap = Number(snapSelect.value);
-      renderPianoRoll();
-      saveState();
-    });
-    gridToolbar.append(gridSummary, barsSelect, snapSelect);
-    menuRow.append(gridToolbar);
-    root.append(menuRow);
+    addQuickActionSeparator(toolbar);
+    addQuickActionProxyButton(toolbar, "Instrument", "#piano-instrument-select");
+    addQuickActionProxyButton(toolbar, "Mix", "#piano-track-mix-button");
+    addQuickActionProxySelect(toolbar, "Snap", "#piano-snap-select");
+    addQuickActionProxySelect(toolbar, "Note length", "#piano-note-length-select");
+    addQuickActionProxySelect(toolbar, "Bars", "#piano-bars-select");
+    addQuickActionProxyRange(toolbar, "Piano Roll scale", "#piano-scale-slider");
+    addQuickActionSeparator(toolbar);
+    addQuickActionProxyButton(toolbar, "Import MIDI", "#import-midi-button");
+    addQuickActionProxyButton(toolbar, "Export MIDI", "#export-midi-button");
 
     const track = getPianoTrack(state.stepPianoEditContext?.trackId || state.selectedPianoTrackId);
     if (!track) {
@@ -734,12 +1125,13 @@
     const snapTicks = state.pianoSnapEnabled ? Math.max(1, getPianoSnapStep()) : 1;
     const totalTicks = state.pianoBars * PIANO_TICKS_PER_BAR;
     const noteSteps = Math.ceil(totalTicks / snapTicks);
+    const pianoCellWidth = Math.max(6, Math.min(20, 12 * state.pianoScale));
     const viewport = document.createElement("div");
     viewport.className = "quick-piano-viewport";
     const ruler = document.createElement("div");
     ruler.className = "quick-action-bar-meter quick-piano-bar-meter";
     const notesPerBar = Math.ceil(PIANO_TICKS_PER_BAR / snapTicks);
-    ruler.style.gridTemplateColumns = `34px repeat(${state.pianoBars}, ${notesPerBar * 12}px)`;
+    ruler.style.gridTemplateColumns = `34px repeat(${state.pianoBars}, ${notesPerBar * pianoCellWidth}px)`;
     for (let bar = 0; bar < state.pianoBars; bar += 1) {
       const marker = document.createElement("span");
       marker.className = "quick-action-bar-marker";
@@ -751,7 +1143,7 @@
     const grid = document.createElement("div");
     grid.className = "quick-piano-grid";
     grid.dataset.snapTicks = String(snapTicks);
-    for (let midi = 84; midi >= 61; midi -= 1) {
+    for (let midi = PIANO_TOP_MIDI; midi >= PIANO_BOTTOM_MIDI; midi -= 1) {
       const row = document.createElement("div");
       row.className = `quick-piano-row${[1, 3, 6, 8, 10].includes(midi % 12) ? " is-black" : ""}`;
       const key = document.createElement("span");
@@ -760,6 +1152,7 @@
       row.append(key);
       const cells = document.createElement("div");
       cells.className = "quick-piano-cells";
+      cells.style.gridTemplateColumns = `repeat(${noteSteps}, ${pianoCellWidth}px)`;
       for (let index = 0; index < noteSteps; index += 1) {
         const startTick = index * snapTicks;
         const existing = state.pianoNotes.find((note) =>
@@ -771,6 +1164,7 @@
         cell.setAttribute("aria-label", `${midiNoteName(midi)}, step ${index + 1}${existing ? ", note on" : ", note off"}`);
         cell.setAttribute("aria-pressed", String(Boolean(existing)));
         cell.addEventListener("click", () => {
+          markPianoRollAudioEdited();
           if (existing) {
             state.pianoNotes = state.pianoNotes.filter((note) => note.id !== existing.id);
           } else {

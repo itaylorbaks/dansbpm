@@ -651,17 +651,24 @@
                         <div class="timeline-content" id="timeline-content"></div>
                       </div>
                     </div>
+                    <div class="quick-action-divider" id="quick-action-divider" role="separator" aria-label="Resize Quick View and Track View" aria-orientation="vertical" aria-valuenow="290" tabindex="0" hidden></div>
                     <aside class="quick-action-panel" id="quick-action-panel" aria-label="Quick Action" hidden>
                       <div class="quick-action-heading">
-                        <span>QUICK ACTION</span>
+                        <button class="quick-action-drag-handle" id="quick-action-drag-handle" type="button" aria-label="Drag Quick View to float or click to toggle floating" title="Drag to float Quick View">⠿</button>
+                        <span class="quick-action-title">QUICK ACTION</span>
                         <button class="quiet-button workspace-play-button quick-action-play-button" id="quick-action-play-button" type="button" aria-label="Play Quick Action" aria-pressed="false" hidden><span class="play-icon" aria-hidden="true"></span></button>
                         <select id="quick-action-view-select" aria-label="Quick Action view">
                           <option value="mixer">Mixer</option>
                           <option value="sequencer">Rack</option>
                           <option value="piano-roll">Piano Roll</option>
                         </select>
+                        <button class="quick-action-dock-button" id="quick-action-dock-button" type="button" hidden>Dock</button>
                       </div>
                       <div class="quick-action-content" id="quick-action-content"></div>
+                      <div class="quick-action-resize-handle quick-action-resize-left" data-resize-edge="left" role="separator" aria-label="Resize Quick View width" aria-orientation="vertical"></div>
+                      <div class="quick-action-resize-handle quick-action-resize-right" data-resize-edge="right" role="separator" aria-label="Resize Quick View width" aria-orientation="vertical"></div>
+                      <div class="quick-action-resize-handle quick-action-resize-top" data-resize-edge="top" role="separator" aria-label="Resize Quick View height" aria-orientation="horizontal"></div>
+                      <div class="quick-action-resize-handle quick-action-resize-bottom" data-resize-edge="bottom" role="separator" aria-label="Resize Quick View height" aria-orientation="horizontal"></div>
                     </aside>
                   </div>
                 </section>
@@ -1278,6 +1285,6 @@
       <button class="continue-as-guest" id="continue-as-guest" type="button">Continue as Guest</button>
     </section>
     <script src="assets/vendor/lame.min.js"></script>
-    <script src="app.js?v=6e7c166b6dd6"></script>
+    <script src="app.js?v=061720b8bcce"></script>
   </body>
 </html>
