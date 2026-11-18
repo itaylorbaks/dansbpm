@@ -594,36 +594,46 @@
   function renderRecordingBrowser() {
     const browser = $("#recording-browser");
     browser.replaceChildren();
-    const clips = [];
-    const slicedSources = new Map();
+    const roots = [];
+    const rootKeys = new Set();
+    const addRoot = (root, track = null, fullSource = false, assetOnly = false) => {
+      const sourceId = root?.segmentSourceAssetId
+        ? root.segmentSourceAssetId
+        : root?.isSourceAudioAsset
+          ? root.sourceAssetId
+          : root?.sourceAssetId || root?.assetId || root?.id;
+      if (!sourceId || rootKeys.has(sourceId)) return;
+      rootKeys.add(sourceId);
+      roots.push({ track, clip: root, fullSource, assetOnly });
+    };
     state.arrangementTracks.forEach((track) => {
       track.clips.forEach((clip) => {
-        if (clip.isMelSlice) {
-          const sourceAssetId = clip.sourceAssetId || clip.id;
-          const hasStoredSource = state.audioAssets.some((asset) =>
-            asset.isSourceAudioAsset && asset.sourceAssetId === sourceAssetId);
-          if (!hasStoredSource && !slicedSources.has(sourceAssetId)) {
-            slicedSources.set(sourceAssetId, { track, clip, fullSource: true });
-          }
-        } else {
-          clips.push({ track, clip, fullSource: false });
-        }
+        if (clip.segmentSourceAssetId) return;
+        if (clip.isMelSlice) addRoot(clip, track, true, false);
+        else addRoot(clip, track, false, false);
       });
     });
-    clips.push(...slicedSources.values());
-    const listedAssetIds = new Set(clips.map(({ clip }) => clip.id));
-    state.audioAssets.forEach((clip) => {
-      if (!listedAssetIds.has(clip.id)) clips.push({ track: null, clip, fullSource: false, assetOnly: true });
+    state.audioAssets.forEach((asset) => {
+      if (asset.segmentSourceAssetId) return;
+      addRoot(asset, null, false, true);
     });
-    $("#recording-source-count").textContent = String(clips.length);
-    if (!clips.length) {
+    $("#recording-source-count").textContent = String(roots.length);
+    if (!roots.length) {
       const empty = document.createElement("div");
       empty.className = "recording-source-empty";
       empty.textContent = "No audio imported yet";
       browser.append(empty);
       return;
     }
-    clips.forEach(({ track, clip, fullSource, assetOnly = false }) => {
+    roots.forEach(({ track, clip, fullSource, assetOnly = false }) => {
+      const sourceId = clip.segmentSourceAssetId
+        ? clip.segmentSourceAssetId
+        : clip.isSourceAudioAsset
+          ? clip.sourceAssetId
+          : clip.sourceAssetId || clip.assetId || clip.id;
+      const sourceKeys = new Set([sourceId, clip.id, clip.assetId, clip.sourceAssetId].filter(Boolean));
+      const segments = state.audioAssets.filter((asset) =>
+        sourceKeys.has(asset.segmentSourceAssetId));
       const item = document.createElement("button");
       item.className = "recording-source";
       item.type = "button";
@@ -659,7 +669,70 @@
         $("#timeline-scroll").scrollLeft = clip.startBar * BAR_WIDTH;
         $("#source-browser-dialog").close();
       });
-      browser.append(item);
+      if (!segments.length) {
+        browser.append(item);
+        return;
+      }
+      const group = document.createElement("details");
+      group.className = "recording-source-group";
+      group.open = false;
+      const summary = document.createElement("summary");
+      summary.className = "recording-source";
+      summary.draggable = true;
+      summary.title = `Click to show ${segments.length} segment${segments.length === 1 ? "" : "s"}; drag to Track View`;
+      summary.addEventListener("dragstart", (event) => {
+        if (!event.dataTransfer) return;
+        event.dataTransfer.setData("application/x-pulsegrid-audio-source", JSON.stringify({
+          sourceTrackId: track?.id || "",
+          clipId: clip.id,
+          fullSource,
+          assetOnly,
+        }));
+        event.dataTransfer.effectAllowed = "copy";
+      });
+      summary.addEventListener("contextmenu", (event) => openAssetContextMenu("audio", clip.id, event));
+      const summaryColor = document.createElement("span");
+      summaryColor.className = "source-color";
+      summaryColor.style.background = track?.color || "#b5a0ff";
+      const summaryName = document.createElement("span");
+      summaryName.className = "recording-source-name";
+      summaryName.textContent = clip.name || track?.name;
+      const summaryCount = document.createElement("span");
+      summaryCount.className = "recording-source-count";
+      summaryCount.textContent = `${segments.length} segment${segments.length === 1 ? "" : "s"}`;
+      summary.append(summaryColor, summaryName, summaryCount);
+      group.append(summary);
+      segments
+        .slice()
+        .sort((left, right) => (left.segmentStartSeconds || 0) - (right.segmentStartSeconds || 0))
+        .forEach((segment) => {
+          const segmentItem = document.createElement("button");
+          segmentItem.className = "recording-source recording-source-segment";
+          segmentItem.type = "button";
+          segmentItem.draggable = true;
+          segmentItem.title = `Drag ${segment.name} to Track View`;
+          const segmentName = document.createElement("span");
+          segmentName.className = "recording-source-name";
+          segmentName.textContent = segment.name;
+          const segmentKind = document.createElement("span");
+          segmentKind.className = "recording-source-count";
+          segmentKind.textContent = "Segment";
+          segmentItem.append(segmentName, segmentKind);
+          segmentItem.addEventListener("dragstart", (event) => {
+            if (!event.dataTransfer) return;
+            event.dataTransfer.setData("application/x-pulsegrid-audio-source", JSON.stringify({
+              sourceTrackId: "",
+              clipId: segment.id,
+              fullSource: false,
+              assetOnly: true,
+            }));
+            event.dataTransfer.effectAllowed = "copy";
+          });
+          segmentItem.addEventListener("contextmenu", (event) =>
+            openAssetContextMenu("audio", segment.id, event));
+          group.append(segmentItem);
+        });
+      browser.append(group);
     });
   }
 

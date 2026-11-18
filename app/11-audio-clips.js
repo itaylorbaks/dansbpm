@@ -1183,7 +1183,6 @@
     const cursor = snapArrangementBar(bar);
     setArrangementCursor(cursor);
     let splitCount = 0;
-    let audioMelAdded = false;
     const canSplit = (type, clip) => {
       const selected = state.selectedArrangementItems.has(arrangementSelectionKey(type, clip.id));
       const start = clip.startBar;
@@ -1293,7 +1292,6 @@
     state.arrangementTracks.forEach((track) => {
       track.clips.slice().forEach((clip) => {
         if (!canSplit("audio", clip)) return;
-        const linkedMel = getAudioClipEditedMel(clip);
         ensureFullAudioAsset(clip);
         const sourceAssetId = clip.sourceAssetId || clip.assetId || clip.id;
         const secondsPerBar = 240 / state.bpm;
@@ -1331,38 +1329,11 @@
           right.assetId = rightSegment.id;
           right.segmentSourceAssetId = sourceAssetId;
           renumberAudioSegments(sourceAssetId);
-          if (linkedMel) {
-            const secondsPerBar = 240 / state.bpm;
-            const tempoRatio = getAudioClipTempoRatio(clip);
-            const sourceAudio = state.audioAssets.find((asset) =>
-              asset.isSourceAudioAsset && asset.sourceAssetId === sourceAssetId);
-            const sourceClipOffset = sourceAudio?.sourceClipOffsetSeconds || 0;
-            const leftMel = createArrangementMelSegment(
-              linkedMel.id,
-              Math.max(0, sourceStart - sourceClipOffset) / secondsPerBar / tempoRatio,
-              leftDuration / secondsPerBar / tempoRatio,
-            );
-            const rightMel = createArrangementMelSegment(
-              linkedMel.id,
-              Math.max(0, rightSourceStart - sourceClipOffset) / secondsPerBar / tempoRatio,
-              (totalDuration - leftDuration) / secondsPerBar / tempoRatio,
-            );
-            if (leftMel) {
-              leftMel.audioSourceAssetId = leftSegment.id;
-              leftMel.audioSourceClipId = clip.id;
-            }
-            if (rightMel) {
-              rightMel.audioSourceAssetId = rightSegment.id;
-              rightMel.audioSourceClipId = right.id;
-            }
-          }
         }
         clip.isMelSlice = true;
         clip.sourceAssetId = sourceAssetId;
         right.isMelSlice = true;
         right.sourceAssetId = sourceAssetId;
-        audioMelAdded = ensureAudioClipMel(clip) || audioMelAdded;
-        audioMelAdded = ensureAudioClipMel(right) || audioMelAdded;
         track.clips.push(right);
         splitKeys.add(arrangementSelectionKey("audio", clip.id));
         splitKeys.add(arrangementSelectionKey("audio", right.id));
@@ -1379,7 +1350,6 @@
     }
     state.selectedArrangementItems = splitKeys;
     state.arrangementSelectionFromMarquee = false;
-    if (audioMelAdded) renderMelOptions();
     renderArrangementAssetBrowser();
     renderRecordingBrowser();
     updateArrangementLength();

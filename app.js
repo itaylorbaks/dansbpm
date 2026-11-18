@@ -7924,22 +7924,36 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     return { id: makeId(), name, instrumentId, bars, notes: notes.map((note) => ({ ...note })), audioSourceClipId: null };
   }
 
-  function ensureAudioClipMel(clip) {
-    const audioAssetId = clip.assetId || clip.id;
-    if (state.mels.some((mel) =>
-      mel.audioSourceAssetId === audioAssetId || mel.audioSourceClipId === clip.id)) return false;
-    const baseName = `${clip.name.replace(/\.[^.]+$/, "").trim() || "Audio"} Mel`.slice(0, 48);
+  function markPianoRollAudioEdited() {
+    const clipId = state.pianoRollAudioClipId;
+    if (!clipId) return;
+    const existing = state.mels.find((mel) =>
+      mel.audioSourceClipId === clipId ||
+      mel.audioSourceAssetId === clipId);
+    if (existing) {
+      existing.notes = state.pianoNotes.map((note) => ({ ...note, trackId: existing.instrumentId }));
+      state.selectedMelId = existing.id;
+      return;
+    }
+    const clip = state.arrangementTracks
+      .flatMap((track) => track.clips)
+      .find((item) => item.id === clipId) ||
+      state.audioAssets.find((asset) => asset.id === clipId);
+    const nameSource = clip?.name || "Audio";
+    const baseName = `${nameSource.replace(/\.[^.]+$/, "").trim() || "Audio"} Mel`.slice(0, 48);
     let name = baseName;
     let suffix = 2;
     while (state.mels.some((mel) => mel.name.toLowerCase() === name.toLowerCase())) {
       name = `${baseName.slice(0, 60 - String(suffix).length)} ${suffix}`;
       suffix += 1;
     }
-    const mel = makeMel(name);
-    mel.audioSourceClipId = clip.id;
-    mel.audioSourceAssetId = audioAssetId;
+    const mel = makeMel(name, state.selectedPianoTrackId, state.pianoBars,
+      state.pianoNotes.map((note) => ({ ...note })));
+    mel.audioSourceClipId = clipId;
+    mel.audioSourceAssetId = clip?.assetId || clip?.id || clipId;
     state.mels.push(mel);
-    return true;
+    state.selectedMelId = mel.id;
+    renderMelOptions();
   }
 
   function captureCurrentMel() {
@@ -8654,6 +8668,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       showToast("The notes are already in the selected key and scale.");
       return;
     }
+    markPianoRollAudioEdited();
     renderPianoRoll();
     renderArrangement();
     saveState();
@@ -8682,11 +8697,6 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   function selectPianoRollAudioSource(clipId) {
     const clip = getPianoRollAudioClipById(clipId);
     state.pianoRollAudioClipId = clip?.id || null;
-    const mel = getMel();
-    if (mel) {
-      mel.audioSourceClipId = state.pianoRollAudioClipId;
-      mel.audioSourceAssetId = clip?.assetId || null;
-    }
     renderPianoRoll();
     saveState();
   }
@@ -8827,26 +8837,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     const finalSliceTicks = durationTicks - (sliceCount - 1) * sliceTicks;
     const keepLastSliceAtEnd = finalSliceTicks < sliceTicks - 0.0001;
     const sliceOrder = getPianoChopperSliceOrder(sliceCount, $("#piano-chopper-organize").value, keepLastSliceAtEnd);
-    let mel = state.mels.slice().reverse().find((item) => item.audioSourceClipId === clip.id) || null;
-    if (mel) {
-      if (state.selectedMelId !== mel.id) {
-        captureCurrentMel();
-        loadMel(mel.id);
-      }
-    } else {
-      captureCurrentMel();
-      const baseName = `${clip.name.replace(/\.[^.]+$/, "").trim() || "Audio"} Chops`.slice(0, 48);
-      let melName = baseName;
-      let suffix = 2;
-      while (state.mels.some((item) => item.name.toLowerCase() === melName.toLowerCase())) {
-        melName = `${baseName.slice(0, 60 - String(suffix).length)} ${suffix}`;
-        suffix += 1;
-      }
-      mel = makeMel(melName, state.selectedPianoTrackId, state.pianoBars, []);
-      mel.audioSourceClipId = clip.id;
-      state.mels.push(mel);
-      loadMel(mel.id);
-    }
+    captureCurrentMel();
+    state.selectedMelId = null;
     state.pianoNotes = state.pianoNotes.filter((note) =>
       note.audioSlice?.clipId !== clip.id);
     const startIndex = state.pianoNotes.length;
@@ -8878,11 +8870,6 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       });
     }
     state.pianoRollAudioClipId = clip.id;
-    if (mel) {
-      mel.audioSourceClipId = clip.id;
-      mel.audioSourceAssetId = clip.assetId || clip.id;
-      mel.bars = Math.max(mel.bars || 1, [1, 2, 4, 8].find((bars) => bars * PIANO_TICKS_PER_BAR >= durationTicks) || 8);
-    }
     state.pianoBars = Math.max(state.pianoBars,
       [1, 2, 4, 8].find((bars) => bars * PIANO_TICKS_PER_BAR >= durationTicks) || 8);
     state.selectedPianoNoteId = state.pianoNotes[startIndex]?.id || null;
@@ -8964,15 +8951,14 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         mel.instrumentId = state.selectedPianoTrackId;
         mel.bars = bars;
         mel.notes = notes.map((note) => ({ ...note }));
+        mel.audioSourceAssetId = clip.assetId || clip.id;
+        state.selectedMelId = mel.id;
+        loadMel(mel.id);
       } else {
-        const name = clip.name.replace(/\.[^.]+$/, "").trim() || "Audio transcription";
-        mel = makeMel(name, state.selectedPianoTrackId, bars, notes);
-        mel.audioSourceClipId = clip.id;
-        state.mels.push(mel);
+        state.pianoNotes = notes.map((note) => ({ ...note }));
+        state.pianoBars = bars;
+        state.selectedMelId = null;
       }
-      mel.audioSourceAssetId = clip.assetId || clip.id;
-      state.selectedMelId = mel.id;
-      loadMel(mel.id);
       const detectedKey = clip.audioMetadata?.key?.match(/^([A-G]#?) (major|minor)$/i);
       if (detectedKey) {
         const keyNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
@@ -9513,6 +9499,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     state.pianoNotes.forEach((note) => {
       if (targets.has(note.id)) note[property] = noteValue;
     });
+    markPianoRollAudioEdited();
     updatePianoNoteContextOutput(property, sliderValue);
     renderArrangement();
     saveState();
@@ -9546,6 +9533,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       showToast("The notes are already on the selected grid.");
       return;
     }
+    markPianoRollAudioEdited();
     renderPianoRoll();
     updateArrangementLength();
     renderArrangement();
@@ -9567,6 +9555,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       note.startTick = Math.max(0, Math.min(totalTicks - note.durationTicks, note.startTick + timingOffset));
       note.velocity = Math.max(0, Math.min(1, (note.velocity ?? 0.8) + (Math.random() * 2 - 1) * 0.1));
     });
+    markPianoRollAudioEdited();
     closePianoNoteContextMenu();
     renderPianoRoll();
     updateArrangementLength();
@@ -9656,7 +9645,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=9b5fa0b55b6e");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=8a1c3484d618");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -9847,6 +9836,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       if (stroke.existingCells.has(cellKey) || stroke.cells.has(cellKey)) return false;
       stroke.cells.add(cellKey);
       state.pianoNotes.push(note);
+      markPianoRollAudioEdited();
       state.selectedPianoNoteIds.add(note.id);
       state.selectedPianoNoteId = note.id;
       return true;
@@ -9900,6 +9890,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     const note = makePianoNoteFromPointer(event);
     if (!note) return;
     state.pianoNotes.push(note);
+    markPianoRollAudioEdited();
     state.selectedPianoNoteId = note.id;
     state.selectedPianoNoteIds = event.shiftKey
       ? new Set([...state.selectedPianoNoteIds, note.id])
@@ -10046,6 +10037,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         deleteSelectedPianoNotes(new Set([note.id]));
         return;
       }
+      if (moved) markPianoRollAudioEdited();
       state.suppressPianoGridClick = true;
       window.setTimeout(() => { state.suppressPianoGridClick = false; }, 0);
       updateArrangementLength();
@@ -10077,6 +10069,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     state.selectedArrangementItems.clear();
     updateArrangementSelection();
     state.pianoNotes = state.pianoNotes.filter((note) => !existingIds.has(note.id));
+    markPianoRollAudioEdited();
     state.pianoSelectionFromMarquee = false;
     existingIds.forEach((id) => {
       [...state.scheduledPianoNotes].filter((key) => key.startsWith(`${id}:`)).forEach((key) => state.scheduledPianoNotes.delete(key));
@@ -10135,6 +10128,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         note.midi += deltaPitch;
       });
     }
+    markPianoRollAudioEdited();
     renderPianoRoll();
     updateArrangementLength();
     renderArrangement();
@@ -19547,36 +19541,46 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   function renderRecordingBrowser() {
     const browser = $("#recording-browser");
     browser.replaceChildren();
-    const clips = [];
-    const slicedSources = new Map();
+    const roots = [];
+    const rootKeys = new Set();
+    const addRoot = (root, track = null, fullSource = false, assetOnly = false) => {
+      const sourceId = root?.segmentSourceAssetId
+        ? root.segmentSourceAssetId
+        : root?.isSourceAudioAsset
+          ? root.sourceAssetId
+          : root?.sourceAssetId || root?.assetId || root?.id;
+      if (!sourceId || rootKeys.has(sourceId)) return;
+      rootKeys.add(sourceId);
+      roots.push({ track, clip: root, fullSource, assetOnly });
+    };
     state.arrangementTracks.forEach((track) => {
       track.clips.forEach((clip) => {
-        if (clip.isMelSlice) {
-          const sourceAssetId = clip.sourceAssetId || clip.id;
-          const hasStoredSource = state.audioAssets.some((asset) =>
-            asset.isSourceAudioAsset && asset.sourceAssetId === sourceAssetId);
-          if (!hasStoredSource && !slicedSources.has(sourceAssetId)) {
-            slicedSources.set(sourceAssetId, { track, clip, fullSource: true });
-          }
-        } else {
-          clips.push({ track, clip, fullSource: false });
-        }
+        if (clip.segmentSourceAssetId) return;
+        if (clip.isMelSlice) addRoot(clip, track, true, false);
+        else addRoot(clip, track, false, false);
       });
     });
-    clips.push(...slicedSources.values());
-    const listedAssetIds = new Set(clips.map(({ clip }) => clip.id));
-    state.audioAssets.forEach((clip) => {
-      if (!listedAssetIds.has(clip.id)) clips.push({ track: null, clip, fullSource: false, assetOnly: true });
+    state.audioAssets.forEach((asset) => {
+      if (asset.segmentSourceAssetId) return;
+      addRoot(asset, null, false, true);
     });
-    $("#recording-source-count").textContent = String(clips.length);
-    if (!clips.length) {
+    $("#recording-source-count").textContent = String(roots.length);
+    if (!roots.length) {
       const empty = document.createElement("div");
       empty.className = "recording-source-empty";
       empty.textContent = "No audio imported yet";
       browser.append(empty);
       return;
     }
-    clips.forEach(({ track, clip, fullSource, assetOnly = false }) => {
+    roots.forEach(({ track, clip, fullSource, assetOnly = false }) => {
+      const sourceId = clip.segmentSourceAssetId
+        ? clip.segmentSourceAssetId
+        : clip.isSourceAudioAsset
+          ? clip.sourceAssetId
+          : clip.sourceAssetId || clip.assetId || clip.id;
+      const sourceKeys = new Set([sourceId, clip.id, clip.assetId, clip.sourceAssetId].filter(Boolean));
+      const segments = state.audioAssets.filter((asset) =>
+        sourceKeys.has(asset.segmentSourceAssetId));
       const item = document.createElement("button");
       item.className = "recording-source";
       item.type = "button";
@@ -19612,7 +19616,70 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         $("#timeline-scroll").scrollLeft = clip.startBar * BAR_WIDTH;
         $("#source-browser-dialog").close();
       });
-      browser.append(item);
+      if (!segments.length) {
+        browser.append(item);
+        return;
+      }
+      const group = document.createElement("details");
+      group.className = "recording-source-group";
+      group.open = false;
+      const summary = document.createElement("summary");
+      summary.className = "recording-source";
+      summary.draggable = true;
+      summary.title = `Click to show ${segments.length} segment${segments.length === 1 ? "" : "s"}; drag to Track View`;
+      summary.addEventListener("dragstart", (event) => {
+        if (!event.dataTransfer) return;
+        event.dataTransfer.setData("application/x-pulsegrid-audio-source", JSON.stringify({
+          sourceTrackId: track?.id || "",
+          clipId: clip.id,
+          fullSource,
+          assetOnly,
+        }));
+        event.dataTransfer.effectAllowed = "copy";
+      });
+      summary.addEventListener("contextmenu", (event) => openAssetContextMenu("audio", clip.id, event));
+      const summaryColor = document.createElement("span");
+      summaryColor.className = "source-color";
+      summaryColor.style.background = track?.color || "#b5a0ff";
+      const summaryName = document.createElement("span");
+      summaryName.className = "recording-source-name";
+      summaryName.textContent = clip.name || track?.name;
+      const summaryCount = document.createElement("span");
+      summaryCount.className = "recording-source-count";
+      summaryCount.textContent = `${segments.length} segment${segments.length === 1 ? "" : "s"}`;
+      summary.append(summaryColor, summaryName, summaryCount);
+      group.append(summary);
+      segments
+        .slice()
+        .sort((left, right) => (left.segmentStartSeconds || 0) - (right.segmentStartSeconds || 0))
+        .forEach((segment) => {
+          const segmentItem = document.createElement("button");
+          segmentItem.className = "recording-source recording-source-segment";
+          segmentItem.type = "button";
+          segmentItem.draggable = true;
+          segmentItem.title = `Drag ${segment.name} to Track View`;
+          const segmentName = document.createElement("span");
+          segmentName.className = "recording-source-name";
+          segmentName.textContent = segment.name;
+          const segmentKind = document.createElement("span");
+          segmentKind.className = "recording-source-count";
+          segmentKind.textContent = "Segment";
+          segmentItem.append(segmentName, segmentKind);
+          segmentItem.addEventListener("dragstart", (event) => {
+            if (!event.dataTransfer) return;
+            event.dataTransfer.setData("application/x-pulsegrid-audio-source", JSON.stringify({
+              sourceTrackId: "",
+              clipId: segment.id,
+              fullSource: false,
+              assetOnly: true,
+            }));
+            event.dataTransfer.effectAllowed = "copy";
+          });
+          segmentItem.addEventListener("contextmenu", (event) =>
+            openAssetContextMenu("audio", segment.id, event));
+          group.append(segmentItem);
+        });
+      browser.append(group);
     });
   }
 
@@ -21949,7 +22016,6 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     const cursor = snapArrangementBar(bar);
     setArrangementCursor(cursor);
     let splitCount = 0;
-    let audioMelAdded = false;
     const canSplit = (type, clip) => {
       const selected = state.selectedArrangementItems.has(arrangementSelectionKey(type, clip.id));
       const start = clip.startBar;
@@ -22059,7 +22125,6 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     state.arrangementTracks.forEach((track) => {
       track.clips.slice().forEach((clip) => {
         if (!canSplit("audio", clip)) return;
-        const linkedMel = getAudioClipEditedMel(clip);
         ensureFullAudioAsset(clip);
         const sourceAssetId = clip.sourceAssetId || clip.assetId || clip.id;
         const secondsPerBar = 240 / state.bpm;
@@ -22097,38 +22162,11 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
           right.assetId = rightSegment.id;
           right.segmentSourceAssetId = sourceAssetId;
           renumberAudioSegments(sourceAssetId);
-          if (linkedMel) {
-            const secondsPerBar = 240 / state.bpm;
-            const tempoRatio = getAudioClipTempoRatio(clip);
-            const sourceAudio = state.audioAssets.find((asset) =>
-              asset.isSourceAudioAsset && asset.sourceAssetId === sourceAssetId);
-            const sourceClipOffset = sourceAudio?.sourceClipOffsetSeconds || 0;
-            const leftMel = createArrangementMelSegment(
-              linkedMel.id,
-              Math.max(0, sourceStart - sourceClipOffset) / secondsPerBar / tempoRatio,
-              leftDuration / secondsPerBar / tempoRatio,
-            );
-            const rightMel = createArrangementMelSegment(
-              linkedMel.id,
-              Math.max(0, rightSourceStart - sourceClipOffset) / secondsPerBar / tempoRatio,
-              (totalDuration - leftDuration) / secondsPerBar / tempoRatio,
-            );
-            if (leftMel) {
-              leftMel.audioSourceAssetId = leftSegment.id;
-              leftMel.audioSourceClipId = clip.id;
-            }
-            if (rightMel) {
-              rightMel.audioSourceAssetId = rightSegment.id;
-              rightMel.audioSourceClipId = right.id;
-            }
-          }
         }
         clip.isMelSlice = true;
         clip.sourceAssetId = sourceAssetId;
         right.isMelSlice = true;
         right.sourceAssetId = sourceAssetId;
-        audioMelAdded = ensureAudioClipMel(clip) || audioMelAdded;
-        audioMelAdded = ensureAudioClipMel(right) || audioMelAdded;
         track.clips.push(right);
         splitKeys.add(arrangementSelectionKey("audio", clip.id));
         splitKeys.add(arrangementSelectionKey("audio", right.id));
@@ -22145,7 +22183,6 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     }
     state.selectedArrangementItems = splitKeys;
     state.arrangementSelectionFromMarquee = false;
-    if (audioMelAdded) renderMelOptions();
     renderArrangementAssetBrowser();
     renderRecordingBrowser();
     updateArrangementLength();
@@ -30311,6 +30348,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     window.addEventListener("scroll", updatePianoRulerViewport, true);
     window.addEventListener("resize", updatePianoRulerViewport);
     $("#clear-piano-roll-button").addEventListener("click", () => {
+      if (state.pianoNotes.length) markPianoRollAudioEdited();
       state.pianoNotes = [];
       state.selectedPianoNoteId = null;
       state.selectedPianoNoteIds.clear();

@@ -13,22 +13,36 @@
     return { id: makeId(), name, instrumentId, bars, notes: notes.map((note) => ({ ...note })), audioSourceClipId: null };
   }
 
-  function ensureAudioClipMel(clip) {
-    const audioAssetId = clip.assetId || clip.id;
-    if (state.mels.some((mel) =>
-      mel.audioSourceAssetId === audioAssetId || mel.audioSourceClipId === clip.id)) return false;
-    const baseName = `${clip.name.replace(/\.[^.]+$/, "").trim() || "Audio"} Mel`.slice(0, 48);
+  function markPianoRollAudioEdited() {
+    const clipId = state.pianoRollAudioClipId;
+    if (!clipId) return;
+    const existing = state.mels.find((mel) =>
+      mel.audioSourceClipId === clipId ||
+      mel.audioSourceAssetId === clipId);
+    if (existing) {
+      existing.notes = state.pianoNotes.map((note) => ({ ...note, trackId: existing.instrumentId }));
+      state.selectedMelId = existing.id;
+      return;
+    }
+    const clip = state.arrangementTracks
+      .flatMap((track) => track.clips)
+      .find((item) => item.id === clipId) ||
+      state.audioAssets.find((asset) => asset.id === clipId);
+    const nameSource = clip?.name || "Audio";
+    const baseName = `${nameSource.replace(/\.[^.]+$/, "").trim() || "Audio"} Mel`.slice(0, 48);
     let name = baseName;
     let suffix = 2;
     while (state.mels.some((mel) => mel.name.toLowerCase() === name.toLowerCase())) {
       name = `${baseName.slice(0, 60 - String(suffix).length)} ${suffix}`;
       suffix += 1;
     }
-    const mel = makeMel(name);
-    mel.audioSourceClipId = clip.id;
-    mel.audioSourceAssetId = audioAssetId;
+    const mel = makeMel(name, state.selectedPianoTrackId, state.pianoBars,
+      state.pianoNotes.map((note) => ({ ...note })));
+    mel.audioSourceClipId = clipId;
+    mel.audioSourceAssetId = clip?.assetId || clip?.id || clipId;
     state.mels.push(mel);
-    return true;
+    state.selectedMelId = mel.id;
+    renderMelOptions();
   }
 
   function captureCurrentMel() {
@@ -743,6 +757,7 @@
       showToast("The notes are already in the selected key and scale.");
       return;
     }
+    markPianoRollAudioEdited();
     renderPianoRoll();
     renderArrangement();
     saveState();
@@ -771,11 +786,6 @@
   function selectPianoRollAudioSource(clipId) {
     const clip = getPianoRollAudioClipById(clipId);
     state.pianoRollAudioClipId = clip?.id || null;
-    const mel = getMel();
-    if (mel) {
-      mel.audioSourceClipId = state.pianoRollAudioClipId;
-      mel.audioSourceAssetId = clip?.assetId || null;
-    }
     renderPianoRoll();
     saveState();
   }
@@ -916,26 +926,8 @@
     const finalSliceTicks = durationTicks - (sliceCount - 1) * sliceTicks;
     const keepLastSliceAtEnd = finalSliceTicks < sliceTicks - 0.0001;
     const sliceOrder = getPianoChopperSliceOrder(sliceCount, $("#piano-chopper-organize").value, keepLastSliceAtEnd);
-    let mel = state.mels.slice().reverse().find((item) => item.audioSourceClipId === clip.id) || null;
-    if (mel) {
-      if (state.selectedMelId !== mel.id) {
-        captureCurrentMel();
-        loadMel(mel.id);
-      }
-    } else {
-      captureCurrentMel();
-      const baseName = `${clip.name.replace(/\.[^.]+$/, "").trim() || "Audio"} Chops`.slice(0, 48);
-      let melName = baseName;
-      let suffix = 2;
-      while (state.mels.some((item) => item.name.toLowerCase() === melName.toLowerCase())) {
-        melName = `${baseName.slice(0, 60 - String(suffix).length)} ${suffix}`;
-        suffix += 1;
-      }
-      mel = makeMel(melName, state.selectedPianoTrackId, state.pianoBars, []);
-      mel.audioSourceClipId = clip.id;
-      state.mels.push(mel);
-      loadMel(mel.id);
-    }
+    captureCurrentMel();
+    state.selectedMelId = null;
     state.pianoNotes = state.pianoNotes.filter((note) =>
       note.audioSlice?.clipId !== clip.id);
     const startIndex = state.pianoNotes.length;
@@ -967,11 +959,6 @@
       });
     }
     state.pianoRollAudioClipId = clip.id;
-    if (mel) {
-      mel.audioSourceClipId = clip.id;
-      mel.audioSourceAssetId = clip.assetId || clip.id;
-      mel.bars = Math.max(mel.bars || 1, [1, 2, 4, 8].find((bars) => bars * PIANO_TICKS_PER_BAR >= durationTicks) || 8);
-    }
     state.pianoBars = Math.max(state.pianoBars,
       [1, 2, 4, 8].find((bars) => bars * PIANO_TICKS_PER_BAR >= durationTicks) || 8);
     state.selectedPianoNoteId = state.pianoNotes[startIndex]?.id || null;
@@ -1053,15 +1040,14 @@
         mel.instrumentId = state.selectedPianoTrackId;
         mel.bars = bars;
         mel.notes = notes.map((note) => ({ ...note }));
+        mel.audioSourceAssetId = clip.assetId || clip.id;
+        state.selectedMelId = mel.id;
+        loadMel(mel.id);
       } else {
-        const name = clip.name.replace(/\.[^.]+$/, "").trim() || "Audio transcription";
-        mel = makeMel(name, state.selectedPianoTrackId, bars, notes);
-        mel.audioSourceClipId = clip.id;
-        state.mels.push(mel);
+        state.pianoNotes = notes.map((note) => ({ ...note }));
+        state.pianoBars = bars;
+        state.selectedMelId = null;
       }
-      mel.audioSourceAssetId = clip.assetId || clip.id;
-      state.selectedMelId = mel.id;
-      loadMel(mel.id);
       const detectedKey = clip.audioMetadata?.key?.match(/^([A-G]#?) (major|minor)$/i);
       if (detectedKey) {
         const keyNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
@@ -1602,6 +1588,7 @@
     state.pianoNotes.forEach((note) => {
       if (targets.has(note.id)) note[property] = noteValue;
     });
+    markPianoRollAudioEdited();
     updatePianoNoteContextOutput(property, sliderValue);
     renderArrangement();
     saveState();
@@ -1635,6 +1622,7 @@
       showToast("The notes are already on the selected grid.");
       return;
     }
+    markPianoRollAudioEdited();
     renderPianoRoll();
     updateArrangementLength();
     renderArrangement();
@@ -1656,6 +1644,7 @@
       note.startTick = Math.max(0, Math.min(totalTicks - note.durationTicks, note.startTick + timingOffset));
       note.velocity = Math.max(0, Math.min(1, (note.velocity ?? 0.8) + (Math.random() * 2 - 1) * 0.1));
     });
+    markPianoRollAudioEdited();
     closePianoNoteContextMenu();
     renderPianoRoll();
     updateArrangementLength();
@@ -1936,6 +1925,7 @@
       if (stroke.existingCells.has(cellKey) || stroke.cells.has(cellKey)) return false;
       stroke.cells.add(cellKey);
       state.pianoNotes.push(note);
+      markPianoRollAudioEdited();
       state.selectedPianoNoteIds.add(note.id);
       state.selectedPianoNoteId = note.id;
       return true;
@@ -1989,6 +1979,7 @@
     const note = makePianoNoteFromPointer(event);
     if (!note) return;
     state.pianoNotes.push(note);
+    markPianoRollAudioEdited();
     state.selectedPianoNoteId = note.id;
     state.selectedPianoNoteIds = event.shiftKey
       ? new Set([...state.selectedPianoNoteIds, note.id])
@@ -2135,6 +2126,7 @@
         deleteSelectedPianoNotes(new Set([note.id]));
         return;
       }
+      if (moved) markPianoRollAudioEdited();
       state.suppressPianoGridClick = true;
       window.setTimeout(() => { state.suppressPianoGridClick = false; }, 0);
       updateArrangementLength();
@@ -2166,6 +2158,7 @@
     state.selectedArrangementItems.clear();
     updateArrangementSelection();
     state.pianoNotes = state.pianoNotes.filter((note) => !existingIds.has(note.id));
+    markPianoRollAudioEdited();
     state.pianoSelectionFromMarquee = false;
     existingIds.forEach((id) => {
       [...state.scheduledPianoNotes].filter((key) => key.startsWith(`${id}:`)).forEach((key) => state.scheduledPianoNotes.delete(key));
@@ -2224,6 +2217,7 @@
         note.midi += deltaPitch;
       });
     }
+    markPianoRollAudioEdited();
     renderPianoRoll();
     updateArrangementLength();
     renderArrangement();

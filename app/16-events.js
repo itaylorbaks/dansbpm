@@ -458,6 +458,7 @@
     window.addEventListener("scroll", updatePianoRulerViewport, true);
     window.addEventListener("resize", updatePianoRulerViewport);
     $("#clear-piano-roll-button").addEventListener("click", () => {
+      if (state.pianoNotes.length) markPianoRollAudioEdited();
       state.pianoNotes = [];
       state.selectedPianoNoteId = null;
       state.selectedPianoNoteIds.clear();

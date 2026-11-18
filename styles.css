@@ -524,6 +524,12 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .recording-source:active { cursor: grabbing; }
 .recording-source-name { overflow: hidden; flex: 1; color: #aeb0b1; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .recording-source-count { max-width: 78px; overflow: hidden; color: #77787e; font-family: var(--mono); font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
+.recording-source-group { display: flex; flex-direction: column; gap: 2px; }
+.recording-source-group summary { list-style: none; cursor: pointer; }
+.recording-source-group summary::before { width: 0; height: 0; flex: 0 0 auto; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 5px solid #8a8b90; margin-right: 1px; content: ""; transition: transform .12s ease; }
+.recording-source-group[open] summary::before { transform: rotate(90deg); }
+.recording-source-group summary::-webkit-details-marker { display: none; }
+.recording-source-segment { width: calc(100% - 12px); margin-left: 12px; padding-left: 8px; border-left: 1px solid #34353a; }
 .recording-source-empty { padding: 4px; color: #68696f; font-size: 9px; }
 .source-add-button { width: 100%; height: 29px; margin-top: 9px; border: 1px dashed #393a3f; border-radius: 5px; background: transparent; color: #9b9c9e; font-size: 9px; cursor: pointer; }
 .source-add-button:hover { border-color: #70765a; color: var(--accent); }
