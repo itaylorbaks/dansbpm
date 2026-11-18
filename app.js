@@ -9645,7 +9645,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=8a1c3484d618");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=6e7c166b6dd6");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -19684,6 +19684,43 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   }
 
   let assetLibraryDialogHome = null;
+  let trackAssetLaneHome = null;
+
+  function isTrackAssetLibraryOpen() {
+    return Boolean(trackAssetLaneHome);
+  }
+
+  function closeTrackAssetLibrary() {
+    if (!trackAssetLaneHome) return;
+    const sidebar = $(".source-sidebar");
+    const lane = $("#track-view-asset-lane");
+    const { parent, nextSibling } = trackAssetLaneHome;
+    parent.insertBefore(sidebar, nextSibling?.parentNode === parent ? nextSibling : null);
+    lane.hidden = true;
+    trackAssetLaneHome = null;
+  }
+
+  function prepareAssetLibrary() {
+    captureCurrentPattern();
+    captureCurrentMel();
+    renderArrangementAssetBrowser();
+    renderRecordingBrowser();
+    renderInstrumentBrowser("", true);
+  }
+
+  function openTrackAssetLibrary() {
+    if (trackAssetLaneHome) {
+      closeTrackAssetLibrary();
+      return;
+    }
+    if ($("#source-browser-dialog").open) $("#source-browser-dialog").close();
+    prepareAssetLibrary();
+    const sidebar = $(".source-sidebar");
+    const lane = $("#track-view-asset-lane");
+    trackAssetLaneHome = { parent: sidebar.parentElement, nextSibling: sidebar.nextSibling };
+    lane.append(sidebar);
+    lane.hidden = false;
+  }
 
   function restoreAssetLibraryDialogPosition() {
     if (!assetLibraryDialogHome) return;
@@ -19706,11 +19743,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   }
 
   function openAssetLibrary() {
-    captureCurrentPattern();
-    captureCurrentMel();
-    renderArrangementAssetBrowser();
-    renderRecordingBrowser();
-    renderInstrumentBrowser("", true);
+    closeTrackAssetLibrary();
+    prepareAssetLibrary();
     const dialog = $("#source-browser-dialog");
     if (!dialog.open) dialog.show();
     syncAssetLibraryDialogFullscreen();
@@ -30590,8 +30624,11 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     $("#mixer-routing-dialog").addEventListener("click", (event) => {
       if (event.target === $("#mixer-routing-dialog")) $("#mixer-routing-dialog").close();
     });
-    $("#source-browser-button").addEventListener("click", () => openAssetLibrary());
-    $("#source-browser-close").addEventListener("click", () => $("#source-browser-dialog").close());
+    $("#source-browser-button").addEventListener("click", () => openTrackAssetLibrary());
+    $("#source-browser-close").addEventListener("click", () => {
+      if (isTrackAssetLibraryOpen()) closeTrackAssetLibrary();
+      else $("#source-browser-dialog").close();
+    });
     $("#source-browser-dialog").addEventListener("close", () => {
       closeAssetContextMenu();
       closeSoundDurationMenu();

@@ -737,6 +737,43 @@
   }
 
   let assetLibraryDialogHome = null;
+  let trackAssetLaneHome = null;
+
+  function isTrackAssetLibraryOpen() {
+    return Boolean(trackAssetLaneHome);
+  }
+
+  function closeTrackAssetLibrary() {
+    if (!trackAssetLaneHome) return;
+    const sidebar = $(".source-sidebar");
+    const lane = $("#track-view-asset-lane");
+    const { parent, nextSibling } = trackAssetLaneHome;
+    parent.insertBefore(sidebar, nextSibling?.parentNode === parent ? nextSibling : null);
+    lane.hidden = true;
+    trackAssetLaneHome = null;
+  }
+
+  function prepareAssetLibrary() {
+    captureCurrentPattern();
+    captureCurrentMel();
+    renderArrangementAssetBrowser();
+    renderRecordingBrowser();
+    renderInstrumentBrowser("", true);
+  }
+
+  function openTrackAssetLibrary() {
+    if (trackAssetLaneHome) {
+      closeTrackAssetLibrary();
+      return;
+    }
+    if ($("#source-browser-dialog").open) $("#source-browser-dialog").close();
+    prepareAssetLibrary();
+    const sidebar = $(".source-sidebar");
+    const lane = $("#track-view-asset-lane");
+    trackAssetLaneHome = { parent: sidebar.parentElement, nextSibling: sidebar.nextSibling };
+    lane.append(sidebar);
+    lane.hidden = false;
+  }
 
   function restoreAssetLibraryDialogPosition() {
     if (!assetLibraryDialogHome) return;
@@ -759,11 +796,8 @@
   }
 
   function openAssetLibrary() {
-    captureCurrentPattern();
-    captureCurrentMel();
-    renderArrangementAssetBrowser();
-    renderRecordingBrowser();
-    renderInstrumentBrowser("", true);
+    closeTrackAssetLibrary();
+    prepareAssetLibrary();
     const dialog = $("#source-browser-dialog");
     if (!dialog.open) dialog.show();
     syncAssetLibraryDialogFullscreen();

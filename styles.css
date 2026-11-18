@@ -1180,6 +1180,10 @@ body:has(#arrangement-view:not([hidden])) .workspace-tabs {
 .workspace-content > .workspace-tool-panel .section-heading { padding-top: 16px; }
 .track-view-area { display: flex; min-width: 0; min-height: 0; grid-row: 3; flex-direction: column; }
 .track-view-heading { justify-content: space-between; border-top: 0; }
+.track-view-asset-lane { width: clamp(180px, 22vw, 240px); min-width: 0; min-height: 0; flex: 0 0 clamp(180px, 22vw, 240px); overflow-y: auto; overscroll-behavior: contain; border-right: 1px solid var(--stroke); background: #1b1c1f; scrollbar-width: thin; }
+.track-view-asset-lane[hidden] { display: none; }
+.track-view-asset-lane .source-sidebar { width: 100%; min-height: 100%; padding: 0 10px 12px; }
+.track-view-asset-lane .source-sidebar-heading { position: sticky; top: 0; z-index: 4; background: #1b1c1f; }
 .track-view-controls { display: flex; align-items: center; gap: 8px; }
 .track-view-controls .quiet-button { height: 22px; padding: 0 8px; font-size: 8px; letter-spacing: 0; }
 .track-view-controls .record-audio-button { width: 22px; flex: 0 0 22px; padding: 0; }

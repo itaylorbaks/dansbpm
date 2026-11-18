@@ -700,8 +700,11 @@
     $("#mixer-routing-dialog").addEventListener("click", (event) => {
       if (event.target === $("#mixer-routing-dialog")) $("#mixer-routing-dialog").close();
     });
-    $("#source-browser-button").addEventListener("click", () => openAssetLibrary());
-    $("#source-browser-close").addEventListener("click", () => $("#source-browser-dialog").close());
+    $("#source-browser-button").addEventListener("click", () => openTrackAssetLibrary());
+    $("#source-browser-close").addEventListener("click", () => {
+      if (isTrackAssetLibraryOpen()) closeTrackAssetLibrary();
+      else $("#source-browser-dialog").close();
+    });
     $("#source-browser-dialog").addEventListener("close", () => {
       closeAssetContextMenu();
       closeSoundDurationMenu();
