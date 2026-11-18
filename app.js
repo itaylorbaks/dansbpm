@@ -9656,7 +9656,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=c1dac9d34191");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=7868c6d205fa");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -18316,7 +18316,13 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
           renderMixer();
           openMixerRoutingDialog(track);
         });
-        titleGroup.append(title, renameButton, routeButton);
+        const deleteButton = document.createElement("button");
+        deleteButton.className = "mixer-track-action";
+        deleteButton.type = "button";
+        deleteButton.textContent = "Delete";
+        deleteButton.setAttribute("aria-label", `Delete ${track.name}`);
+        deleteButton.addEventListener("click", () => removeEffectTrack(track));
+        titleGroup.append(title, renameButton, routeButton, deleteButton);
         row.append(titleGroup, makeMixerVolumeMonitor(track), makeMixerVolumeKnob(track), makeMixerPanKnob(track));
       } else {
         row.append(title, makeMixerVolumeMonitor(track), makeMixerVolumeKnob(track), makeMixerPanKnob(track));

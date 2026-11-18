@@ -655,7 +655,13 @@
           renderMixer();
           openMixerRoutingDialog(track);
         });
-        titleGroup.append(title, renameButton, routeButton);
+        const deleteButton = document.createElement("button");
+        deleteButton.className = "mixer-track-action";
+        deleteButton.type = "button";
+        deleteButton.textContent = "Delete";
+        deleteButton.setAttribute("aria-label", `Delete ${track.name}`);
+        deleteButton.addEventListener("click", () => removeEffectTrack(track));
+        titleGroup.append(title, renameButton, routeButton, deleteButton);
         row.append(titleGroup, makeMixerVolumeMonitor(track), makeMixerVolumeKnob(track), makeMixerPanKnob(track));
       } else {
         row.append(title, makeMixerVolumeMonitor(track), makeMixerVolumeKnob(track), makeMixerPanKnob(track));
