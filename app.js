@@ -9048,7 +9048,7 @@ const DRIVE_SAMPLE_TRACKS = [
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=76775c4e6118");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=94fbb7dae3bc");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -15762,7 +15762,7 @@ const DRIVE_SAMPLE_TRACKS = [
       adjustment.keyShiftSemitones >= -6 && adjustment.keyShiftSemitones <= 6
       ? adjustment.keyShiftSemitones : 0;
     const isKey = (value) => typeof value === "string" && /^[A-G]#? (major|minor)$/.test(value);
-    const isBpm = (value) => Number.isFinite(value) && value >= 40 && value <= 240;
+    const isBpm = (value) => Number.isFinite(value) && value >= 30 && value <= 360;
     const isSourceBpm = (value) => Number.isFinite(value) && value >= 30 && value <= 360;
     if (tempoRatio === 1 && keyShiftSemitones === 0 && !isSourceBpm(adjustment.sourceBpm)) return null;
     return {
@@ -15812,10 +15812,12 @@ const DRIVE_SAMPLE_TRACKS = [
     return !hasArrangementContent && !hasMelodicContent && !hasAudioMetadata && !getProjectKey(false);
   }
 
-  function getAudioClipProjectAdjustment(metadata, matchTempo = true, bpmMultiplier = 1) {
+  function getAudioClipProjectAdjustment(metadata, targetBpm = null) {
     const { bpm: detectedBpm, key } = normalizeAudioMetadata(metadata);
-    const bpm = detectedBpm === null ? null : roundBpm(detectedBpm * bpmMultiplier);
-    const tempoRatio = matchTempo && bpm ? state.bpm / bpm : 1;
+    const selectedTargetBpm = Number.isFinite(targetBpm) && targetBpm >= 30 && targetBpm <= 360
+      ? roundBpm(targetBpm) : null;
+    const tempoRatio = selectedTargetBpm && detectedBpm
+      ? selectedTargetBpm / detectedBpm : 1;
     const projectKey = getProjectKey(false);
     let keyShiftSemitones = 0;
     if (key && projectKey) {
@@ -15826,10 +15828,10 @@ const DRIVE_SAMPLE_TRACKS = [
         if (keyShiftSemitones > 6) keyShiftSemitones -= 12;
       }
     }
-    if (Math.abs(tempoRatio - 1) < 0.001 && keyShiftSemitones === 0 && bpm === detectedBpm) return null;
+    if (selectedTargetBpm === null && keyShiftSemitones === 0) return null;
     return {
-      sourceBpm: bpm,
-      targetBpm: matchTempo && bpm && Math.abs(tempoRatio - 1) >= 0.001 ? state.bpm : null,
+      sourceBpm: detectedBpm,
+      targetBpm: selectedTargetBpm,
       sourceKey: key,
       targetKey: keyShiftSemitones ? projectKey : null,
       tempoRatio,
@@ -19767,29 +19769,35 @@ const DRIVE_SAMPLE_TRACKS = [
     dialog.showModal();
   }
 
-  function askAudioTempoChoice(filename, detectedBpm) {
+  function askAudioTempoChoice(filename, detectedBpm, projectBpm = state.bpm) {
     const dialog = $("#audio-tempo-dialog");
     const mainOptions = $("#audio-tempo-main-options");
     const interpretations = $("#audio-tempo-interpretations");
     const adjustAudioButton = $("#audio-tempo-audio-to-project");
     const interpretationDescription = $("#audio-tempo-interpretation-description");
-    const actualBpm = detectedBpm === null ? null : roundBpm(detectedBpm);
-    const doubleBpm = actualBpm === null ? null : roundBpm(actualBpm * 2);
-    const halfBpm = actualBpm === null ? null : roundBpm(actualBpm / 2);
+    const projectTempoBpm = roundBpm(projectBpm);
+    const doubleBpm = roundBpm(projectTempoBpm * 2);
+    const halfBpm = roundBpm(projectTempoBpm / 2);
+    const canStretchTo = (targetBpm) => detectedBpm !== null &&
+      targetBpm / detectedBpm >= 1 / 6 && targetBpm / detectedBpm <= 6;
     $("#audio-tempo-file").textContent = filename;
     $("#audio-tempo-detection").textContent = detectedBpm === null
       ? "Tempo could not be confidently detected. You can leave both tempos unchanged."
-      : `Detected audio tempo: ${detectedBpm} BPM.`;
+      : `Detected audio tempo: ${detectedBpm} BPM · Project tempo: ${projectTempoBpm} BPM.`;
     adjustAudioButton.disabled = detectedBpm === null;
     $("#audio-tempo-project-to-audio").disabled = detectedBpm === null;
-    $("#audio-tempo-actual").textContent = `Use actual tempo (${actualBpm} BPM)`;
-    $("#audio-tempo-double").textContent = `Use double tempo (${doubleBpm} BPM)`;
-    $("#audio-tempo-half").textContent = `Use half tempo (${halfBpm} BPM)`;
-    $("#audio-tempo-actual").disabled = actualBpm === null;
-    $("#audio-tempo-double").disabled = doubleBpm === null || doubleBpm > 360;
-    $("#audio-tempo-half").disabled = halfBpm === null || halfBpm < 30;
-    interpretationDescription.textContent =
-      `Choose how to interpret the detected ${actualBpm} BPM tempo.`;
+    $("#audio-tempo-actual").textContent = `Use project tempo (${projectTempoBpm} BPM)`;
+    $("#audio-tempo-double").textContent = `Use double project tempo (${doubleBpm} BPM)`;
+    $("#audio-tempo-half").textContent = `Use half project tempo (${halfBpm} BPM)`;
+    $("#audio-tempo-actual").value = `audio-to-project:${projectTempoBpm}`;
+    $("#audio-tempo-double").value = `audio-to-project:${doubleBpm}`;
+    $("#audio-tempo-half").value = `audio-to-project:${halfBpm}`;
+    $("#audio-tempo-actual").disabled = !canStretchTo(projectTempoBpm);
+    $("#audio-tempo-double").disabled = !canStretchTo(doubleBpm);
+    $("#audio-tempo-half").disabled = !canStretchTo(halfBpm);
+    interpretationDescription.textContent = detectedBpm === null
+      ? `Choose a target relative to the project's ${projectTempoBpm} BPM tempo.`
+      : `Choose the audio's target tempo relative to the project (${projectTempoBpm} BPM); detected audio tempo is ${detectedBpm} BPM.`;
     mainOptions.hidden = false;
     interpretations.hidden = true;
     dialog.returnValue = "";
@@ -19809,7 +19817,7 @@ const DRIVE_SAMPLE_TRACKS = [
         const [action, interpretation] = (dialog.returnValue || "leave").split(":");
         resolve({
           action,
-          bpmMultiplier: interpretation === "double" ? 2 : interpretation === "half" ? 0.5 : 1,
+          targetBpm: action === "audio-to-project" ? Number(interpretation) : null,
         });
         controller.abort();
       }, { once: true, signal: controller.signal });
@@ -20841,7 +20849,7 @@ const DRIVE_SAMPLE_TRACKS = [
       const audioMetadata = detectAudioMetadata(buffer);
       const projectWasEmpty = isProjectEmptyForAudioImport();
       const detectedMetadata = normalizeAudioMetadata(audioMetadata);
-      const tempoChoice = await askAudioTempoChoice(file.name, detectedMetadata.bpm);
+      const tempoChoice = await askAudioTempoChoice(file.name, detectedMetadata.bpm, state.bpm);
       const sourceOffsetSeconds = Number.isFinite(detectedMetadata.beatOffsetSeconds)
         ? Math.max(0, Math.min(buffer.duration - 0.01, detectedMetadata.beatOffsetSeconds))
         : 0;
@@ -20854,7 +20862,7 @@ const DRIVE_SAMPLE_TRACKS = [
         if (bpm !== state.bpm) projectTempoChanged = await openProjectTempoChangeDialog(bpm);
       }
       const audioAdjustment = getAudioClipProjectAdjustment(audioMetadata,
-        tempoChoice.action === "audio-to-project", tempoChoice.bpmMultiplier);
+        tempoChoice.action === "audio-to-project" ? tempoChoice.targetBpm : null);
       let track = state.arrangementTracks.find((item) => item.id === trackId);
       if (!track) track = createArrangementTrack(file.name);
       else if (!track.clips.length && /^Track \d+$/.test(track.name)) track.name = file.name;
@@ -20868,6 +20876,8 @@ const DRIVE_SAMPLE_TRACKS = [
         blob: file,
         audioMetadata,
         ...(audioAdjustment ? { audioAdjustment } : {}),
+        ...(tempoChoice.action === "audio-to-project" && audioAdjustment
+          ? { tempoRatioOverride: audioAdjustment.tempoRatio } : {}),
       };
       clip.startBar = snapStart
         ? clampArrangementStart(startBar, getArrangementClipDuration("audio", clip))
@@ -20884,7 +20894,6 @@ const DRIVE_SAMPLE_TRACKS = [
       } catch {
         showToast("Recording added for this session, but browser storage is unavailable.");
       }
-      void prepareAudioClipPlaybackBuffer(state.audioContext, clip).catch((error) => showToast(error.message));
       if (audioAdjustment) {
         const targets = [
           audioAdjustment.targetKey,

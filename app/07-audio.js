@@ -432,7 +432,7 @@
       adjustment.keyShiftSemitones >= -6 && adjustment.keyShiftSemitones <= 6
       ? adjustment.keyShiftSemitones : 0;
     const isKey = (value) => typeof value === "string" && /^[A-G]#? (major|minor)$/.test(value);
-    const isBpm = (value) => Number.isFinite(value) && value >= 40 && value <= 240;
+    const isBpm = (value) => Number.isFinite(value) && value >= 30 && value <= 360;
     const isSourceBpm = (value) => Number.isFinite(value) && value >= 30 && value <= 360;
     if (tempoRatio === 1 && keyShiftSemitones === 0 && !isSourceBpm(adjustment.sourceBpm)) return null;
     return {
@@ -482,10 +482,12 @@
     return !hasArrangementContent && !hasMelodicContent && !hasAudioMetadata && !getProjectKey(false);
   }
 
-  function getAudioClipProjectAdjustment(metadata, matchTempo = true, bpmMultiplier = 1) {
+  function getAudioClipProjectAdjustment(metadata, targetBpm = null) {
     const { bpm: detectedBpm, key } = normalizeAudioMetadata(metadata);
-    const bpm = detectedBpm === null ? null : roundBpm(detectedBpm * bpmMultiplier);
-    const tempoRatio = matchTempo && bpm ? state.bpm / bpm : 1;
+    const selectedTargetBpm = Number.isFinite(targetBpm) && targetBpm >= 30 && targetBpm <= 360
+      ? roundBpm(targetBpm) : null;
+    const tempoRatio = selectedTargetBpm && detectedBpm
+      ? selectedTargetBpm / detectedBpm : 1;
     const projectKey = getProjectKey(false);
     let keyShiftSemitones = 0;
     if (key && projectKey) {
@@ -496,10 +498,10 @@
         if (keyShiftSemitones > 6) keyShiftSemitones -= 12;
       }
     }
-    if (Math.abs(tempoRatio - 1) < 0.001 && keyShiftSemitones === 0 && bpm === detectedBpm) return null;
+    if (selectedTargetBpm === null && keyShiftSemitones === 0) return null;
     return {
-      sourceBpm: bpm,
-      targetBpm: matchTempo && bpm && Math.abs(tempoRatio - 1) >= 0.001 ? state.bpm : null,
+      sourceBpm: detectedBpm,
+      targetBpm: selectedTargetBpm,
       sourceKey: key,
       targetKey: keyShiftSemitones ? projectKey : null,
       tempoRatio,
