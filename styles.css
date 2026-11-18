@@ -1193,7 +1193,11 @@ body:has(#arrangement-view:not([hidden])) .workspace-tabs {
 .quick-action-panel { min-width: 0; width: clamp(190px, 24vw, 290px); flex: 0 0 clamp(190px, 24vw, 290px); display: flex; flex-direction: column; overflow: hidden; border-left: 1px solid var(--stroke); background: var(--panel); }
 .quick-action-panel[hidden] { display: none; }
 .quick-action-heading { min-height: 34px; flex: 0 0 34px; display: flex; align-items: center; justify-content: space-between; gap: 6px; border-bottom: 1px solid var(--stroke); padding: 0 8px; color: var(--muted); font: 8px var(--mono); letter-spacing: .5px; }
-.quick-action-heading .workspace-play-button { width: 25px; height: 24px; flex: 0 0 25px; padding: 0; }
+.quick-action-heading .quick-action-play-button { width: 25px; height: 24px; flex: 0 0 25px; border: 0; border-radius: 0; background: transparent; padding: 0; box-shadow: none; }
+.quick-action-heading .quick-action-play-button:hover,
+.quick-action-heading .quick-action-play-button.is-playing { border: 0; background: transparent; color: var(--muted); }
+.quick-action-heading .quick-action-play-button .play-icon { border-left-color: var(--muted); }
+.quick-action-heading .quick-action-play-button.is-playing .play-icon { border-left-color: var(--muted); border-right-color: var(--muted); }
 .quick-action-heading select { min-width: 0; max-width: 145px; height: 24px; border: 1px solid var(--stroke); border-radius: 4px; background: var(--panel-raised); padding: 0 4px; color: var(--text); font: 9px var(--sans); }
 .quick-action-content { min-width: 0; min-height: 0; flex: 1; overflow: auto; padding: 7px; scrollbar-width: thin; }
 .quick-action-content[data-quick-view="sequencer"], .quick-action-content[data-quick-view="piano-roll"] { display: flex; flex-direction: column; overflow: hidden; }
