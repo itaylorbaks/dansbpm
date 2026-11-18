@@ -9657,7 +9657,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=0a9eb9aa2d09");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=610b249415b8");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -15863,12 +15863,17 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   };
 
   function updateWorkspacePlayButton(workspace, playing) {
-    const button = $(`#${WORKSPACE_PLAY_BUTTONS[workspace]}`);
     const label = playing ? "Stop" : "Play";
-    button.querySelector(".workspace-play-label").textContent = label;
-    button.setAttribute("aria-label", `${playing ? "Stop" : "Play"} ${workspace === "piano-roll" ? "piano roll" : workspace} workspace`);
-    button.setAttribute("aria-pressed", String(playing));
-    button.classList.toggle("is-playing", playing);
+    const buttons = [
+      document.getElementById(WORKSPACE_PLAY_BUTTONS[workspace]),
+      ...document.querySelectorAll(`[data-workspace-play="${workspace}"]`),
+    ].filter(Boolean);
+    buttons.forEach((button) => {
+      button.querySelector(".workspace-play-label").textContent = label;
+      button.setAttribute("aria-label", `${playing ? "Stop" : "Play"} ${workspace === "piano-roll" ? "piano roll" : workspace} workspace`);
+      button.setAttribute("aria-pressed", String(playing));
+      button.classList.toggle("is-playing", playing);
+    });
   }
 
   function stopWorkspacePlayback(workspace, pausedByUser = false) {
@@ -28269,6 +28274,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   let drummerDestination = null;
   let drummerGainNode = null;
   let drummerConnected = false;
+  let quickMixerEffectsOpen = false;
 
   function initializeSettings() {
     try {
@@ -28415,6 +28421,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     });
     $("#quick-action-view-select").addEventListener("change", (event) => {
       setQuickActionView(event.target.value);
+    });
+    $("#quick-action-play-button").addEventListener("click", (event) => {
+      const workspace = event.currentTarget.dataset.workspacePlay;
+      if (workspace) toggleWorkspacePlayback(workspace);
     });
     $("#settings-recording-track").addEventListener("change", (event) => {
       userSettings.recordingTrackId = event.target.value;
@@ -28682,8 +28692,15 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     if (!panel || !content) return;
     panel.hidden = !userSettings.quickActionEnabled;
     $("#quick-action-view-select").value = userSettings.quickActionView;
+    const workspace = userSettings.quickActionView === "sequencer" ||
+      userSettings.quickActionView === "piano-roll" ? userSettings.quickActionView : null;
+    const playButton = $("#quick-action-play-button");
+    playButton.hidden = !workspace;
+    playButton.dataset.workspacePlay = workspace || "";
+    if (workspace) updateWorkspacePlayButton(workspace, Boolean(state.workspacePlayers[workspace]));
     if (!userSettings.quickActionEnabled) return;
     content.replaceChildren();
+    content.dataset.quickView = userSettings.quickActionView;
     if (userSettings.quickActionView === "mixer") renderQuickMixer(content);
     else if (userSettings.quickActionView === "sequencer") renderQuickStepGrid(content);
     else renderQuickPianoRoll(content);
@@ -28692,6 +28709,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   function renderQuickMixer(root) {
     const effects = document.createElement("details");
     effects.className = "quick-mixer-effect-picker";
+    effects.open = quickMixerEffectsOpen;
+    effects.addEventListener("toggle", () => { quickMixerEffectsOpen = effects.open; });
     const summary = document.createElement("summary");
     summary.textContent = "ADD EFFECT";
     effects.append(summary);
@@ -28795,6 +28814,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       root.textContent = "Create a pattern to edit it here.";
       return;
     }
+    const menuRow = document.createElement("div");
+    menuRow.className = "quick-action-menu-row";
     const toolbar = document.createElement("details");
     toolbar.className = "quick-action-toolbar";
     const summary = document.createElement("summary");
@@ -28805,7 +28826,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     select.value = pattern.id;
     select.addEventListener("change", () => selectPattern(select.value));
     toolbar.append(summary, select);
-    root.append(toolbar);
+    menuRow.append(toolbar);
 
     const gridToolbar = document.createElement("details");
     gridToolbar.className = "quick-action-toolbar";
@@ -28823,7 +28844,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     resolutionSelect.value = getPatternGridResolution(pattern);
     resolutionSelect.addEventListener("change", () => setPatternGridResolution(resolutionSelect.value));
     gridToolbar.append(gridSummary, lengthSelect, resolutionSelect);
-    root.append(gridToolbar);
+    menuRow.append(gridToolbar);
+    root.append(menuRow);
 
     const grid = document.createElement("div");
     grid.className = "quick-step-grid";
@@ -28831,6 +28853,24 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     const tracks = state.tracks.filter((track) => trackIds.has(track.id));
     const stepCount = getGridStepCount(pattern);
     const stepsPerBar = getStepsPerBar(pattern);
+    if (tracks.length) grid.style.gridTemplateRows = `repeat(${tracks.length}, minmax(13px, 1fr))`;
+    const viewport = document.createElement("div");
+    viewport.className = "quick-step-viewport";
+    const ruler = document.createElement("div");
+    ruler.className = "quick-action-bar-meter quick-step-bar-meter";
+    ruler.style.gridTemplateColumns = `42px repeat(${stepCount}, 12px)`;
+    const rulerSpacer = document.createElement("span");
+    rulerSpacer.className = "quick-action-bar-meter-spacer";
+    ruler.append(rulerSpacer);
+    for (let bar = 0; bar < pattern.steps / 16; bar += 1) {
+      const marker = document.createElement("span");
+      marker.className = "quick-action-bar-marker";
+      marker.dataset.bar = String(bar + 1);
+      marker.style.gridColumn = `span ${Math.max(1, Math.round(stepsPerBar))}`;
+      marker.textContent = String(bar + 1);
+      ruler.append(marker);
+    }
+    viewport.append(ruler);
     tracks.forEach((track) => {
       const row = document.createElement("div");
       row.className = "quick-step-row";
@@ -28844,6 +28884,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       for (let step = 0; step < stepCount; step += 1) {
         const cell = document.createElement("button");
         cell.type = "button";
+        cell.dataset.step = String(step);
         cell.className = `quick-step-cell${track.cells[step] ? " is-on" : ""}${step % stepsPerBar === 0 ? " is-bar" : ""}`;
         cell.setAttribute("aria-label", `${track.name}, step ${step + 1}${track.cells[step] ? ", on" : ", off"}`);
         cell.setAttribute("aria-pressed", String(Boolean(track.cells[step])));
@@ -28861,10 +28902,13 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       row.append(cells);
       grid.append(row);
     });
-    root.append(grid);
+    viewport.append(grid);
+    root.append(viewport);
   }
 
   function renderQuickPianoRoll(root) {
+    const menuRow = document.createElement("div");
+    menuRow.className = "quick-action-menu-row";
     const toolbar = document.createElement("details");
     toolbar.className = "quick-action-toolbar";
     const summary = document.createElement("summary");
@@ -28879,7 +28923,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       saveState();
     });
     toolbar.append(summary, melSelect);
-    root.append(toolbar);
+    menuRow.append(toolbar);
 
     const gridToolbar = document.createElement("details");
     gridToolbar.className = "quick-action-toolbar";
@@ -28906,7 +28950,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       saveState();
     });
     gridToolbar.append(gridSummary, barsSelect, snapSelect);
-    root.append(gridToolbar);
+    menuRow.append(gridToolbar);
+    root.append(menuRow);
 
     const track = getPianoTrack(state.stepPianoEditContext?.trackId || state.selectedPianoTrackId);
     if (!track) {
@@ -28919,6 +28964,20 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     const snapTicks = state.pianoSnapEnabled ? Math.max(1, getPianoSnapStep()) : 1;
     const totalTicks = state.pianoBars * PIANO_TICKS_PER_BAR;
     const noteSteps = Math.ceil(totalTicks / snapTicks);
+    const viewport = document.createElement("div");
+    viewport.className = "quick-piano-viewport";
+    const ruler = document.createElement("div");
+    ruler.className = "quick-action-bar-meter quick-piano-bar-meter";
+    const notesPerBar = Math.ceil(PIANO_TICKS_PER_BAR / snapTicks);
+    ruler.style.gridTemplateColumns = `34px repeat(${state.pianoBars}, ${notesPerBar * 12}px)`;
+    for (let bar = 0; bar < state.pianoBars; bar += 1) {
+      const marker = document.createElement("span");
+      marker.className = "quick-action-bar-marker";
+      marker.dataset.bar = String(bar + 1);
+      marker.textContent = String(bar + 1);
+      ruler.append(marker);
+    }
+    viewport.append(ruler);
     const grid = document.createElement("div");
     grid.className = "quick-piano-grid";
     for (let midi = 84; midi >= 61; midi -= 1) {
@@ -28963,7 +29022,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       row.append(cells);
       grid.append(row);
     }
-    root.append(grid);
+    viewport.append(grid);
+    root.append(viewport);
   }
 
   function activateSettingsPage(page, focus = false) {

@@ -3339,12 +3339,17 @@
   };
 
   function updateWorkspacePlayButton(workspace, playing) {
-    const button = $(`#${WORKSPACE_PLAY_BUTTONS[workspace]}`);
     const label = playing ? "Stop" : "Play";
-    button.querySelector(".workspace-play-label").textContent = label;
-    button.setAttribute("aria-label", `${playing ? "Stop" : "Play"} ${workspace === "piano-roll" ? "piano roll" : workspace} workspace`);
-    button.setAttribute("aria-pressed", String(playing));
-    button.classList.toggle("is-playing", playing);
+    const buttons = [
+      document.getElementById(WORKSPACE_PLAY_BUTTONS[workspace]),
+      ...document.querySelectorAll(`[data-workspace-play="${workspace}"]`),
+    ].filter(Boolean);
+    buttons.forEach((button) => {
+      button.querySelector(".workspace-play-label").textContent = label;
+      button.setAttribute("aria-label", `${playing ? "Stop" : "Play"} ${workspace === "piano-roll" ? "piano roll" : workspace} workspace`);
+      button.setAttribute("aria-pressed", String(playing));
+      button.classList.toggle("is-playing", playing);
+    });
   }
 
   function stopWorkspacePlayback(workspace, pausedByUser = false) {
