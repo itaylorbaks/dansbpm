@@ -803,6 +803,17 @@
     effects.append(summary);
     const effectList = document.createElement("div");
     effectList.className = "quick-mixer-effect-list";
+    const presetGroup = document.createElement("section");
+    presetGroup.className = "quick-mixer-effect-category";
+    const presetHeading = document.createElement("span");
+    presetHeading.textContent = "Included presets";
+    presetGroup.append(presetHeading);
+    MIXER_PRESETS.forEach((preset) => {
+      const button = addQuickActionButton(presetGroup, preset.name,
+        () => applyMixerPreset(preset), preset.description);
+      button.classList.add("mixer-library-effect");
+    });
+    effectList.append(presetGroup);
     EFFECT_CATEGORIES.forEach((category) => {
       const categoryGroup = document.createElement("section");
       categoryGroup.className = "quick-mixer-effect-category";
@@ -875,19 +886,14 @@
       effectTarget.className = "mixer-track-effects quick-mixer-effects";
       effectTarget.setAttribute("aria-label", `${track.name} effects; drop effects here`);
       effectTarget.addEventListener("dragover", (event) => {
-        if (!Array.from(event.dataTransfer?.types || []).includes("application/x-dansbpm-effect")) return;
+        if (!isMixerDrag(event)) return;
         event.preventDefault();
         effectTarget.classList.add("is-drop-target");
       });
       effectTarget.addEventListener("dragleave", (event) => {
         if (!effectTarget.contains(event.relatedTarget)) effectTarget.classList.remove("is-drop-target");
       });
-      effectTarget.addEventListener("drop", (event) => {
-        event.preventDefault();
-        effectTarget.classList.remove("is-drop-target");
-        const effectId = event.dataTransfer?.getData("application/x-dansbpm-effect");
-        if (effectId) addMixerEffect(track, effectId);
-      });
+      effectTarget.addEventListener("drop", (event) => handleMixerDrop(event, effectTarget, track));
       if (track.kind === "mixer-effects") {
         const presetControls = document.createElement("div");
         presetControls.className = "quick-mixer-preset-controls";

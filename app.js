@@ -6887,8 +6887,11 @@ const DRIVE_SAMPLE_TRACKS = [
     { name: "Delay", effects: [["delay", "Delay"], ["pingPong", "Ping-pong delay"], ["slapback", "Slapback"], ["tapeDelay", "Tape delay"]] },
     { name: "Reverb", effects: [["reverb", "Reverb"], ["room", "Room"], ["hall", "Hall"], ["plate", "Plate"]] },
     { name: "Controllers", effects: [["autopan", "Auto-pan"], ["tremolo", "Tremolo"], ["autoFilter", "Auto-filter"], ["lfoGain", "LFO gain"]] },
-    { name: "Dynamics", effects: [["compressor", "Compressor"], ["multibandCompressor", "Multiband compressor"], ["limiter", "Limiter"], ["noiseGate", "Noise gate"], ["transientShaper", "Transient shaper"], ["sidechain", "Sidechain"]] },
+    { name: "Dynamics", effects: [["compressor", "Compressor"], ["multibandCompressor", "Multiband compressor"], ["limiter", "Limiter"], ["noiseGate", "Noise gate"], ["transientShaper", "Transient shaper"], ["sidechain", "Sidechain"], ["crossfadeLimiter", "Crossfade limiter"]] },
     { name: "Miscellaneous", effects: [["bitcrusher", "Bitcrusher"], ["pitchShifter", "Pitch shifter"], ["harmonizer", "Harmonizer"], ["vocoder", "Vocoder"]] },
+    { name: "Stereo tools", effects: [["midSideMonitor", "Mid/side monitor"], ["midSidePanner", "Mid/side panner"], ["midSideFilter", "Mid/side filter"], ["midSideEq", "Mid/side EQ"]] },
+    { name: "Vocoder", effects: [["vocoder3Band", "3-band vocoder"]] },
+    { name: "Equalization", effects: [["steepEq", "Steep EQ"]] },
   ];
   const EFFECT_NAMES = EFFECT_CATEGORIES.flatMap(({ effects }) => effects);
   const EFFECT_PARAMETERS = {
@@ -6936,8 +6939,156 @@ const DRIVE_SAMPLE_TRACKS = [
     transientShaper: [["attack", "Attack", -12, 12, 1, " dB", 3], ["sustain", "Sustain", -12, 12, 1, " dB", -2]],
     autopan: [["rate", "Rate", 0.05, 8, 0.05, " Hz", 0.35], ["depth", "Depth", 0, 100, 1, "%", 100]],
     phaser: [["rate", "Rate", 0.05, 5, 0.05, " Hz", 0.18], ["depth", "Depth", 100, 3000, 50, " Hz", 900]],
+    crossfadeLimiter: [
+      ["depth", "Duck depth", 0, 80, 1, "%", 45],
+      ["threshold", "Ceiling", -12, 0, 0.1, " dB", -1],
+      ["release", "Release", 10, 500, 10, " ms", 120],
+    ],
+    midSidePanner: [["width", "Side width", 0, 200, 1, "%", 100], ["pan", "Pan", -100, 100, 1, "%", 0]],
+    midSideFilter: [
+      ["midCutoff", "Mid low-pass", 100, 8000, 10, " Hz", 800],
+      ["sideCutoff", "Side high-pass", 50, 8000, 10, " Hz", 800],
+      ["order", "Slope", 1, 4, 1, "", 2],
+    ],
+    midSideEq: [
+      ["midSub", "Mid sub", -12, 12, 0.5, " dB", 0],
+      ["midLow", "Mid low", -12, 12, 0.5, " dB", 0],
+      ["midMid", "Mid mid", -12, 12, 0.5, " dB", 0],
+      ["midHigh", "Mid high", -12, 12, 0.5, " dB", 0],
+      ["midAir", "Mid air", -12, 12, 0.5, " dB", 0],
+      ["sideSub", "Side sub", -12, 12, 0.5, " dB", 0],
+      ["sideLow", "Side low", -12, 12, 0.5, " dB", 0],
+      ["sideMid", "Side mid", -12, 12, 0.5, " dB", 0],
+      ["sideHigh", "Side high", -12, 12, 0.5, " dB", 0],
+      ["sideAir", "Side air", -12, 12, 0.5, " dB", 0],
+    ],
+    vocoder3Band: [
+      ["lowCrossover", "Low crossover", 100, 1000, 10, " Hz", 300],
+      ["highCrossover", "High crossover", 800, 8000, 50, " Hz", 3000],
+      ["envelopeRelease", "Envelope release", 10, 300, 5, " ms", 80],
+    ],
+    steepEq: [
+      ["frequency", "Frequency", 20, 20000, 10, " Hz", 1000],
+      ["gain", "Gain", -12, 12, 0.5, " dB", 0],
+      ["q", "Width", 0.2, 12, 0.1, "", 1],
+      ["order", "Order", 1, 4, 1, "", 4],
+    ],
   };
   const EFFECT_IDS = new Set(EFFECT_NAMES.map(([id]) => id));
+  const FL_PRESET_SOURCE = "https://github.com/MysteryPancake/FL-Studio-Presets";
+  const MIXER_PRESETS = [
+    {
+      id: "doom-compressor", name: "Doom Compressor",
+      description: "Parallel native compression with a restrained blend to keep transients intact.",
+      source: FL_PRESET_SOURCE,
+      effects: { compressor: 35 },
+      effectSettings: { compressor: { threshold: -18, ratio: 6, attack: 8, release: 160 } },
+      effectChain: ["compressor"],
+    },
+    {
+      id: "doom-compressor-2", name: "Doom Compressor 2",
+      description: "A gentler compressor/transient-shaper chain with independent attack and sustain controls.",
+      source: FL_PRESET_SOURCE,
+      effects: { compressor: 25, transientShaper: 20 },
+      effectSettings: {
+        compressor: { threshold: -18, ratio: 4, attack: 15, release: 220 },
+        transientShaper: { attack: 2, sustain: -1 },
+      },
+      effectChain: ["compressor", "transientShaper"],
+    },
+    {
+      id: "good-master", name: "Good Master",
+      description: "The app's master output limiter is already active; this preset adds no extra limiting.",
+      source: FL_PRESET_SOURCE,
+      target: "master",
+      effects: {}, effectSettings: {}, effectChain: [],
+    },
+    {
+      id: "mid-side-monitor", name: "Mid/Side Monitor",
+      description: "Pass-through stereo monitor with live mid and side level meters.",
+      source: FL_PRESET_SOURCE,
+      operation: "append",
+      effects: { midSideMonitor: 100 }, effectSettings: {}, effectChain: ["midSideMonitor"],
+    },
+    {
+      id: "mid-side-panner", name: "Mid/Side Panner",
+      description: "Adjust stereo width and balance with a transparent neutral setting.",
+      source: FL_PRESET_SOURCE,
+      effects: { midSidePanner: 35 },
+      effectSettings: { midSidePanner: { width: 100, pan: 0 } },
+      effectChain: ["midSidePanner"],
+    },
+    {
+      id: "mid-side-filter", name: "Mid/Side Filter",
+      description: "Low-pass the center and high-pass the sides around a shared crossover.",
+      source: FL_PRESET_SOURCE,
+      effects: { midSideFilter: 25 },
+      effectSettings: { midSideFilter: { midCutoff: 800, sideCutoff: 800, order: 2 } },
+      effectChain: ["midSideFilter"],
+    },
+    {
+      id: "mid-side-eq", name: "Mid/Side EQ",
+      description: "Independent five-band mid and side equalization, initially flat.",
+      source: FL_PRESET_SOURCE,
+      effects: { midSideEq: 35 }, effectSettings: {}, effectChain: ["midSideEq"],
+    },
+    {
+      id: "steep-eq", name: "Steep EQ",
+      description: "Four-stage native parametric EQ with linked frequency, width, and gain.",
+      source: FL_PRESET_SOURCE,
+      effects: { steepEq: 35 },
+      effectSettings: { steepEq: { frequency: 1000, gain: 0, q: 1, order: 4 } },
+      effectChain: ["steepEq"],
+    },
+    {
+      id: "three-band-vocoder", name: "3-Band Vocoder",
+      description: "Three-band carrier/modulator vocoder. Choose a modulator track in its effect window.",
+      source: FL_PRESET_SOURCE,
+      effects: { vocoder3Band: 45 },
+      effectSettings: { vocoder3Band: { lowCrossover: 300, highCrossover: 3000, envelopeRelease: 80 } },
+      effectChain: ["vocoder3Band"],
+    },
+    {
+      id: "three-band-vocoder-2", name: "3-Band Vocoder 2",
+      description: "Three-band vocoder with steeper band separation and a faster envelope.",
+      source: FL_PRESET_SOURCE,
+      effects: { vocoder3Band: 45 },
+      effectSettings: { vocoder3Band: { lowCrossover: 350, highCrossover: 2800, envelopeRelease: 45 } },
+      effectChain: ["vocoder3Band"],
+    },
+    {
+      id: "reverb-delay", name: "Reverb Delay",
+      description: "Low-feedback delay into a short room reverb for spaced reflections.",
+      source: FL_PRESET_SOURCE,
+      effects: { delay: 24, room: 20 },
+      effectSettings: { delay: { time: 0.18, feedback: 24 }, room: { decay: 0.5, preDelay: 8 } },
+      effectChain: ["delay", "room"],
+    },
+    {
+      id: "reverb-metallic", name: "Reverb Metallic",
+      description: "Short plate reflections for a compact, metallic resonance.",
+      source: FL_PRESET_SOURCE,
+      effects: { plate: 30 },
+      effectSettings: { plate: { decay: 0.3, preDelay: 12 } },
+      effectChain: ["plate"],
+    },
+    {
+      id: "reverb-squeaky", name: "Reverb Squeaky",
+      description: "Modulated vibrato into a short room reverb; reduce either blend for a subtler effect.",
+      source: FL_PRESET_SOURCE,
+      effects: { vibrato: 18, room: 18 },
+      effectSettings: { vibrato: { rate: 5, depth: 12 }, room: { decay: 0.5, preDelay: 10 } },
+      effectChain: ["vibrato", "room"],
+    },
+    {
+      id: "crossfade-limiter", name: "Crossfade Limiter",
+      description: "Sidechain ducking plus limiting. Choose the source track in the effect window.",
+      source: "https://github.com/kisoqual/crossfadelimiter",
+      effects: { crossfadeLimiter: 35 },
+      effectSettings: { crossfadeLimiter: { depth: 45, threshold: -1, release: 120 } },
+      effectChain: ["crossfadeLimiter"],
+    },
+  ];
 
   function makeDefaultEffects(effects) {
     const defaults = {
@@ -6965,6 +7116,10 @@ const DRIVE_SAMPLE_TRACKS = [
     if (typeof settings?.sidechain?.sourceTrackId === "string") {
       defaults.sidechain.sourceTrackId = settings.sidechain.sourceTrackId;
     }
+    defaults.crossfadeLimiter.sourceTrackId = typeof settings?.crossfadeLimiter?.sourceTrackId === "string"
+      ? settings.crossfadeLimiter.sourceTrackId : "";
+    defaults.vocoder3Band.modulatorTrackId = typeof settings?.vocoder3Band?.modulatorTrackId === "string"
+      ? settings.vocoder3Band.modulatorTrackId : "";
     return defaults;
   }
 
@@ -9645,7 +9800,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=061720b8bcce");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=ebb3bc359f72");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -16911,6 +17066,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       }
       const amount = track.effects[id];
       const module = createTrackEffect(context, id, amount, track.effectSettings[id]);
+      module.effectId = id;
       output.connect(module.input);
       output = module.output;
       track.fxRuntime.push(module);
@@ -16940,6 +17096,31 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       source.gainNode.connect(track.sidechainInputNode);
       track.sidechainSourceNode = source.gainNode;
     });
+    getMixerTracks().forEach(({ track }) => {
+      track.fxRuntime?.forEach((module) => {
+        if (!module.externalInputNode) return;
+        if (module.externalSourceNode) {
+          try {
+            module.externalSourceNode.disconnect(module.externalInputNode);
+          } catch {
+            // A source-chain rebuild may already have removed this connection.
+          }
+          module.externalSourceNode = null;
+        }
+        const sourceId = module.effectId === "vocoder3Band"
+          ? track.effectSettings.vocoder3Band.modulatorTrackId
+          : module.effectId === "crossfadeLimiter"
+            ? track.effectSettings.crossfadeLimiter.sourceTrackId
+            : "";
+        const source = getMixerTracks().find(({ track: sourceTrack }) =>
+          sourceTrack.id === sourceId && sourceTrack.kind !== "mixer-master" &&
+          sourceTrack.id !== track.id)?.track;
+        if (module.fallbackGain) module.fallbackGain.gain.value = source?.gainNode ? 0 : 1;
+        if (!source?.gainNode) return;
+        source.gainNode.connect(module.externalInputNode);
+        module.externalSourceNode = source.gainNode;
+      });
+    });
   }
 
   function rebuildMixerAudioRouting() {
@@ -16962,7 +17143,15 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     }
     track.sidechainSourceNode = null;
     track.sidechainInputNode = null;
-    track.fxRuntime?.forEach(({ nodes, sources }) => {
+    track.fxRuntime?.forEach((module) => {
+      const { nodes, sources } = module;
+      if (module.externalSourceNode && module.externalInputNode) {
+        try {
+          module.externalSourceNode.disconnect(module.externalInputNode);
+        } catch {
+          // A source-chain rebuild may already have removed this connection.
+        }
+      }
       sources.forEach((source) => {
         try { source.stop(); } catch { /* already stopped */ }
       });
@@ -16981,6 +17170,57 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     track.panNode = null;
   }
 
+  function makeMixerMidSideBuses(context, input, nodes) {
+    const splitter = context.createChannelSplitter(2);
+    const midBus = context.createGain();
+    const sideBus = context.createGain();
+    const midLeft = context.createGain();
+    const midRight = context.createGain();
+    const sideLeft = context.createGain();
+    const sideRight = context.createGain();
+    midLeft.gain.value = midRight.gain.value = sideLeft.gain.value = 0.5;
+    sideRight.gain.value = -0.5;
+    input.connect(splitter);
+    splitter.connect(midLeft, 0);
+    splitter.connect(midRight, 1);
+    splitter.connect(sideLeft, 0);
+    splitter.connect(sideRight, 1);
+    midLeft.connect(midBus);
+    midRight.connect(midBus);
+    sideLeft.connect(sideBus);
+    sideRight.connect(sideBus);
+    nodes.push(splitter, midBus, sideBus, midLeft, midRight, sideLeft, sideRight);
+    return { midBus, sideBus };
+  }
+
+  function makeMixerMidSideOutput(context, mid, side, nodes) {
+    const merger = context.createChannelMerger(2);
+    const invertSide = context.createGain();
+    invertSide.gain.value = -1;
+    mid.connect(merger, 0, 0);
+    mid.connect(merger, 0, 1);
+    side.connect(merger, 0, 0);
+    side.connect(invertSide);
+    invertSide.connect(merger, 0, 1);
+    nodes.push(merger, invertSide);
+    return merger;
+  }
+
+  function addMixerFilterStages(context, source, type, frequency, order, nodes, q = Math.SQRT1_2, gain = 0) {
+    let output = source;
+    for (let index = 0; index < order; index += 1) {
+      const filter = context.createBiquadFilter();
+      filter.type = type;
+      filter.frequency.value = frequency;
+      filter.Q.value = q;
+      filter.gain.value = gain;
+      output.connect(filter);
+      output = filter;
+      nodes.push(filter);
+    }
+    return output;
+  }
+
   function createTrackEffect(context, id, amount, settings = {}) {
     const input = context.createGain();
     const output = context.createGain();
@@ -16995,13 +17235,180 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     input.connect(dry);
     dry.connect(output);
     let effectOutput;
+    let midSideAnalyser = null;
+    let sideAnalyser = null;
+    let externalInputNode = null;
+    let fallbackGain = null;
     const connectWet = (node) => {
       nodes.push(node);
       input.connect(node);
       effectOutput = node;
     };
 
-    if (["reverb", "room", "hall", "plate"].includes(id)) {
+    if (id === "midSideMonitor") {
+      const { midBus, sideBus } = makeMixerMidSideBuses(context, input, nodes);
+      midSideAnalyser = context.createAnalyser();
+      sideAnalyser = context.createAnalyser();
+      midSideAnalyser.fftSize = sideAnalyser.fftSize = 1024;
+      const midSilence = context.createGain();
+      const sideSilence = context.createGain();
+      midSilence.gain.value = sideSilence.gain.value = 0;
+      midBus.connect(midSideAnalyser);
+      sideBus.connect(sideAnalyser);
+      midSideAnalyser.connect(midSilence);
+      sideAnalyser.connect(sideSilence);
+      midSilence.connect(output);
+      sideSilence.connect(output);
+      nodes.push(midSideAnalyser, sideAnalyser, midSilence, sideSilence);
+      const through = context.createGain();
+      connectWet(through);
+    } else if (id === "midSidePanner" || id === "midSideFilter" || id === "midSideEq") {
+      const { midBus, sideBus } = makeMixerMidSideBuses(context, input, nodes);
+      let mid = midBus;
+      let side = sideBus;
+      if (id === "midSidePanner") {
+        const sideWidth = context.createGain();
+        sideWidth.gain.value = setting("width", 100) / 100;
+        side.connect(sideWidth);
+        side = sideWidth;
+        nodes.push(sideWidth);
+      } else if (id === "midSideFilter") {
+        const order = Math.max(1, Math.min(4, Math.round(setting("order", 2))));
+        mid = addMixerFilterStages(context, mid, "lowpass", setting("midCutoff", 800), order, nodes);
+        side = addMixerFilterStages(context, side, "highpass", setting("sideCutoff", 800), order, nodes);
+      } else {
+        const bands = [
+          ["lowshelf", 40, "Sub"],
+          ["peaking", 160, "Low"],
+          ["peaking", 1000, "Mid"],
+          ["peaking", 5000, "High"],
+          ["highshelf", 12000, "Air"],
+        ];
+        bands.forEach(([type, frequency, label]) => {
+          for (const [busName, bus] of [["mid", mid], ["side", side]]) {
+            const filter = context.createBiquadFilter();
+            filter.type = type;
+            filter.frequency.value = frequency;
+            filter.Q.value = Math.SQRT1_2;
+            filter.gain.value = setting(`${busName}${label}`, 0);
+            bus.connect(filter);
+            if (busName === "mid") mid = filter;
+            else side = filter;
+            nodes.push(filter);
+          }
+        });
+      }
+      const stereo = makeMixerMidSideOutput(context, mid, side, nodes);
+      if (id === "midSidePanner") {
+        const panner = context.createStereoPanner();
+        panner.pan.value = setting("pan", 0) / 100;
+        stereo.connect(panner);
+        nodes.push(panner);
+        effectOutput = panner;
+      } else effectOutput = stereo;
+    } else if (id === "steepEq") {
+      effectOutput = addMixerFilterStages(context, input, "peaking", setting("frequency", 1000),
+        Math.max(1, Math.min(4, Math.round(setting("order", 4)))), nodes,
+        setting("q", 1), setting("gain", 0) / Math.max(1, Math.min(4, Math.round(setting("order", 4)))));
+    } else if (id === "crossfadeLimiter") {
+      const duck = context.createGain();
+      duck.gain.value = 1;
+      input.connect(duck);
+      const detector = context.createWaveShaper();
+      const curve = new Float32Array(4096);
+      const depth = setting("depth", 45) / 100;
+      curve.forEach((_, index) => {
+        const sample = index * 2 / (curve.length - 1) - 1;
+        curve[index] = -Math.min(0.7, Math.abs(sample) * 6) * depth;
+      });
+      detector.curve = curve;
+      const envelope = context.createBiquadFilter();
+      envelope.type = "lowpass";
+      envelope.frequency.value = Math.max(3, Math.min(25, 1000 / setting("release", 120)));
+      detector.connect(envelope);
+      envelope.connect(duck.gain);
+      externalInputNode = context.createGain();
+      externalInputNode.connect(detector);
+      const limiter = context.createDynamicsCompressor();
+      limiter.threshold.value = setting("threshold", -1);
+      limiter.knee.value = 0;
+      limiter.ratio.value = 20;
+      limiter.attack.value = 0.001;
+      limiter.release.value = setting("release", 120) / 1000;
+      duck.connect(limiter);
+      nodes.push(duck, detector, envelope, externalInputNode, limiter);
+      effectOutput = limiter;
+    } else if (id === "vocoder3Band") {
+      const lowCrossover = setting("lowCrossover", 300);
+      const highCrossover = Math.max(lowCrossover + 100, setting("highCrossover", 3000));
+      const release = setting("envelopeRelease", 80);
+      const modulatorInput = context.createGain();
+      const modulatorSplit = context.createChannelSplitter(2);
+      modulatorInput.connect(modulatorSplit);
+      externalInputNode = modulatorInput;
+      const sum = context.createGain();
+      fallbackGain = context.createGain();
+      fallbackGain.gain.value = settings.modulatorTrackId ? 0 : 1;
+      input.connect(fallbackGain);
+      fallbackGain.connect(sum);
+      const makeBand = (source, band, carrier) => {
+        let output = source;
+        const order = band === "mid" ? 2 : 1;
+        if (band !== "low") {
+          output = addMixerFilterStages(context, output, "highpass", lowCrossover, order, nodes);
+        }
+        if (band !== "high") {
+          output = addMixerFilterStages(context, output, "lowpass",
+            band === "low" ? lowCrossover : highCrossover, order, nodes);
+        }
+        if (!carrier) {
+          const rectifier = context.createWaveShaper();
+          const curve = new Float32Array(1024);
+          curve.forEach((_, index) => {
+            const sample = index * 2 / (curve.length - 1) - 1;
+            curve[index] = Math.abs(sample);
+          });
+          rectifier.curve = curve;
+          const envelope = context.createBiquadFilter();
+          envelope.type = "lowpass";
+          envelope.frequency.value = Math.max(2, Math.min(20, 1000 / (release * 2)));
+          envelope.Q.value = Math.SQRT1_2;
+          const envelopeGain = context.createGain();
+          envelopeGain.gain.value = 2.5;
+          output.connect(rectifier);
+          rectifier.connect(envelope);
+          envelope.connect(envelopeGain);
+          const carrierGain = context.createGain();
+          carrierGain.gain.value = 0;
+          envelopeGain.connect(carrierGain.gain);
+          nodes.push(rectifier, envelope, envelopeGain, carrierGain);
+          return { carrierGain };
+        }
+        const carrierGain = context.createGain();
+        output.connect(carrierGain);
+        nodes.push(carrierGain);
+        return { output: carrierGain };
+      };
+      const modulatorMono = context.createGain();
+      const modulatorLeft = context.createGain();
+      const modulatorRight = context.createGain();
+      modulatorLeft.gain.value = modulatorRight.gain.value = 0.5;
+      modulatorSplit.connect(modulatorLeft, 0);
+      modulatorSplit.connect(modulatorRight, 1);
+      modulatorLeft.connect(modulatorMono);
+      modulatorRight.connect(modulatorMono);
+      ["low", "mid", "high"].forEach((band) => {
+        const detector = makeBand(modulatorMono, band, false);
+        let carrier = input;
+        if (band !== "low") carrier = addMixerFilterStages(context, carrier, "highpass", lowCrossover, band === "mid" ? 2 : 1, nodes);
+        if (band !== "high") carrier = addMixerFilterStages(context, carrier, "lowpass",
+          band === "low" ? lowCrossover : highCrossover, band === "mid" ? 2 : 1, nodes);
+        carrier.connect(detector.carrierGain);
+        detector.carrierGain.connect(sum);
+      });
+      nodes.push(modulatorInput, modulatorSplit, modulatorMono, modulatorLeft, modulatorRight, sum, fallbackGain);
+      effectOutput = sum;
+    } else if (["reverb", "room", "hall", "plate"].includes(id)) {
       const convolver = context.createConvolver();
       const decay = setting("decay", id === "hall" ? 3.2 : id === "room" ? 0.7 : id === "plate" ? 2.2 : 1.8);
       const impulse = context.createBuffer(2, Math.floor(context.sampleRate * decay), context.sampleRate);
@@ -17243,7 +17650,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     }
     effectOutput.connect(wet);
     wet.connect(output);
-    return { input, output, nodes, sources, dry, wet };
+    return {
+      input, output, nodes, sources, dry, wet,
+      midSideAnalyser, sideAnalyser, externalInputNode, externalSourceNode: null, fallbackGain,
+    };
   }
 
   function snapArrangementBar(bar) {
@@ -18273,6 +18683,65 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     showToast(`Applied "${preset.name}" to ${track.name}.`);
   }
 
+  function applyMixerPreset(preset, targetTrack = null) {
+    const track = preset.target === "master"
+      ? state.masterTrack
+      : targetTrack
+        || getMixerTracks().find(({ track: item }) => item.id === state.selectedMixerTrackId)?.track;
+    if (!track) {
+      showToast("Select a mixer track before applying a preset.");
+      return;
+    }
+    if (preset.id === "good-master") {
+      state.selectedMixerTrackId = state.masterTrack.id;
+      renderMixer();
+      showToast("The app's master output limiter is already active.");
+      return;
+    }
+    ensureTrackMixerState(track);
+    if (preset.operation === "append") {
+      Object.entries(preset.effects).forEach(([id, value]) => { track.effects[id] = value; });
+      Object.entries(preset.effectSettings).forEach(([id, settings]) => {
+        track.effectSettings[id] = { ...track.effectSettings[id], ...settings };
+      });
+      track.effectChain = [...new Set([...track.effectChain, ...preset.effectChain.filter((id) => EFFECT_IDS.has(id))])];
+    } else {
+      track.effects = makeDefaultEffects(preset.effects);
+      track.effectSettings = makeDefaultEffectSettings(preset.effectSettings);
+      track.effectChain = preset.effectChain.filter((id) => EFFECT_IDS.has(id));
+    }
+    state.selectedMixerTrackId = track.id;
+    if (state.audioContext) {
+      ensureTrackAudio(track);
+      rebuildTrackEffectChain(track);
+    }
+    saveState();
+    renderMixer();
+    showToast(`Applied "${preset.name}" to ${track.name}.`);
+  }
+
+  function isMixerDrag(event) {
+    const types = Array.from(event.dataTransfer?.types || []);
+    return types.includes("application/x-dansbpm-effect") ||
+      types.includes("application/x-dansbpm-mixer-preset");
+  }
+
+  function handleMixerDrop(event, effectTarget, track) {
+    const presetId = event.dataTransfer?.getData("application/x-dansbpm-mixer-preset");
+    const preset = MIXER_PRESETS.find((item) => item.id === presetId);
+    if (preset) {
+      event.preventDefault();
+      effectTarget.classList.remove("is-drop-target");
+      applyMixerPreset(preset, track);
+      return;
+    }
+    const effectId = event.dataTransfer?.getData("application/x-dansbpm-effect");
+    if (!EFFECT_IDS.has(effectId)) return;
+    event.preventDefault();
+    effectTarget.classList.remove("is-drop-target");
+    addMixerEffect(track, effectId);
+  }
+
   function setEffectTrackRouting(track, sourceTrackId, routed) {
     if (routed) {
       state.effectTracks.forEach((effectTrack) => {
@@ -18377,19 +18846,14 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       effectTarget.className = "mixer-track-effects";
       effectTarget.setAttribute("aria-label", `${track.name} effects; drop effects here`);
       effectTarget.addEventListener("dragover", (event) => {
-        if (!Array.from(event.dataTransfer?.types || []).includes("application/x-dansbpm-effect")) return;
+        if (!isMixerDrag(event)) return;
         event.preventDefault();
         effectTarget.classList.add("is-drop-target");
       });
       effectTarget.addEventListener("dragleave", (event) => {
         if (!effectTarget.contains(event.relatedTarget)) effectTarget.classList.remove("is-drop-target");
       });
-      effectTarget.addEventListener("drop", (event) => {
-        event.preventDefault();
-        effectTarget.classList.remove("is-drop-target");
-        const effectId = event.dataTransfer?.getData("application/x-dansbpm-effect");
-        if (effectId) addMixerEffect(track, effectId);
-      });
+      effectTarget.addEventListener("drop", (event) => handleMixerDrop(event, effectTarget, track));
       if (track.kind === "mixer-effects") {
         const presetControls = document.createElement("div");
         presetControls.className = "mixer-effect-presets";
@@ -18434,13 +18898,58 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     library.className = "mixer-effects-library";
     const libraryTitle = document.createElement("h2");
     const masterSelected = state.selectedMixerTrackId === state.masterTrack.id;
-    libraryTitle.textContent = masterSelected ? "Master effects" : "Available effects";
+    libraryTitle.textContent = "Available Presets";
     const libraryHint = document.createElement("p");
     libraryHint.textContent = masterSelected
-      ? "Add effects to the master output"
-      : "Drag an effect onto a track; add Sidechain to choose its source and depth";
+      ? "Drag a preset onto a track or use Apply; individual effects can be dragged onto tracks."
+      : "Drag a preset onto a track or use Apply. Presets replace that track's effect chain.";
     const effectList = document.createElement("div");
     effectList.className = "mixer-effects-library-list";
+    const presetGroup = document.createElement("section");
+    presetGroup.className = "mixer-effect-category mixer-included-presets";
+    const presetHeading = document.createElement("h3");
+    presetHeading.textContent = "Included presets";
+    const presetCards = document.createElement("div");
+    presetCards.className = "mixer-preset-list";
+    MIXER_PRESETS.forEach((preset) => {
+      const card = document.createElement("article");
+      card.className = "mixer-preset-card";
+      card.draggable = true;
+      card.addEventListener("dragstart", (event) => {
+        event.dataTransfer?.setData("application/x-dansbpm-mixer-preset", preset.id);
+        if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
+      });
+      const info = document.createElement("div");
+      info.className = "mixer-preset-info";
+      const name = document.createElement("strong");
+      name.textContent = preset.name;
+      const description = document.createElement("p");
+      description.textContent = preset.description;
+      const source = document.createElement("a");
+      source.href = preset.source;
+      source.draggable = false;
+      source.target = "_blank";
+      source.rel = "noopener noreferrer";
+      source.textContent = "Source";
+      source.setAttribute("aria-label", `${preset.name} source repository`);
+      info.append(name, description, source);
+      const apply = document.createElement("button");
+      apply.className = "mixer-preset-apply";
+      apply.type = "button";
+      apply.textContent = "Apply";
+      apply.title = preset.target === "master"
+        ? "Apply to the Master output"
+        : `Apply to ${masterSelected ? "Master" : "selected track"}`;
+      apply.addEventListener("click", () => applyMixerPreset(preset));
+      card.append(info, apply);
+      presetCards.append(card);
+    });
+    presetGroup.append(presetHeading, presetCards);
+    effectList.append(presetGroup);
+    const effectsHeading = document.createElement("h3");
+    effectsHeading.className = "mixer-individual-effects-heading";
+    effectsHeading.textContent = "Individual effects";
+    effectList.append(effectsHeading);
     EFFECT_CATEGORIES.forEach((category) => {
       const group = document.createElement("section");
       group.className = "mixer-effect-category";
@@ -18787,8 +19296,27 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     content.replaceChildren();
     let eqCanvas = null;
     let eqBands = [];
+    let midSideCanvas = null;
 
-    if (effectId === "eq") {
+    if (effectId === "midSideMonitor") {
+      const visualizer = document.createElement("div");
+      visualizer.className = "mixer-eq-visualizer mixer-mid-side-visualizer";
+      const canvas = document.createElement("canvas");
+      canvas.setAttribute("aria-label", `${track.name} live mid and side levels`);
+      midSideCanvas = canvas;
+      visualizer.append(canvas);
+      content.append(visualizer);
+      const note = document.createElement("p");
+      note.className = "mixer-effect-help";
+      note.textContent = "Analysis only: this monitor does not alter the signal.";
+      content.append(note);
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "quiet-button mixer-remove-effect";
+      remove.textContent = "Remove effect";
+      remove.addEventListener("click", () => removeMixerEffect(track, effectId));
+      content.append(remove);
+    } else if (effectId === "eq") {
       const visualizer = document.createElement("div");
       visualizer.className = "mixer-eq-visualizer";
       const canvas = document.createElement("canvas");
@@ -18816,17 +19344,19 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     } else {
       const controls = document.createElement("div");
       controls.className = "mixer-effect-controls";
-      if (effectId === "sidechain") {
+      if (["sidechain", "crossfadeLimiter", "vocoder3Band"].includes(effectId)) {
         const sourceLabel = document.createElement("label");
         sourceLabel.className = "mixer-effect-control mixer-sidechain-source";
         const sourceCaption = document.createElement("span");
         sourceCaption.className = "mixer-control-caption";
-        sourceCaption.textContent = "Source track";
+        const sourceKey = effectId === "vocoder3Band" ? "modulatorTrackId" : "sourceTrackId";
+        sourceCaption.textContent = effectId === "vocoder3Band" ? "Modulator track" : "Source track";
         const sourceSelect = document.createElement("select");
-        sourceSelect.setAttribute("aria-label", `Sidechain source for ${track.name}`);
+        sourceSelect.setAttribute("aria-label",
+          `${effectId === "vocoder3Band" ? "Modulator" : "Sidechain source"} for ${track.name}`);
         const noSource = document.createElement("option");
         noSource.value = "";
-        noSource.textContent = "Choose a source track";
+        noSource.textContent = effectId === "vocoder3Band" ? "Choose a modulator track" : "Choose a source track";
         sourceSelect.append(noSource);
         getMixerTracks()
           .filter(({ track: sourceTrack }) => sourceTrack.id !== track.id && sourceTrack.kind !== "mixer-master")
@@ -18836,9 +19366,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
             option.textContent = `${sourceTrack.name} · ${type}`;
             sourceSelect.append(option);
           });
-        sourceSelect.value = track.effectSettings.sidechain.sourceTrackId || "";
+        sourceSelect.value = track.effectSettings[effectId][sourceKey] || "";
         sourceSelect.addEventListener("change", () => {
-          track.effectSettings.sidechain.sourceTrackId = sourceSelect.value;
+          track.effectSettings[effectId][sourceKey] = sourceSelect.value;
           refreshMixerEffectTrack(track);
         });
         sourceLabel.append(sourceCaption, sourceSelect);
@@ -18865,6 +19395,66 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     }
     dialog.showModal();
     if (eqCanvas) drawMixerEq(track, eqCanvas, eqBands.map(([id, , frequency]) => [id, frequency]));
+    if (midSideCanvas) drawMixerMidSide(track, midSideCanvas);
+  }
+
+  function drawMixerMidSide(track, canvas) {
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    let activeModule = null;
+    let midSamples = new Float32Array(0);
+    let sideSamples = new Float32Array(0);
+    const draw = () => {
+      if (!canvas.isConnected || !$("#mixer-effect-dialog").open || state.mixerEffectDialogTrackId !== track.id) return;
+      const bounds = canvas.getBoundingClientRect();
+      if (!bounds.width || !bounds.height) {
+        state.mixerEffectAnimation = requestAnimationFrame(draw);
+        return;
+      }
+      const ratio = window.devicePixelRatio || 1;
+      const width = Math.round(bounds.width * ratio);
+      const height = Math.round(bounds.height * ratio);
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      context.fillStyle = "#141518";
+      context.fillRect(0, 0, bounds.width, bounds.height);
+      const module = track.fxRuntime?.find((effect) => effect.effectId === "midSideMonitor");
+      if (module !== activeModule) {
+        activeModule = module || null;
+        midSamples = new Float32Array(activeModule?.midSideAnalyser?.fftSize || 0);
+        sideSamples = new Float32Array(activeModule?.sideAnalyser?.fftSize || 0);
+      }
+      if (!activeModule?.midSideAnalyser || !activeModule.sideAnalyser) {
+        context.fillStyle = "#85868c";
+        context.font = "10px monospace";
+        context.fillText("Start playback to view live levels", 14, bounds.height / 2);
+        state.mixerEffectAnimation = requestAnimationFrame(draw);
+        return;
+      }
+      const level = (analyser, samples) => {
+        analyser.getFloatTimeDomainData(samples);
+        const rms = Math.sqrt(samples.reduce((sum, sample) => sum + sample * sample, 0) / samples.length);
+        return Math.min(1, rms * 3);
+      };
+      [["MID", level(activeModule.midSideAnalyser, midSamples)], ["SIDE", level(activeModule.sideAnalyser, sideSamples)]]
+        .forEach(([label, value], index) => {
+          const top = 36 + index * 64;
+          context.fillStyle = "#a7a9a2";
+          context.font = "10px monospace";
+          context.fillText(label, 14, top);
+          context.fillStyle = "#282a2d";
+          context.fillRect(14, top + 12, Math.max(0, bounds.width - 28), 16);
+          context.fillStyle = "#d3f36b";
+          context.fillRect(14, top + 12, Math.max(0, bounds.width - 28) * value, 16);
+          context.fillStyle = "#c9cac6";
+          context.fillText(`${Math.round(value * 100)}%`, 14, top + 45);
+        });
+      state.mixerEffectAnimation = requestAnimationFrame(draw);
+    };
+    state.mixerEffectAnimation = requestAnimationFrame(draw);
   }
 
   function drawMixerEq(track, canvas, bands) {
@@ -29151,6 +29741,17 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     effects.append(summary);
     const effectList = document.createElement("div");
     effectList.className = "quick-mixer-effect-list";
+    const presetGroup = document.createElement("section");
+    presetGroup.className = "quick-mixer-effect-category";
+    const presetHeading = document.createElement("span");
+    presetHeading.textContent = "Included presets";
+    presetGroup.append(presetHeading);
+    MIXER_PRESETS.forEach((preset) => {
+      const button = addQuickActionButton(presetGroup, preset.name,
+        () => applyMixerPreset(preset), preset.description);
+      button.classList.add("mixer-library-effect");
+    });
+    effectList.append(presetGroup);
     EFFECT_CATEGORIES.forEach((category) => {
       const categoryGroup = document.createElement("section");
       categoryGroup.className = "quick-mixer-effect-category";
@@ -29223,19 +29824,14 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       effectTarget.className = "mixer-track-effects quick-mixer-effects";
       effectTarget.setAttribute("aria-label", `${track.name} effects; drop effects here`);
       effectTarget.addEventListener("dragover", (event) => {
-        if (!Array.from(event.dataTransfer?.types || []).includes("application/x-dansbpm-effect")) return;
+        if (!isMixerDrag(event)) return;
         event.preventDefault();
         effectTarget.classList.add("is-drop-target");
       });
       effectTarget.addEventListener("dragleave", (event) => {
         if (!effectTarget.contains(event.relatedTarget)) effectTarget.classList.remove("is-drop-target");
       });
-      effectTarget.addEventListener("drop", (event) => {
-        event.preventDefault();
-        effectTarget.classList.remove("is-drop-target");
-        const effectId = event.dataTransfer?.getData("application/x-dansbpm-effect");
-        if (effectId) addMixerEffect(track, effectId);
-      });
+      effectTarget.addEventListener("drop", (event) => handleMixerDrop(event, effectTarget, track));
       if (track.kind === "mixer-effects") {
         const presetControls = document.createElement("div");
         presetControls.className = "quick-mixer-preset-controls";

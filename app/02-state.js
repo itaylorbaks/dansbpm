@@ -268,8 +268,11 @@
     { name: "Delay", effects: [["delay", "Delay"], ["pingPong", "Ping-pong delay"], ["slapback", "Slapback"], ["tapeDelay", "Tape delay"]] },
     { name: "Reverb", effects: [["reverb", "Reverb"], ["room", "Room"], ["hall", "Hall"], ["plate", "Plate"]] },
     { name: "Controllers", effects: [["autopan", "Auto-pan"], ["tremolo", "Tremolo"], ["autoFilter", "Auto-filter"], ["lfoGain", "LFO gain"]] },
-    { name: "Dynamics", effects: [["compressor", "Compressor"], ["multibandCompressor", "Multiband compressor"], ["limiter", "Limiter"], ["noiseGate", "Noise gate"], ["transientShaper", "Transient shaper"], ["sidechain", "Sidechain"]] },
+    { name: "Dynamics", effects: [["compressor", "Compressor"], ["multibandCompressor", "Multiband compressor"], ["limiter", "Limiter"], ["noiseGate", "Noise gate"], ["transientShaper", "Transient shaper"], ["sidechain", "Sidechain"], ["crossfadeLimiter", "Crossfade limiter"]] },
     { name: "Miscellaneous", effects: [["bitcrusher", "Bitcrusher"], ["pitchShifter", "Pitch shifter"], ["harmonizer", "Harmonizer"], ["vocoder", "Vocoder"]] },
+    { name: "Stereo tools", effects: [["midSideMonitor", "Mid/side monitor"], ["midSidePanner", "Mid/side panner"], ["midSideFilter", "Mid/side filter"], ["midSideEq", "Mid/side EQ"]] },
+    { name: "Vocoder", effects: [["vocoder3Band", "3-band vocoder"]] },
+    { name: "Equalization", effects: [["steepEq", "Steep EQ"]] },
   ];
   const EFFECT_NAMES = EFFECT_CATEGORIES.flatMap(({ effects }) => effects);
   const EFFECT_PARAMETERS = {
@@ -317,8 +320,156 @@
     transientShaper: [["attack", "Attack", -12, 12, 1, " dB", 3], ["sustain", "Sustain", -12, 12, 1, " dB", -2]],
     autopan: [["rate", "Rate", 0.05, 8, 0.05, " Hz", 0.35], ["depth", "Depth", 0, 100, 1, "%", 100]],
     phaser: [["rate", "Rate", 0.05, 5, 0.05, " Hz", 0.18], ["depth", "Depth", 100, 3000, 50, " Hz", 900]],
+    crossfadeLimiter: [
+      ["depth", "Duck depth", 0, 80, 1, "%", 45],
+      ["threshold", "Ceiling", -12, 0, 0.1, " dB", -1],
+      ["release", "Release", 10, 500, 10, " ms", 120],
+    ],
+    midSidePanner: [["width", "Side width", 0, 200, 1, "%", 100], ["pan", "Pan", -100, 100, 1, "%", 0]],
+    midSideFilter: [
+      ["midCutoff", "Mid low-pass", 100, 8000, 10, " Hz", 800],
+      ["sideCutoff", "Side high-pass", 50, 8000, 10, " Hz", 800],
+      ["order", "Slope", 1, 4, 1, "", 2],
+    ],
+    midSideEq: [
+      ["midSub", "Mid sub", -12, 12, 0.5, " dB", 0],
+      ["midLow", "Mid low", -12, 12, 0.5, " dB", 0],
+      ["midMid", "Mid mid", -12, 12, 0.5, " dB", 0],
+      ["midHigh", "Mid high", -12, 12, 0.5, " dB", 0],
+      ["midAir", "Mid air", -12, 12, 0.5, " dB", 0],
+      ["sideSub", "Side sub", -12, 12, 0.5, " dB", 0],
+      ["sideLow", "Side low", -12, 12, 0.5, " dB", 0],
+      ["sideMid", "Side mid", -12, 12, 0.5, " dB", 0],
+      ["sideHigh", "Side high", -12, 12, 0.5, " dB", 0],
+      ["sideAir", "Side air", -12, 12, 0.5, " dB", 0],
+    ],
+    vocoder3Band: [
+      ["lowCrossover", "Low crossover", 100, 1000, 10, " Hz", 300],
+      ["highCrossover", "High crossover", 800, 8000, 50, " Hz", 3000],
+      ["envelopeRelease", "Envelope release", 10, 300, 5, " ms", 80],
+    ],
+    steepEq: [
+      ["frequency", "Frequency", 20, 20000, 10, " Hz", 1000],
+      ["gain", "Gain", -12, 12, 0.5, " dB", 0],
+      ["q", "Width", 0.2, 12, 0.1, "", 1],
+      ["order", "Order", 1, 4, 1, "", 4],
+    ],
   };
   const EFFECT_IDS = new Set(EFFECT_NAMES.map(([id]) => id));
+  const FL_PRESET_SOURCE = "https://github.com/MysteryPancake/FL-Studio-Presets";
+  const MIXER_PRESETS = [
+    {
+      id: "doom-compressor", name: "Doom Compressor",
+      description: "Parallel native compression with a restrained blend to keep transients intact.",
+      source: FL_PRESET_SOURCE,
+      effects: { compressor: 35 },
+      effectSettings: { compressor: { threshold: -18, ratio: 6, attack: 8, release: 160 } },
+      effectChain: ["compressor"],
+    },
+    {
+      id: "doom-compressor-2", name: "Doom Compressor 2",
+      description: "A gentler compressor/transient-shaper chain with independent attack and sustain controls.",
+      source: FL_PRESET_SOURCE,
+      effects: { compressor: 25, transientShaper: 20 },
+      effectSettings: {
+        compressor: { threshold: -18, ratio: 4, attack: 15, release: 220 },
+        transientShaper: { attack: 2, sustain: -1 },
+      },
+      effectChain: ["compressor", "transientShaper"],
+    },
+    {
+      id: "good-master", name: "Good Master",
+      description: "The app's master output limiter is already active; this preset adds no extra limiting.",
+      source: FL_PRESET_SOURCE,
+      target: "master",
+      effects: {}, effectSettings: {}, effectChain: [],
+    },
+    {
+      id: "mid-side-monitor", name: "Mid/Side Monitor",
+      description: "Pass-through stereo monitor with live mid and side level meters.",
+      source: FL_PRESET_SOURCE,
+      operation: "append",
+      effects: { midSideMonitor: 100 }, effectSettings: {}, effectChain: ["midSideMonitor"],
+    },
+    {
+      id: "mid-side-panner", name: "Mid/Side Panner",
+      description: "Adjust stereo width and balance with a transparent neutral setting.",
+      source: FL_PRESET_SOURCE,
+      effects: { midSidePanner: 35 },
+      effectSettings: { midSidePanner: { width: 100, pan: 0 } },
+      effectChain: ["midSidePanner"],
+    },
+    {
+      id: "mid-side-filter", name: "Mid/Side Filter",
+      description: "Low-pass the center and high-pass the sides around a shared crossover.",
+      source: FL_PRESET_SOURCE,
+      effects: { midSideFilter: 25 },
+      effectSettings: { midSideFilter: { midCutoff: 800, sideCutoff: 800, order: 2 } },
+      effectChain: ["midSideFilter"],
+    },
+    {
+      id: "mid-side-eq", name: "Mid/Side EQ",
+      description: "Independent five-band mid and side equalization, initially flat.",
+      source: FL_PRESET_SOURCE,
+      effects: { midSideEq: 35 }, effectSettings: {}, effectChain: ["midSideEq"],
+    },
+    {
+      id: "steep-eq", name: "Steep EQ",
+      description: "Four-stage native parametric EQ with linked frequency, width, and gain.",
+      source: FL_PRESET_SOURCE,
+      effects: { steepEq: 35 },
+      effectSettings: { steepEq: { frequency: 1000, gain: 0, q: 1, order: 4 } },
+      effectChain: ["steepEq"],
+    },
+    {
+      id: "three-band-vocoder", name: "3-Band Vocoder",
+      description: "Three-band carrier/modulator vocoder. Choose a modulator track in its effect window.",
+      source: FL_PRESET_SOURCE,
+      effects: { vocoder3Band: 45 },
+      effectSettings: { vocoder3Band: { lowCrossover: 300, highCrossover: 3000, envelopeRelease: 80 } },
+      effectChain: ["vocoder3Band"],
+    },
+    {
+      id: "three-band-vocoder-2", name: "3-Band Vocoder 2",
+      description: "Three-band vocoder with steeper band separation and a faster envelope.",
+      source: FL_PRESET_SOURCE,
+      effects: { vocoder3Band: 45 },
+      effectSettings: { vocoder3Band: { lowCrossover: 350, highCrossover: 2800, envelopeRelease: 45 } },
+      effectChain: ["vocoder3Band"],
+    },
+    {
+      id: "reverb-delay", name: "Reverb Delay",
+      description: "Low-feedback delay into a short room reverb for spaced reflections.",
+      source: FL_PRESET_SOURCE,
+      effects: { delay: 24, room: 20 },
+      effectSettings: { delay: { time: 0.18, feedback: 24 }, room: { decay: 0.5, preDelay: 8 } },
+      effectChain: ["delay", "room"],
+    },
+    {
+      id: "reverb-metallic", name: "Reverb Metallic",
+      description: "Short plate reflections for a compact, metallic resonance.",
+      source: FL_PRESET_SOURCE,
+      effects: { plate: 30 },
+      effectSettings: { plate: { decay: 0.3, preDelay: 12 } },
+      effectChain: ["plate"],
+    },
+    {
+      id: "reverb-squeaky", name: "Reverb Squeaky",
+      description: "Modulated vibrato into a short room reverb; reduce either blend for a subtler effect.",
+      source: FL_PRESET_SOURCE,
+      effects: { vibrato: 18, room: 18 },
+      effectSettings: { vibrato: { rate: 5, depth: 12 }, room: { decay: 0.5, preDelay: 10 } },
+      effectChain: ["vibrato", "room"],
+    },
+    {
+      id: "crossfade-limiter", name: "Crossfade Limiter",
+      description: "Sidechain ducking plus limiting. Choose the source track in the effect window.",
+      source: "https://github.com/kisoqual/crossfadelimiter",
+      effects: { crossfadeLimiter: 35 },
+      effectSettings: { crossfadeLimiter: { depth: 45, threshold: -1, release: 120 } },
+      effectChain: ["crossfadeLimiter"],
+    },
+  ];
 
   function makeDefaultEffects(effects) {
     const defaults = {
@@ -346,6 +497,10 @@
     if (typeof settings?.sidechain?.sourceTrackId === "string") {
       defaults.sidechain.sourceTrackId = settings.sidechain.sourceTrackId;
     }
+    defaults.crossfadeLimiter.sourceTrackId = typeof settings?.crossfadeLimiter?.sourceTrackId === "string"
+      ? settings.crossfadeLimiter.sourceTrackId : "";
+    defaults.vocoder3Band.modulatorTrackId = typeof settings?.vocoder3Band?.modulatorTrackId === "string"
+      ? settings.vocoder3Band.modulatorTrackId : "";
     return defaults;
   }
 

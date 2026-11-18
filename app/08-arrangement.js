@@ -568,6 +568,65 @@
     showToast(`Applied "${preset.name}" to ${track.name}.`);
   }
 
+  function applyMixerPreset(preset, targetTrack = null) {
+    const track = preset.target === "master"
+      ? state.masterTrack
+      : targetTrack
+        || getMixerTracks().find(({ track: item }) => item.id === state.selectedMixerTrackId)?.track;
+    if (!track) {
+      showToast("Select a mixer track before applying a preset.");
+      return;
+    }
+    if (preset.id === "good-master") {
+      state.selectedMixerTrackId = state.masterTrack.id;
+      renderMixer();
+      showToast("The app's master output limiter is already active.");
+      return;
+    }
+    ensureTrackMixerState(track);
+    if (preset.operation === "append") {
+      Object.entries(preset.effects).forEach(([id, value]) => { track.effects[id] = value; });
+      Object.entries(preset.effectSettings).forEach(([id, settings]) => {
+        track.effectSettings[id] = { ...track.effectSettings[id], ...settings };
+      });
+      track.effectChain = [...new Set([...track.effectChain, ...preset.effectChain.filter((id) => EFFECT_IDS.has(id))])];
+    } else {
+      track.effects = makeDefaultEffects(preset.effects);
+      track.effectSettings = makeDefaultEffectSettings(preset.effectSettings);
+      track.effectChain = preset.effectChain.filter((id) => EFFECT_IDS.has(id));
+    }
+    state.selectedMixerTrackId = track.id;
+    if (state.audioContext) {
+      ensureTrackAudio(track);
+      rebuildTrackEffectChain(track);
+    }
+    saveState();
+    renderMixer();
+    showToast(`Applied "${preset.name}" to ${track.name}.`);
+  }
+
+  function isMixerDrag(event) {
+    const types = Array.from(event.dataTransfer?.types || []);
+    return types.includes("application/x-dansbpm-effect") ||
+      types.includes("application/x-dansbpm-mixer-preset");
+  }
+
+  function handleMixerDrop(event, effectTarget, track) {
+    const presetId = event.dataTransfer?.getData("application/x-dansbpm-mixer-preset");
+    const preset = MIXER_PRESETS.find((item) => item.id === presetId);
+    if (preset) {
+      event.preventDefault();
+      effectTarget.classList.remove("is-drop-target");
+      applyMixerPreset(preset, track);
+      return;
+    }
+    const effectId = event.dataTransfer?.getData("application/x-dansbpm-effect");
+    if (!EFFECT_IDS.has(effectId)) return;
+    event.preventDefault();
+    effectTarget.classList.remove("is-drop-target");
+    addMixerEffect(track, effectId);
+  }
+
   function setEffectTrackRouting(track, sourceTrackId, routed) {
     if (routed) {
       state.effectTracks.forEach((effectTrack) => {
@@ -672,19 +731,14 @@
       effectTarget.className = "mixer-track-effects";
       effectTarget.setAttribute("aria-label", `${track.name} effects; drop effects here`);
       effectTarget.addEventListener("dragover", (event) => {
-        if (!Array.from(event.dataTransfer?.types || []).includes("application/x-dansbpm-effect")) return;
+        if (!isMixerDrag(event)) return;
         event.preventDefault();
         effectTarget.classList.add("is-drop-target");
       });
       effectTarget.addEventListener("dragleave", (event) => {
         if (!effectTarget.contains(event.relatedTarget)) effectTarget.classList.remove("is-drop-target");
       });
-      effectTarget.addEventListener("drop", (event) => {
-        event.preventDefault();
-        effectTarget.classList.remove("is-drop-target");
-        const effectId = event.dataTransfer?.getData("application/x-dansbpm-effect");
-        if (effectId) addMixerEffect(track, effectId);
-      });
+      effectTarget.addEventListener("drop", (event) => handleMixerDrop(event, effectTarget, track));
       if (track.kind === "mixer-effects") {
         const presetControls = document.createElement("div");
         presetControls.className = "mixer-effect-presets";
@@ -729,13 +783,58 @@
     library.className = "mixer-effects-library";
     const libraryTitle = document.createElement("h2");
     const masterSelected = state.selectedMixerTrackId === state.masterTrack.id;
-    libraryTitle.textContent = masterSelected ? "Master effects" : "Available effects";
+    libraryTitle.textContent = "Available Presets";
     const libraryHint = document.createElement("p");
     libraryHint.textContent = masterSelected
-      ? "Add effects to the master output"
-      : "Drag an effect onto a track; add Sidechain to choose its source and depth";
+      ? "Drag a preset onto a track or use Apply; individual effects can be dragged onto tracks."
+      : "Drag a preset onto a track or use Apply. Presets replace that track's effect chain.";
     const effectList = document.createElement("div");
     effectList.className = "mixer-effects-library-list";
+    const presetGroup = document.createElement("section");
+    presetGroup.className = "mixer-effect-category mixer-included-presets";
+    const presetHeading = document.createElement("h3");
+    presetHeading.textContent = "Included presets";
+    const presetCards = document.createElement("div");
+    presetCards.className = "mixer-preset-list";
+    MIXER_PRESETS.forEach((preset) => {
+      const card = document.createElement("article");
+      card.className = "mixer-preset-card";
+      card.draggable = true;
+      card.addEventListener("dragstart", (event) => {
+        event.dataTransfer?.setData("application/x-dansbpm-mixer-preset", preset.id);
+        if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
+      });
+      const info = document.createElement("div");
+      info.className = "mixer-preset-info";
+      const name = document.createElement("strong");
+      name.textContent = preset.name;
+      const description = document.createElement("p");
+      description.textContent = preset.description;
+      const source = document.createElement("a");
+      source.href = preset.source;
+      source.draggable = false;
+      source.target = "_blank";
+      source.rel = "noopener noreferrer";
+      source.textContent = "Source";
+      source.setAttribute("aria-label", `${preset.name} source repository`);
+      info.append(name, description, source);
+      const apply = document.createElement("button");
+      apply.className = "mixer-preset-apply";
+      apply.type = "button";
+      apply.textContent = "Apply";
+      apply.title = preset.target === "master"
+        ? "Apply to the Master output"
+        : `Apply to ${masterSelected ? "Master" : "selected track"}`;
+      apply.addEventListener("click", () => applyMixerPreset(preset));
+      card.append(info, apply);
+      presetCards.append(card);
+    });
+    presetGroup.append(presetHeading, presetCards);
+    effectList.append(presetGroup);
+    const effectsHeading = document.createElement("h3");
+    effectsHeading.className = "mixer-individual-effects-heading";
+    effectsHeading.textContent = "Individual effects";
+    effectList.append(effectsHeading);
     EFFECT_CATEGORIES.forEach((category) => {
       const group = document.createElement("section");
       group.className = "mixer-effect-category";
@@ -1082,8 +1181,27 @@
     content.replaceChildren();
     let eqCanvas = null;
     let eqBands = [];
+    let midSideCanvas = null;
 
-    if (effectId === "eq") {
+    if (effectId === "midSideMonitor") {
+      const visualizer = document.createElement("div");
+      visualizer.className = "mixer-eq-visualizer mixer-mid-side-visualizer";
+      const canvas = document.createElement("canvas");
+      canvas.setAttribute("aria-label", `${track.name} live mid and side levels`);
+      midSideCanvas = canvas;
+      visualizer.append(canvas);
+      content.append(visualizer);
+      const note = document.createElement("p");
+      note.className = "mixer-effect-help";
+      note.textContent = "Analysis only: this monitor does not alter the signal.";
+      content.append(note);
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "quiet-button mixer-remove-effect";
+      remove.textContent = "Remove effect";
+      remove.addEventListener("click", () => removeMixerEffect(track, effectId));
+      content.append(remove);
+    } else if (effectId === "eq") {
       const visualizer = document.createElement("div");
       visualizer.className = "mixer-eq-visualizer";
       const canvas = document.createElement("canvas");
@@ -1111,17 +1229,19 @@
     } else {
       const controls = document.createElement("div");
       controls.className = "mixer-effect-controls";
-      if (effectId === "sidechain") {
+      if (["sidechain", "crossfadeLimiter", "vocoder3Band"].includes(effectId)) {
         const sourceLabel = document.createElement("label");
         sourceLabel.className = "mixer-effect-control mixer-sidechain-source";
         const sourceCaption = document.createElement("span");
         sourceCaption.className = "mixer-control-caption";
-        sourceCaption.textContent = "Source track";
+        const sourceKey = effectId === "vocoder3Band" ? "modulatorTrackId" : "sourceTrackId";
+        sourceCaption.textContent = effectId === "vocoder3Band" ? "Modulator track" : "Source track";
         const sourceSelect = document.createElement("select");
-        sourceSelect.setAttribute("aria-label", `Sidechain source for ${track.name}`);
+        sourceSelect.setAttribute("aria-label",
+          `${effectId === "vocoder3Band" ? "Modulator" : "Sidechain source"} for ${track.name}`);
         const noSource = document.createElement("option");
         noSource.value = "";
-        noSource.textContent = "Choose a source track";
+        noSource.textContent = effectId === "vocoder3Band" ? "Choose a modulator track" : "Choose a source track";
         sourceSelect.append(noSource);
         getMixerTracks()
           .filter(({ track: sourceTrack }) => sourceTrack.id !== track.id && sourceTrack.kind !== "mixer-master")
@@ -1131,9 +1251,9 @@
             option.textContent = `${sourceTrack.name} · ${type}`;
             sourceSelect.append(option);
           });
-        sourceSelect.value = track.effectSettings.sidechain.sourceTrackId || "";
+        sourceSelect.value = track.effectSettings[effectId][sourceKey] || "";
         sourceSelect.addEventListener("change", () => {
-          track.effectSettings.sidechain.sourceTrackId = sourceSelect.value;
+          track.effectSettings[effectId][sourceKey] = sourceSelect.value;
           refreshMixerEffectTrack(track);
         });
         sourceLabel.append(sourceCaption, sourceSelect);
@@ -1160,6 +1280,66 @@
     }
     dialog.showModal();
     if (eqCanvas) drawMixerEq(track, eqCanvas, eqBands.map(([id, , frequency]) => [id, frequency]));
+    if (midSideCanvas) drawMixerMidSide(track, midSideCanvas);
+  }
+
+  function drawMixerMidSide(track, canvas) {
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    let activeModule = null;
+    let midSamples = new Float32Array(0);
+    let sideSamples = new Float32Array(0);
+    const draw = () => {
+      if (!canvas.isConnected || !$("#mixer-effect-dialog").open || state.mixerEffectDialogTrackId !== track.id) return;
+      const bounds = canvas.getBoundingClientRect();
+      if (!bounds.width || !bounds.height) {
+        state.mixerEffectAnimation = requestAnimationFrame(draw);
+        return;
+      }
+      const ratio = window.devicePixelRatio || 1;
+      const width = Math.round(bounds.width * ratio);
+      const height = Math.round(bounds.height * ratio);
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      context.fillStyle = "#141518";
+      context.fillRect(0, 0, bounds.width, bounds.height);
+      const module = track.fxRuntime?.find((effect) => effect.effectId === "midSideMonitor");
+      if (module !== activeModule) {
+        activeModule = module || null;
+        midSamples = new Float32Array(activeModule?.midSideAnalyser?.fftSize || 0);
+        sideSamples = new Float32Array(activeModule?.sideAnalyser?.fftSize || 0);
+      }
+      if (!activeModule?.midSideAnalyser || !activeModule.sideAnalyser) {
+        context.fillStyle = "#85868c";
+        context.font = "10px monospace";
+        context.fillText("Start playback to view live levels", 14, bounds.height / 2);
+        state.mixerEffectAnimation = requestAnimationFrame(draw);
+        return;
+      }
+      const level = (analyser, samples) => {
+        analyser.getFloatTimeDomainData(samples);
+        const rms = Math.sqrt(samples.reduce((sum, sample) => sum + sample * sample, 0) / samples.length);
+        return Math.min(1, rms * 3);
+      };
+      [["MID", level(activeModule.midSideAnalyser, midSamples)], ["SIDE", level(activeModule.sideAnalyser, sideSamples)]]
+        .forEach(([label, value], index) => {
+          const top = 36 + index * 64;
+          context.fillStyle = "#a7a9a2";
+          context.font = "10px monospace";
+          context.fillText(label, 14, top);
+          context.fillStyle = "#282a2d";
+          context.fillRect(14, top + 12, Math.max(0, bounds.width - 28), 16);
+          context.fillStyle = "#d3f36b";
+          context.fillRect(14, top + 12, Math.max(0, bounds.width - 28) * value, 16);
+          context.fillStyle = "#c9cac6";
+          context.fillText(`${Math.round(value * 100)}%`, 14, top + 45);
+        });
+      state.mixerEffectAnimation = requestAnimationFrame(draw);
+    };
+    state.mixerEffectAnimation = requestAnimationFrame(draw);
   }
 
   function drawMixerEq(track, canvas, bands) {

@@ -924,6 +924,7 @@
       }
       const amount = track.effects[id];
       const module = createTrackEffect(context, id, amount, track.effectSettings[id]);
+      module.effectId = id;
       output.connect(module.input);
       output = module.output;
       track.fxRuntime.push(module);
@@ -953,6 +954,31 @@
       source.gainNode.connect(track.sidechainInputNode);
       track.sidechainSourceNode = source.gainNode;
     });
+    getMixerTracks().forEach(({ track }) => {
+      track.fxRuntime?.forEach((module) => {
+        if (!module.externalInputNode) return;
+        if (module.externalSourceNode) {
+          try {
+            module.externalSourceNode.disconnect(module.externalInputNode);
+          } catch {
+            // A source-chain rebuild may already have removed this connection.
+          }
+          module.externalSourceNode = null;
+        }
+        const sourceId = module.effectId === "vocoder3Band"
+          ? track.effectSettings.vocoder3Band.modulatorTrackId
+          : module.effectId === "crossfadeLimiter"
+            ? track.effectSettings.crossfadeLimiter.sourceTrackId
+            : "";
+        const source = getMixerTracks().find(({ track: sourceTrack }) =>
+          sourceTrack.id === sourceId && sourceTrack.kind !== "mixer-master" &&
+          sourceTrack.id !== track.id)?.track;
+        if (module.fallbackGain) module.fallbackGain.gain.value = source?.gainNode ? 0 : 1;
+        if (!source?.gainNode) return;
+        source.gainNode.connect(module.externalInputNode);
+        module.externalSourceNode = source.gainNode;
+      });
+    });
   }
 
   function rebuildMixerAudioRouting() {
@@ -975,7 +1001,15 @@
     }
     track.sidechainSourceNode = null;
     track.sidechainInputNode = null;
-    track.fxRuntime?.forEach(({ nodes, sources }) => {
+    track.fxRuntime?.forEach((module) => {
+      const { nodes, sources } = module;
+      if (module.externalSourceNode && module.externalInputNode) {
+        try {
+          module.externalSourceNode.disconnect(module.externalInputNode);
+        } catch {
+          // A source-chain rebuild may already have removed this connection.
+        }
+      }
       sources.forEach((source) => {
         try { source.stop(); } catch { /* already stopped */ }
       });
@@ -994,6 +1028,57 @@
     track.panNode = null;
   }
 
+  function makeMixerMidSideBuses(context, input, nodes) {
+    const splitter = context.createChannelSplitter(2);
+    const midBus = context.createGain();
+    const sideBus = context.createGain();
+    const midLeft = context.createGain();
+    const midRight = context.createGain();
+    const sideLeft = context.createGain();
+    const sideRight = context.createGain();
+    midLeft.gain.value = midRight.gain.value = sideLeft.gain.value = 0.5;
+    sideRight.gain.value = -0.5;
+    input.connect(splitter);
+    splitter.connect(midLeft, 0);
+    splitter.connect(midRight, 1);
+    splitter.connect(sideLeft, 0);
+    splitter.connect(sideRight, 1);
+    midLeft.connect(midBus);
+    midRight.connect(midBus);
+    sideLeft.connect(sideBus);
+    sideRight.connect(sideBus);
+    nodes.push(splitter, midBus, sideBus, midLeft, midRight, sideLeft, sideRight);
+    return { midBus, sideBus };
+  }
+
+  function makeMixerMidSideOutput(context, mid, side, nodes) {
+    const merger = context.createChannelMerger(2);
+    const invertSide = context.createGain();
+    invertSide.gain.value = -1;
+    mid.connect(merger, 0, 0);
+    mid.connect(merger, 0, 1);
+    side.connect(merger, 0, 0);
+    side.connect(invertSide);
+    invertSide.connect(merger, 0, 1);
+    nodes.push(merger, invertSide);
+    return merger;
+  }
+
+  function addMixerFilterStages(context, source, type, frequency, order, nodes, q = Math.SQRT1_2, gain = 0) {
+    let output = source;
+    for (let index = 0; index < order; index += 1) {
+      const filter = context.createBiquadFilter();
+      filter.type = type;
+      filter.frequency.value = frequency;
+      filter.Q.value = q;
+      filter.gain.value = gain;
+      output.connect(filter);
+      output = filter;
+      nodes.push(filter);
+    }
+    return output;
+  }
+
   function createTrackEffect(context, id, amount, settings = {}) {
     const input = context.createGain();
     const output = context.createGain();
@@ -1008,13 +1093,180 @@
     input.connect(dry);
     dry.connect(output);
     let effectOutput;
+    let midSideAnalyser = null;
+    let sideAnalyser = null;
+    let externalInputNode = null;
+    let fallbackGain = null;
     const connectWet = (node) => {
       nodes.push(node);
       input.connect(node);
       effectOutput = node;
     };
 
-    if (["reverb", "room", "hall", "plate"].includes(id)) {
+    if (id === "midSideMonitor") {
+      const { midBus, sideBus } = makeMixerMidSideBuses(context, input, nodes);
+      midSideAnalyser = context.createAnalyser();
+      sideAnalyser = context.createAnalyser();
+      midSideAnalyser.fftSize = sideAnalyser.fftSize = 1024;
+      const midSilence = context.createGain();
+      const sideSilence = context.createGain();
+      midSilence.gain.value = sideSilence.gain.value = 0;
+      midBus.connect(midSideAnalyser);
+      sideBus.connect(sideAnalyser);
+      midSideAnalyser.connect(midSilence);
+      sideAnalyser.connect(sideSilence);
+      midSilence.connect(output);
+      sideSilence.connect(output);
+      nodes.push(midSideAnalyser, sideAnalyser, midSilence, sideSilence);
+      const through = context.createGain();
+      connectWet(through);
+    } else if (id === "midSidePanner" || id === "midSideFilter" || id === "midSideEq") {
+      const { midBus, sideBus } = makeMixerMidSideBuses(context, input, nodes);
+      let mid = midBus;
+      let side = sideBus;
+      if (id === "midSidePanner") {
+        const sideWidth = context.createGain();
+        sideWidth.gain.value = setting("width", 100) / 100;
+        side.connect(sideWidth);
+        side = sideWidth;
+        nodes.push(sideWidth);
+      } else if (id === "midSideFilter") {
+        const order = Math.max(1, Math.min(4, Math.round(setting("order", 2))));
+        mid = addMixerFilterStages(context, mid, "lowpass", setting("midCutoff", 800), order, nodes);
+        side = addMixerFilterStages(context, side, "highpass", setting("sideCutoff", 800), order, nodes);
+      } else {
+        const bands = [
+          ["lowshelf", 40, "Sub"],
+          ["peaking", 160, "Low"],
+          ["peaking", 1000, "Mid"],
+          ["peaking", 5000, "High"],
+          ["highshelf", 12000, "Air"],
+        ];
+        bands.forEach(([type, frequency, label]) => {
+          for (const [busName, bus] of [["mid", mid], ["side", side]]) {
+            const filter = context.createBiquadFilter();
+            filter.type = type;
+            filter.frequency.value = frequency;
+            filter.Q.value = Math.SQRT1_2;
+            filter.gain.value = setting(`${busName}${label}`, 0);
+            bus.connect(filter);
+            if (busName === "mid") mid = filter;
+            else side = filter;
+            nodes.push(filter);
+          }
+        });
+      }
+      const stereo = makeMixerMidSideOutput(context, mid, side, nodes);
+      if (id === "midSidePanner") {
+        const panner = context.createStereoPanner();
+        panner.pan.value = setting("pan", 0) / 100;
+        stereo.connect(panner);
+        nodes.push(panner);
+        effectOutput = panner;
+      } else effectOutput = stereo;
+    } else if (id === "steepEq") {
+      effectOutput = addMixerFilterStages(context, input, "peaking", setting("frequency", 1000),
+        Math.max(1, Math.min(4, Math.round(setting("order", 4)))), nodes,
+        setting("q", 1), setting("gain", 0) / Math.max(1, Math.min(4, Math.round(setting("order", 4)))));
+    } else if (id === "crossfadeLimiter") {
+      const duck = context.createGain();
+      duck.gain.value = 1;
+      input.connect(duck);
+      const detector = context.createWaveShaper();
+      const curve = new Float32Array(4096);
+      const depth = setting("depth", 45) / 100;
+      curve.forEach((_, index) => {
+        const sample = index * 2 / (curve.length - 1) - 1;
+        curve[index] = -Math.min(0.7, Math.abs(sample) * 6) * depth;
+      });
+      detector.curve = curve;
+      const envelope = context.createBiquadFilter();
+      envelope.type = "lowpass";
+      envelope.frequency.value = Math.max(3, Math.min(25, 1000 / setting("release", 120)));
+      detector.connect(envelope);
+      envelope.connect(duck.gain);
+      externalInputNode = context.createGain();
+      externalInputNode.connect(detector);
+      const limiter = context.createDynamicsCompressor();
+      limiter.threshold.value = setting("threshold", -1);
+      limiter.knee.value = 0;
+      limiter.ratio.value = 20;
+      limiter.attack.value = 0.001;
+      limiter.release.value = setting("release", 120) / 1000;
+      duck.connect(limiter);
+      nodes.push(duck, detector, envelope, externalInputNode, limiter);
+      effectOutput = limiter;
+    } else if (id === "vocoder3Band") {
+      const lowCrossover = setting("lowCrossover", 300);
+      const highCrossover = Math.max(lowCrossover + 100, setting("highCrossover", 3000));
+      const release = setting("envelopeRelease", 80);
+      const modulatorInput = context.createGain();
+      const modulatorSplit = context.createChannelSplitter(2);
+      modulatorInput.connect(modulatorSplit);
+      externalInputNode = modulatorInput;
+      const sum = context.createGain();
+      fallbackGain = context.createGain();
+      fallbackGain.gain.value = settings.modulatorTrackId ? 0 : 1;
+      input.connect(fallbackGain);
+      fallbackGain.connect(sum);
+      const makeBand = (source, band, carrier) => {
+        let output = source;
+        const order = band === "mid" ? 2 : 1;
+        if (band !== "low") {
+          output = addMixerFilterStages(context, output, "highpass", lowCrossover, order, nodes);
+        }
+        if (band !== "high") {
+          output = addMixerFilterStages(context, output, "lowpass",
+            band === "low" ? lowCrossover : highCrossover, order, nodes);
+        }
+        if (!carrier) {
+          const rectifier = context.createWaveShaper();
+          const curve = new Float32Array(1024);
+          curve.forEach((_, index) => {
+            const sample = index * 2 / (curve.length - 1) - 1;
+            curve[index] = Math.abs(sample);
+          });
+          rectifier.curve = curve;
+          const envelope = context.createBiquadFilter();
+          envelope.type = "lowpass";
+          envelope.frequency.value = Math.max(2, Math.min(20, 1000 / (release * 2)));
+          envelope.Q.value = Math.SQRT1_2;
+          const envelopeGain = context.createGain();
+          envelopeGain.gain.value = 2.5;
+          output.connect(rectifier);
+          rectifier.connect(envelope);
+          envelope.connect(envelopeGain);
+          const carrierGain = context.createGain();
+          carrierGain.gain.value = 0;
+          envelopeGain.connect(carrierGain.gain);
+          nodes.push(rectifier, envelope, envelopeGain, carrierGain);
+          return { carrierGain };
+        }
+        const carrierGain = context.createGain();
+        output.connect(carrierGain);
+        nodes.push(carrierGain);
+        return { output: carrierGain };
+      };
+      const modulatorMono = context.createGain();
+      const modulatorLeft = context.createGain();
+      const modulatorRight = context.createGain();
+      modulatorLeft.gain.value = modulatorRight.gain.value = 0.5;
+      modulatorSplit.connect(modulatorLeft, 0);
+      modulatorSplit.connect(modulatorRight, 1);
+      modulatorLeft.connect(modulatorMono);
+      modulatorRight.connect(modulatorMono);
+      ["low", "mid", "high"].forEach((band) => {
+        const detector = makeBand(modulatorMono, band, false);
+        let carrier = input;
+        if (band !== "low") carrier = addMixerFilterStages(context, carrier, "highpass", lowCrossover, band === "mid" ? 2 : 1, nodes);
+        if (band !== "high") carrier = addMixerFilterStages(context, carrier, "lowpass",
+          band === "low" ? lowCrossover : highCrossover, band === "mid" ? 2 : 1, nodes);
+        carrier.connect(detector.carrierGain);
+        detector.carrierGain.connect(sum);
+      });
+      nodes.push(modulatorInput, modulatorSplit, modulatorMono, modulatorLeft, modulatorRight, sum, fallbackGain);
+      effectOutput = sum;
+    } else if (["reverb", "room", "hall", "plate"].includes(id)) {
       const convolver = context.createConvolver();
       const decay = setting("decay", id === "hall" ? 3.2 : id === "room" ? 0.7 : id === "plate" ? 2.2 : 1.8);
       const impulse = context.createBuffer(2, Math.floor(context.sampleRate * decay), context.sampleRate);
@@ -1256,7 +1508,10 @@
     }
     effectOutput.connect(wet);
     wet.connect(output);
-    return { input, output, nodes, sources, dry, wet };
+    return {
+      input, output, nodes, sources, dry, wet,
+      midSideAnalyser, sideAnalyser, externalInputNode, externalSourceNode: null, fallbackGain,
+    };
   }
 
   function snapArrangementBar(bar) {
