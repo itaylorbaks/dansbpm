@@ -8,6 +8,8 @@
     metronomeVolume: 100,
     theme: "dark",
     accent: "lime",
+    rewindOnPause: false,
+    blueprintLayout: "workspace-top",
   };
   let drummerAudio = null;
   let drummerDestination = null;
@@ -27,6 +29,10 @@
             : 100,
           theme: saved.theme === "light" ? "light" : "dark",
           accent: ["lime", "blue", "violet", "coral"].includes(saved.accent) ? saved.accent : "lime",
+          rewindOnPause: saved.rewindOnPause === true,
+          blueprintLayout: ["workspace-top", "track-top", "side-by-side"].includes(saved.blueprintLayout)
+            ? saved.blueprintLayout
+            : "workspace-top",
         });
       }
     } catch (error) {
@@ -37,6 +43,9 @@
     document.documentElement.dataset.accent = userSettings.accent;
     $("#settings-theme").value = userSettings.theme;
     $("#settings-accent").value = userSettings.accent;
+    $("#settings-pause-behavior").value = userSettings.rewindOnPause ? "rewind" : "stay";
+    updateBlueprintLayoutButtons();
+    activateSettingsPage("accessibility");
     $("#settings-audio-input").value = userSettings.audioInputDeviceId;
     $("#settings-audio-output").value = userSettings.audioOutputDeviceId;
     $("#settings-drummer-output").value = userSettings.drummerDeviceId;
@@ -54,6 +63,24 @@
       renderCollaborationActivityLog();
     });
     $("#settings-close").addEventListener("click", () => $("#settings-dialog").close());
+    const settingsNav = $("#settings-nav");
+    settingsNav.addEventListener("click", (event) => {
+      const tab = event.target instanceof Element ? event.target.closest("[data-settings-page]") : null;
+      if (tab) activateSettingsPage(tab.dataset.settingsPage);
+    });
+    settingsNav.addEventListener("keydown", (event) => {
+      const tabs = Array.from(settingsNav.querySelectorAll("[data-settings-page]"));
+      const currentIndex = tabs.indexOf(event.target);
+      if (currentIndex < 0) return;
+      let nextIndex;
+      if (event.key === "ArrowDown") nextIndex = (currentIndex + 1) % tabs.length;
+      else if (event.key === "ArrowUp") nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+      else if (event.key === "Home") nextIndex = 0;
+      else if (event.key === "End") nextIndex = tabs.length - 1;
+      else return;
+      event.preventDefault();
+      activateSettingsPage(tabs[nextIndex].dataset.settingsPage, true);
+    });
     $("#settings-theme").addEventListener("change", (event) => {
       userSettings.theme = event.target.value === "light" ? "light" : "dark";
       document.documentElement.dataset.theme = userSettings.theme;
@@ -65,6 +92,29 @@
         : "lime";
       document.documentElement.dataset.accent = userSettings.accent;
       persistUserSettings();
+    });
+    $("#settings-pause-behavior").addEventListener("change", (event) => {
+      userSettings.rewindOnPause = event.target.value === "rewind";
+      persistUserSettings();
+    });
+    document.querySelectorAll("[data-blueprint-layout]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const layout = button.dataset.blueprintLayout;
+        if (!["workspace-top", "track-top", "side-by-side"].includes(layout)) return;
+        userSettings.blueprintLayout = layout;
+        updateBlueprintLayoutButtons();
+        renderViewLayout();
+        persistUserSettings();
+      });
+    });
+    $("#settings-create-room").addEventListener("click", () => {
+      $("#settings-dialog").close();
+      openCollaborationDialog();
+      void startCollaborationRoom("create");
+    });
+    $("#settings-join-room").addEventListener("click", () => {
+      $("#settings-dialog").close();
+      openCollaborationDialog();
     });
     $("#settings-audio-input").addEventListener("change", (event) => {
       userSettings.audioInputDeviceId = event.target.value;
@@ -100,6 +150,43 @@
     });
     loadCollaborationActivity();
     renderCollaborationActivityLog();
+  }
+
+  function updateBlueprintLayoutButtons() {
+    document.querySelectorAll("[data-blueprint-layout]").forEach((button) => {
+      const selected = button.dataset.blueprintLayout === userSettings.blueprintLayout;
+      button.setAttribute("aria-pressed", String(selected));
+      button.classList.toggle("is-selected", selected);
+    });
+  }
+
+  function activateSettingsPage(page, focus = false) {
+    const tabs = Array.from(document.querySelectorAll("[data-settings-page]"));
+    const selectedTab = tabs.find((tab) => tab.dataset.settingsPage === page);
+    if (!selectedTab) return;
+    tabs.forEach((tab) => {
+      const selected = tab === selectedTab;
+      tab.setAttribute("aria-selected", String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+      tab.classList.toggle("is-selected", selected);
+    });
+    document.querySelectorAll("[data-settings-panel]").forEach((panel) => {
+      panel.hidden = panel.dataset.settingsPanel !== page;
+    });
+    if (focus) selectedTab.focus();
+  }
+
+  function openCollaborationDialog() {
+    try {
+      $("#collaboration-server-url").value =
+        window.localStorage.getItem(COLLABORATION_URL_KEY) || DEFAULT_COLLABORATION_SERVER_URL;
+    } catch {
+      $("#collaboration-server-url").value = DEFAULT_COLLABORATION_SERVER_URL;
+    }
+    renderCollaborationStatus(collaboration.session
+      ? `Connected to room ${collaboration.session.roomCode}.`
+      : "Not connected");
+    $("#collaboration-dialog").showModal();
   }
 
   function persistUserSettings() {

@@ -880,61 +880,121 @@
           </div>
           <button class="dialog-close" id="settings-close" type="button" aria-label="Close settings">×</button>
         </div>
-        <section class="settings-section">
-          <h3>Audio devices</h3>
-          <label class="settings-field">
-            <span>Audio input</span>
-            <select id="settings-audio-input"><option value="">System default</option></select>
-          </label>
-          <label class="settings-field">
-            <span>Audio output</span>
-            <select id="settings-audio-output"><option value="">System default</option></select>
-          </label>
-          <div class="settings-actions">
-            <button class="quiet-button" id="settings-choose-output" type="button">Choose output…</button>
-            <button class="quiet-button" id="settings-refresh-devices" type="button">Refresh devices</button>
+        <div class="settings-layout">
+          <nav class="settings-nav" id="settings-nav" role="tablist" aria-label="Settings sections" aria-orientation="vertical">
+            <button class="settings-nav-button is-selected" id="settings-tab-accessibility" type="button" role="tab"
+              aria-selected="true" aria-controls="settings-page-accessibility" tabindex="0"
+              data-settings-page="accessibility">Accessibility</button>
+            <button class="settings-nav-button" id="settings-tab-collaboration" type="button" role="tab"
+              aria-selected="false" aria-controls="settings-page-collaboration" tabindex="-1"
+              data-settings-page="collaboration">Collaboration</button>
+            <button class="settings-nav-button" id="settings-tab-audio" type="button" role="tab"
+              aria-selected="false" aria-controls="settings-page-audio" tabindex="-1"
+              data-settings-page="audio">Audio</button>
+            <button class="settings-nav-button" id="settings-tab-blueprint" type="button" role="tab"
+              aria-selected="false" aria-controls="settings-page-blueprint" tabindex="-1"
+              data-settings-page="blueprint">Blueprint</button>
+          </nav>
+          <div class="settings-pages">
+            <section class="settings-page" id="settings-page-accessibility" role="tabpanel"
+              aria-labelledby="settings-tab-accessibility" tabindex="0" data-settings-panel="accessibility">
+              <h3>Accessibility</h3>
+              <label class="settings-field">
+                <span>After pausing playback</span>
+                <select id="settings-pause-behavior">
+                  <option value="stay">Stay at the paused location</option>
+                  <option value="rewind">Return to the playback start</option>
+                </select>
+              </label>
+              <div class="settings-subsection">
+                <h4>Appearance</h4>
+                <label class="settings-field">
+                  <span>Mode</span>
+                  <select id="settings-theme">
+                    <option value="dark">Dark</option>
+                    <option value="light">Light</option>
+                  </select>
+                </label>
+                <label class="settings-field">
+                  <span>Accent color</span>
+                  <select id="settings-accent">
+                    <option value="lime">Lime</option>
+                    <option value="blue">Blue</option>
+                    <option value="violet">Violet</option>
+                    <option value="coral">Coral</option>
+                  </select>
+                </label>
+              </div>
+            </section>
+            <section class="settings-page" id="settings-page-collaboration" role="tabpanel"
+              aria-labelledby="settings-tab-collaboration" tabindex="0" data-settings-panel="collaboration" hidden>
+              <h3>Collaboration</h3>
+              <div class="settings-actions">
+                <button class="quiet-button" id="settings-create-room" type="button">Create room</button>
+                <button class="quiet-button" id="settings-join-room" type="button">Join a room</button>
+              </div>
+              <div class="settings-subsection collaboration-log-section" id="settings-collaboration-log" hidden>
+                <h4>Activity log</h4>
+                <p class="settings-note" id="settings-room-host"></p>
+                <p class="settings-note" id="settings-last-edit"></p>
+                <ol class="collaboration-activity-list" id="settings-activity-list"></ol>
+                <p class="settings-note">Room history is kept until the room expires (up to 24 hours after everyone leaves).</p>
+              </div>
+            </section>
+            <section class="settings-page" id="settings-page-audio" role="tabpanel"
+              aria-labelledby="settings-tab-audio" tabindex="0" data-settings-panel="audio" hidden>
+              <h3>Audio</h3>
+              <div class="settings-subsection">
+                <h4>Audio devices</h4>
+                <label class="settings-field">
+                  <span>Audio input</span>
+                  <select id="settings-audio-input"><option value="">System default</option></select>
+                </label>
+                <label class="settings-field">
+                  <span>Audio output</span>
+                  <select id="settings-audio-output"><option value="">System default</option></select>
+                </label>
+                <div class="settings-actions">
+                  <button class="quiet-button" id="settings-choose-output" type="button">Choose output…</button>
+                  <button class="quiet-button" id="settings-refresh-devices" type="button">Refresh devices</button>
+                </div>
+                <p class="settings-note" id="settings-audio-status" role="status" aria-live="polite"></p>
+              </div>
+              <div class="settings-subsection">
+                <h4>Drummer</h4>
+                <p class="settings-note">Route the Track View metronome to a separate Bluetooth speaker or headphones. DJ metronome clicks follow the deck tempo.</p>
+                <label class="settings-field">
+                  <span>Drummer output</span>
+                  <select id="settings-drummer-output"><option value="">Choose an audio output</option></select>
+                </label>
+                <div class="settings-actions">
+                  <button class="quiet-button" id="settings-choose-drummer" type="button">Choose Bluetooth output…</button>
+                  <button class="quiet-button" id="settings-connect-drummer" type="button">Connect Drummer</button>
+                </div>
+                <p class="settings-note" id="settings-drummer-status" role="status" aria-live="polite">Not connected</p>
+              </div>
+            </section>
+            <section class="settings-page" id="settings-page-blueprint" role="tabpanel"
+              aria-labelledby="settings-tab-blueprint" tabindex="0" data-settings-panel="blueprint" hidden>
+              <h3>Blueprint</h3>
+              <p class="settings-note">Choose how Workspace and Track View are arranged. You can still hide, show, or expand either view.</p>
+              <div class="blueprint-layout-options" role="group" aria-label="Workspace and Track View layout">
+                <button class="blueprint-option" type="button" data-blueprint-layout="workspace-top" aria-pressed="false">
+                  <span class="blueprint-preview" aria-hidden="true"><span class="blueprint-workspace"></span><span class="blueprint-track"></span></span>
+                  <span>Workspace above</span>
+                </button>
+                <button class="blueprint-option" type="button" data-blueprint-layout="track-top" aria-pressed="false">
+                  <span class="blueprint-preview" aria-hidden="true"><span class="blueprint-workspace"></span><span class="blueprint-track"></span></span>
+                  <span>Track View above</span>
+                </button>
+                <button class="blueprint-option" type="button" data-blueprint-layout="side-by-side" aria-pressed="false">
+                  <span class="blueprint-preview" aria-hidden="true"><span class="blueprint-workspace"></span><span class="blueprint-track"></span></span>
+                  <span>Side by side</span>
+                </button>
+              </div>
+            </section>
           </div>
-          <p class="settings-note" id="settings-audio-status" role="status" aria-live="polite"></p>
-        </section>
-        <section class="settings-section">
-          <h3>Drummer</h3>
-          <p class="settings-note">Route the Track View metronome to a separate Bluetooth speaker or headphones. DJ metronome clicks follow the deck tempo.</p>
-          <label class="settings-field">
-            <span>Drummer output</span>
-            <select id="settings-drummer-output"><option value="">Choose an audio output</option></select>
-          </label>
-          <div class="settings-actions">
-            <button class="quiet-button" id="settings-choose-drummer" type="button">Choose Bluetooth output…</button>
-            <button class="quiet-button" id="settings-connect-drummer" type="button">Connect Drummer</button>
-          </div>
-          <p class="settings-note" id="settings-drummer-status" role="status" aria-live="polite">Not connected</p>
-        </section>
-        <section class="settings-section">
-          <h3>Appearance</h3>
-          <label class="settings-field">
-            <span>Mode</span>
-            <select id="settings-theme">
-              <option value="dark">Dark</option>
-              <option value="light">Light</option>
-            </select>
-          </label>
-          <label class="settings-field">
-            <span>Accent color</span>
-            <select id="settings-accent">
-              <option value="lime">Lime</option>
-              <option value="blue">Blue</option>
-              <option value="violet">Violet</option>
-              <option value="coral">Coral</option>
-            </select>
-          </label>
-        </section>
-        <section class="settings-section collaboration-log-section" id="settings-collaboration-log" hidden>
-          <h3>Collaboration activity</h3>
-          <p class="settings-note" id="settings-room-host"></p>
-          <p class="settings-note" id="settings-last-edit"></p>
-          <ol class="collaboration-activity-list" id="settings-activity-list"></ol>
-          <p class="settings-note">Room history is kept until the room expires (up to 24 hours after everyone leaves).</p>
-        </section>
+        </div>
       </dialog>
       <dialog class="help-dialog" id="help-dialog">
         <form method="dialog">
@@ -983,7 +1043,7 @@
             <section class="help-section">
               <h3>Projects & shortcuts</h3>
               <ul>
-                <li>Projects save in this browser. Use the project menu to save, import, rename, create, or switch projects. Choose <strong>Collaborate</strong> to create or join a shared room; enable audio in the room to follow synchronized playback. Export a song as WAV, MP3, or a portable BPM project; export patterns and Mels from their editors.</li>
+                <li>Projects save in this browser. Use the project menu to save, import, rename, create, or switch projects. Open <strong>Settings → Collaboration</strong> to create or join a shared room; enable audio in the room to follow synchronized playback. Export a song as WAV, MP3, or a portable BPM project; export patterns and Mels from their editors.</li>
                 <li>Use <kbd>⌘</kbd> instead of <kbd>Ctrl</kbd> on Mac. In Track View, <kbd>Ctrl</kbd> + <kbd>C</kbd>/<kbd>V</kbd> copies or pastes selected clips; select a track without selecting clips to copy the whole track. Paste onto a selected compatible track, or use <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>V</kbd> to paste onto a new track of the same type. Mel clips pasted onto an instrument track play with that track's instrument. <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>C</kbd> copies the selected track even when clips are selected. Piano Roll notes also support <kbd>Ctrl</kbd> + <kbd>C</kbd>/<kbd>V</kbd>; <kbd>Ctrl</kbd> + <kbd>X</kbd> cuts selected notes or clips; <kbd>Delete</kbd>/<kbd>Backspace</kbd> removes selected notes or clips.</li>
                 <li><kbd>Ctrl</kbd> + <kbd>Z</kbd> undoes the last action in the active editor.</li>
                 <li>In Piano Roll or Track View, hold <kbd>Alt</kbd>/<kbd>Option</kbd> and drag a marquee to deselect items inside it; hold <kbd>Shift</kbd> while dragging to add to the selection.</li>
@@ -1008,7 +1068,6 @@
           <button class="quiet-button" id="rename-project-button" type="button">Rename</button>
           <button class="quiet-button" id="new-project-button" type="button">＋ New project</button>
           <button class="quiet-button" id="import-project-button" type="button">Import project</button>
-          <button class="quiet-button" id="collaborate-button" type="button">Collaborate</button>
           <button class="quiet-button" id="account-button" type="button">Account</button>
           <button class="quiet-button" id="switch-user-button" type="button">Switch user</button>
         </div>
@@ -1060,7 +1119,6 @@
         </label>
         <p class="collaboration-status" id="collaboration-status" role="status" aria-live="polite">Not connected</p>
         <div class="collaboration-actions" id="collaboration-room-actions">
-          <button class="quiet-button" id="collaboration-create-room" type="button">Create room</button>
           <label class="collaboration-field collaboration-code-field">
             <span>Room code</span>
             <input id="collaboration-room-code-input" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="20" placeholder="Paste a room code" />
@@ -1120,6 +1178,6 @@
       </div>
     </section>
     <script src="assets/vendor/lame.min.js"></script>
-    <script src="app.js?v=d7f9aef9f46f"></script>
+    <script src="app.js?v=986e6ef24002"></script>
   </body>
 </html>

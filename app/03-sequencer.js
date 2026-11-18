@@ -458,14 +458,50 @@
 
   function renderViewLayout() {
     const main = $("#arrangement-main");
-    $("#workspace-area").hidden = state.workspaceHidden;
-    $("#track-view-area").hidden = state.trackViewHidden;
-    $("#view-resizer").hidden = state.workspaceHidden || state.trackViewHidden;
-    if (state.workspaceHidden) main.style.gridTemplateRows = "0px 0px minmax(0, 1fr)";
-    else if (state.trackViewHidden) main.style.gridTemplateRows = "minmax(0, 1fr) 0px 0px";
-    else main.style.gridTemplateRows = `minmax(0, ${state.workspaceRatio}fr) 12px minmax(0, ${100 - state.workspaceRatio}fr)`;
-    $("#view-resizer").setAttribute("aria-valuenow", String(state.workspaceRatio));
-    $("#view-resizer").setAttribute("aria-valuetext", `Workspace ${state.workspaceRatio}%, Track View ${100 - state.workspaceRatio}%`);
+    const workspace = $("#workspace-area");
+    const trackView = $("#track-view-area");
+    const resizer = $("#view-resizer");
+    const horizontal = userSettings.blueprintLayout === "side-by-side";
+    const workspaceFirst = horizontal || userSettings.blueprintLayout !== "track-top";
+    workspace.hidden = state.workspaceHidden;
+    trackView.hidden = state.trackViewHidden;
+    resizer.hidden = state.workspaceHidden || state.trackViewHidden;
+    main.classList.toggle("is-horizontal", horizontal);
+    workspace.style.gridRow = "";
+    trackView.style.gridRow = "";
+    resizer.style.gridRow = "";
+    workspace.style.gridColumn = "";
+    trackView.style.gridColumn = "";
+    resizer.style.gridColumn = "";
+    if (horizontal) {
+      main.style.gridTemplateRows = "minmax(0, 1fr)";
+      if (state.workspaceHidden) main.style.gridTemplateColumns = "0px 0px minmax(0, 1fr)";
+      else if (state.trackViewHidden) main.style.gridTemplateColumns = "minmax(0, 1fr) 0px 0px";
+      else main.style.gridTemplateColumns = `minmax(0, ${state.workspaceRatio}fr) 9px minmax(0, ${100 - state.workspaceRatio}fr)`;
+      workspace.style.gridRow = "1";
+      resizer.style.gridRow = "1";
+      trackView.style.gridRow = "1";
+      workspace.style.gridColumn = "1";
+      resizer.style.gridColumn = "2";
+      trackView.style.gridColumn = "3";
+    } else {
+      main.style.gridTemplateColumns = "minmax(0, 1fr)";
+      if (state.workspaceHidden) {
+        main.style.gridTemplateRows = workspaceFirst ? "0px 0px minmax(0, 1fr)" : "minmax(0, 1fr) 0px 0px";
+      } else if (state.trackViewHidden) {
+        main.style.gridTemplateRows = workspaceFirst ? "minmax(0, 1fr) 0px 0px" : "0px 0px minmax(0, 1fr)";
+      } else {
+        const firstRatio = workspaceFirst ? state.workspaceRatio : 100 - state.workspaceRatio;
+        const secondRatio = 100 - firstRatio;
+        main.style.gridTemplateRows = `minmax(0, ${firstRatio}fr) 9px minmax(0, ${secondRatio}fr)`;
+      }
+      workspace.style.gridRow = workspaceFirst ? "1" : "3";
+      trackView.style.gridRow = workspaceFirst ? "3" : "1";
+      resizer.style.gridRow = "2";
+    }
+    resizer.setAttribute("aria-orientation", horizontal ? "vertical" : "horizontal");
+    resizer.setAttribute("aria-valuenow", String(state.workspaceRatio));
+    resizer.setAttribute("aria-valuetext", `Workspace ${state.workspaceRatio}%, Track View ${100 - state.workspaceRatio}%`);
     $("#hide-workspace-button").hidden = state.workspaceHidden;
     $("#show-track-view-button").hidden = !state.trackViewHidden;
     $("#hide-track-view-button").hidden = state.trackViewHidden;

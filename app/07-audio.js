@@ -6,8 +6,8 @@
       ? Boolean(state.workspacePlayers[workspace])
       : state.isPlaying && state.playbackMode === "arrangement";
     if (currentPlaybackActive) {
-      stopAllWorkspacePlayers();
-      if (state.isPlaying) stopPlayback();
+      stopAllWorkspacePlayers(true);
+      if (state.isPlaying) stopPlayback(false, true);
       return;
     }
     stopAllWorkspacePlayers();

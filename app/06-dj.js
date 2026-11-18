@@ -3347,7 +3347,7 @@
     button.classList.toggle("is-playing", playing);
   }
 
-  function stopWorkspacePlayback(workspace) {
+  function stopWorkspacePlayback(workspace, pausedByUser = false) {
     const player = state.workspacePlayers[workspace];
     if (!player) return;
     if (player.timerId !== null) window.clearInterval(player.timerId);
@@ -3355,19 +3355,25 @@
     player.playheadTimers.forEach((timerId) => window.clearTimeout(timerId));
     player.playheadTimers.clear();
     player.scheduledMelNotes.clear();
+    if (pausedByUser && workspace === "piano-roll" && userSettings.rewindOnPause) {
+      setPianoCursorTick(player.startTick || 0, false, false);
+    }
     state.workspacePlayers[workspace] = null;
-    if (workspace === "sequencer" && !(state.isPlaying && state.view === "sequencer")) setPlayhead(-1);
+    if (workspace === "sequencer" && !(state.isPlaying && state.view === "sequencer")) {
+      if (pausedByUser && userSettings.rewindOnPause) setPlayhead(0);
+      else if (!pausedByUser) setPlayhead(-1);
+    }
     updateWorkspacePlayButton(workspace, false);
   }
 
-  function stopAllWorkspacePlayers() {
-    Object.keys(WORKSPACE_PLAY_BUTTONS).forEach(stopWorkspacePlayback);
+  function stopAllWorkspacePlayers(pausedByUser = false) {
+    Object.keys(WORKSPACE_PLAY_BUTTONS).forEach((workspace) => stopWorkspacePlayback(workspace, pausedByUser));
   }
 
   async function toggleWorkspacePlayback(workspace) {
     const existingPlayer = state.workspacePlayers[workspace];
     if (existingPlayer) {
-      stopWorkspacePlayback(workspace);
+      stopWorkspacePlayback(workspace, true);
       return;
     }
     const player = {
@@ -3376,7 +3382,9 @@
       scheduledMelNotes: new Set(),
       startTime: 0,
       nextStepTime: 0,
-      stepIndex: 0,
+      stepIndex: workspace === "sequencer" && !userSettings.rewindOnPause && state.currentStep >= 0
+        ? state.currentStep
+        : 0,
     };
     state.workspacePlayers[workspace] = player;
     updateWorkspacePlayButton(workspace, true);

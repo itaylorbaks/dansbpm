@@ -136,7 +136,7 @@
     document.addEventListener("pointercancel", finishStepSelectionDrag);
     playButton.addEventListener("click", () => {
       if (state.keyboardRecordingCountdown) cancelKeyboardRecordingCountdown();
-      if (state.isStartingPlayback || state.isPlaying && state.playbackMode === "arrangement") stopPlayback();
+      if (state.isStartingPlayback || state.isPlaying && state.playbackMode === "arrangement") stopPlayback(false, true);
       else {
         if (state.isPlaying) stopPlayback();
         startPlayback("arrangement");
@@ -299,10 +299,17 @@
       const main = $("#arrangement-main");
       const updateRatio = (moveEvent) => {
         const bounds = main.getBoundingClientRect();
-        const available = bounds.height - viewResizer.offsetHeight;
+        const horizontal = userSettings.blueprintLayout === "side-by-side";
+        const available = (horizontal ? bounds.width : bounds.height) -
+          (horizontal ? viewResizer.offsetWidth : viewResizer.offsetHeight);
         if (available <= 0) return;
-        const pointerOffset = moveEvent.clientY - bounds.top - viewResizer.offsetHeight / 2;
-        state.workspaceRatio = Math.max(20, Math.min(80, Math.round(pointerOffset / available * 100)));
+        const pointerOffset = horizontal
+          ? moveEvent.clientX - bounds.left - viewResizer.offsetWidth / 2
+          : moveEvent.clientY - bounds.top - viewResizer.offsetHeight / 2;
+        const leadingRatio = pointerOffset / available * 100;
+        const workspaceFirst = horizontal || userSettings.blueprintLayout !== "track-top";
+        state.workspaceRatio = Math.max(20, Math.min(80,
+          Math.round(workspaceFirst ? leadingRatio : 100 - leadingRatio)));
         renderViewLayout();
       };
       const finish = () => {
@@ -316,9 +323,15 @@
       document.addEventListener("pointercancel", finish);
     });
     viewResizer.addEventListener("keydown", (event) => {
-      if (event.key === "ArrowUp") setWorkspaceRatio(state.workspaceRatio + 5);
-      else if (event.key === "ArrowDown") setWorkspaceRatio(state.workspaceRatio - 5);
-      else if (event.key === "Home") setWorkspaceRatio(20);
+      const horizontal = userSettings.blueprintLayout === "side-by-side";
+      const workspaceFirst = horizontal || userSettings.blueprintLayout !== "track-top";
+      if ((horizontal && event.key === "ArrowRight") ||
+        (!horizontal && event.key === (workspaceFirst ? "ArrowDown" : "ArrowUp"))) {
+        setWorkspaceRatio(state.workspaceRatio + 5);
+      } else if ((horizontal && event.key === "ArrowLeft") ||
+        (!horizontal && event.key === (workspaceFirst ? "ArrowUp" : "ArrowDown"))) {
+        setWorkspaceRatio(state.workspaceRatio - 5);
+      } else if (event.key === "Home") setWorkspaceRatio(20);
       else if (event.key === "End") setWorkspaceRatio(80);
       else return;
       event.preventDefault();
@@ -699,21 +712,7 @@
     });
     $("#switch-user-button").addEventListener("click", () => { void switchUser(); });
     bindCloudAccountSettings();
-    $("#collaborate-button").addEventListener("click", () => {
-      $("#project-dialog").close();
-      try {
-        $("#collaboration-server-url").value =
-          window.localStorage.getItem(COLLABORATION_URL_KEY) || DEFAULT_COLLABORATION_SERVER_URL;
-      } catch {
-        $("#collaboration-server-url").value = DEFAULT_COLLABORATION_SERVER_URL;
-      }
-      renderCollaborationStatus(collaboration.session
-        ? `Connected to room ${collaboration.session.roomCode}.`
-        : "Not connected");
-      $("#collaboration-dialog").showModal();
-    });
     $("#collaboration-dialog-close").addEventListener("click", () => $("#collaboration-dialog").close());
-    $("#collaboration-create-room").addEventListener("click", () => { void startCollaborationRoom("create"); });
     $("#collaboration-join-room").addEventListener("click", () => { void startCollaborationRoom("join"); });
     $("#collaboration-copy-code").addEventListener("click", async () => {
       if (!collaboration.session) return;
@@ -946,7 +945,7 @@
         event.preventDefault();
         if (event.repeat) return;
         if (state.keyboardRecordingCountdown) cancelKeyboardRecordingCountdown();
-        if (state.isPlaying && state.playbackMode === "arrangement") stopPlayback();
+        if (state.isPlaying && state.playbackMode === "arrangement") stopPlayback(false, true);
         else {
           if (state.isPlaying) stopPlayback();
           startPlayback("arrangement");

@@ -1,4 +1,5 @@
   let collaborationLeaveTimeout = null;
+  let discardCollaborationCopyOnLeave = false;
   let selectedProjectId = null;
 
   function renderCollaborationStatus(message = "Not connected") {
@@ -607,10 +608,14 @@
     });
   }
 
-  async function createLocalCollaborationProject({ serverUrl, roomCode, revision, snapshot, assets, projectName: sharedProjectName }) {
+  async function createLocalCollaborationProject({
+    serverUrl, roomCode, revision, snapshot, assets, projectName: sharedProjectName, isHost,
+  }) {
     if (!state.currentUser) throw new Error("Choose a profile before joining a room.");
     const projectId = makeId();
-    const projectName = `${sharedProjectName || state.projectName} (Room ${roomCode.slice(0, 4)})`.slice(0, 64);
+    const projectName = (typeof sharedProjectName === "string" && sharedProjectName
+      ? sharedProjectName
+      : state.projectName).slice(0, 64);
     const project = { id: projectId, name: projectName, ownerId: state.currentUser, updatedAt: Date.now() };
     const previousProjectId = state.projectId;
     const previousProjectName = state.projectName;
@@ -618,7 +623,14 @@
     const previousProjectCreationCounts = { ...state.projectCreationCounts };
     const previousProjects = [...state.projects];
     try {
-      collaboration.session = { serverUrl, roomCode, projectId, revision };
+      collaboration.session = {
+        serverUrl,
+        roomCode,
+        projectId,
+        revision,
+        isHost: isHost === true,
+        returnProjectId: previousProjectId,
+      };
       collaboration.sharedSnapshot = snapshot;
       collaboration.sharedAssets = assets || [];
       if (!saveCollaborationSession()) throw new Error("session storage is unavailable");
@@ -636,6 +648,7 @@
       window.location.reload();
     } catch (error) {
       collaboration.session = null;
+      collaboration.manualLeave = false;
       saveCollaborationSession();
       state.projects = previousProjects;
       state.projectId = previousProjectId;
@@ -824,6 +837,7 @@
         ...pending,
         roomCode: message.roomCode,
         revision: message.revision,
+        isHost: true,
       });
       return;
     }
@@ -850,6 +864,7 @@
           snapshot: message.snapshot,
           assets: message.assets || [],
           projectName: message.projectName,
+          isHost: false,
         });
         return;
       }
@@ -1066,6 +1081,8 @@
 
   async function leaveCollaborationRoom() {
     if (!collaboration.session) return;
+    discardCollaborationCopyOnLeave = collaboration.session.isHost === false &&
+      !window.confirm("Keep this room's project in your personal library? Choose Cancel to discard it when leaving.");
     await flushSaveState();
     collaboration.manualLeave = true;
     if (!sendCollaborationMessage({ type: "leave" })) {
@@ -1081,13 +1098,15 @@
     window.clearTimeout(collaborationLeaveTimeout);
     collaborationLeaveTimeout = null;
     if (!collaboration.session) return;
-    collaboration.lastRoomCode = collaboration.session.roomCode;
+    const session = collaboration.session;
+    collaboration.lastRoomCode = session.roomCode;
     if (!serverConfirmed) {
       recordLocalCollaborationActivity("left", getCurrentUserName());
     }
     collaboration.socket?.close();
     collaboration.socket = null;
     collaboration.session = null;
+    collaboration.manualLeave = false;
     collaboration.localDirty = false;
     collaboration.conflicted = false;
     collaboration.conflictMessage = "";
@@ -1102,7 +1121,46 @@
     collaboration.sentUpdates.clear();
     saveCollaborationSession();
     updateCollaborationLockUi();
+    if (discardCollaborationCopyOnLeave && session.isHost === false) {
+      discardCollaborationCopyOnLeave = false;
+      void discardLocalCollaborationProject(session);
+      return;
+    }
+    discardCollaborationCopyOnLeave = false;
     renderCollaborationStatus("Room left. This project's local copy is saved.");
+  }
+
+  async function discardLocalCollaborationProject(session) {
+    const project = state.projects.find((item) => item.id === session.projectId);
+    const returnProject = state.projects.find((item) =>
+      item.id === session.returnProjectId && item.ownerId === state.currentUser);
+    if (!project || !returnProject) {
+      showToast("Could not discard the room copy because the project you had open before joining is unavailable.");
+      return;
+    }
+    const previousProjects = state.projects;
+    const previousProjectId = state.projectId;
+    const previousProjectName = state.projectName;
+    const previousActiveProjectIds = { ...state.activeProjectIds };
+    try {
+      state.projects = state.projects.filter((item) => item.id !== project.id);
+      state.projectId = returnProject.id;
+      state.projectName = returnProject.name;
+      state.activeProjectIds = { ...state.activeProjectIds, [state.currentUser]: returnProject.id };
+      writeProjectCatalog();
+      await replaceProjectRecordingAssets(project.id, []);
+      await deleteCachedProjectSnapshot(project.id);
+      window.localStorage.removeItem(getProjectStorageKey(project.id));
+      window.localStorage.removeItem(`${getProjectStorageKey(project.id)}:dj`);
+      window.location.reload();
+    } catch (error) {
+      state.projects = previousProjects;
+      state.projectId = previousProjectId;
+      state.projectName = previousProjectName;
+      state.activeProjectIds = previousActiveProjectIds;
+      try { writeProjectCatalog(); } catch { /* Preserve the original storage error for the user. */ }
+      showToast(`Could not fully discard the room copy: ${error.message || "local project storage is unavailable"}`);
+    }
   }
 
   async function persistStateSnapshot(snapshot, projectId = state.projectId) {

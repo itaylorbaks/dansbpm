@@ -7525,14 +7525,50 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
 
   function renderViewLayout() {
     const main = $("#arrangement-main");
-    $("#workspace-area").hidden = state.workspaceHidden;
-    $("#track-view-area").hidden = state.trackViewHidden;
-    $("#view-resizer").hidden = state.workspaceHidden || state.trackViewHidden;
-    if (state.workspaceHidden) main.style.gridTemplateRows = "0px 0px minmax(0, 1fr)";
-    else if (state.trackViewHidden) main.style.gridTemplateRows = "minmax(0, 1fr) 0px 0px";
-    else main.style.gridTemplateRows = `minmax(0, ${state.workspaceRatio}fr) 12px minmax(0, ${100 - state.workspaceRatio}fr)`;
-    $("#view-resizer").setAttribute("aria-valuenow", String(state.workspaceRatio));
-    $("#view-resizer").setAttribute("aria-valuetext", `Workspace ${state.workspaceRatio}%, Track View ${100 - state.workspaceRatio}%`);
+    const workspace = $("#workspace-area");
+    const trackView = $("#track-view-area");
+    const resizer = $("#view-resizer");
+    const horizontal = userSettings.blueprintLayout === "side-by-side";
+    const workspaceFirst = horizontal || userSettings.blueprintLayout !== "track-top";
+    workspace.hidden = state.workspaceHidden;
+    trackView.hidden = state.trackViewHidden;
+    resizer.hidden = state.workspaceHidden || state.trackViewHidden;
+    main.classList.toggle("is-horizontal", horizontal);
+    workspace.style.gridRow = "";
+    trackView.style.gridRow = "";
+    resizer.style.gridRow = "";
+    workspace.style.gridColumn = "";
+    trackView.style.gridColumn = "";
+    resizer.style.gridColumn = "";
+    if (horizontal) {
+      main.style.gridTemplateRows = "minmax(0, 1fr)";
+      if (state.workspaceHidden) main.style.gridTemplateColumns = "0px 0px minmax(0, 1fr)";
+      else if (state.trackViewHidden) main.style.gridTemplateColumns = "minmax(0, 1fr) 0px 0px";
+      else main.style.gridTemplateColumns = `minmax(0, ${state.workspaceRatio}fr) 9px minmax(0, ${100 - state.workspaceRatio}fr)`;
+      workspace.style.gridRow = "1";
+      resizer.style.gridRow = "1";
+      trackView.style.gridRow = "1";
+      workspace.style.gridColumn = "1";
+      resizer.style.gridColumn = "2";
+      trackView.style.gridColumn = "3";
+    } else {
+      main.style.gridTemplateColumns = "minmax(0, 1fr)";
+      if (state.workspaceHidden) {
+        main.style.gridTemplateRows = workspaceFirst ? "0px 0px minmax(0, 1fr)" : "minmax(0, 1fr) 0px 0px";
+      } else if (state.trackViewHidden) {
+        main.style.gridTemplateRows = workspaceFirst ? "minmax(0, 1fr) 0px 0px" : "0px 0px minmax(0, 1fr)";
+      } else {
+        const firstRatio = workspaceFirst ? state.workspaceRatio : 100 - state.workspaceRatio;
+        const secondRatio = 100 - firstRatio;
+        main.style.gridTemplateRows = `minmax(0, ${firstRatio}fr) 9px minmax(0, ${secondRatio}fr)`;
+      }
+      workspace.style.gridRow = workspaceFirst ? "1" : "3";
+      trackView.style.gridRow = workspaceFirst ? "3" : "1";
+      resizer.style.gridRow = "2";
+    }
+    resizer.setAttribute("aria-orientation", horizontal ? "vertical" : "horizontal");
+    resizer.setAttribute("aria-valuenow", String(state.workspaceRatio));
+    resizer.setAttribute("aria-valuetext", `Workspace ${state.workspaceRatio}%, Track View ${100 - state.workspaceRatio}%`);
     $("#hide-workspace-button").hidden = state.workspaceHidden;
     $("#show-track-view-button").hidden = !state.trackViewHidden;
     $("#hide-track-view-button").hidden = state.trackViewHidden;
@@ -9317,7 +9353,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=d7f9aef9f46f");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=986e6ef24002");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -15530,7 +15566,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     button.classList.toggle("is-playing", playing);
   }
 
-  function stopWorkspacePlayback(workspace) {
+  function stopWorkspacePlayback(workspace, pausedByUser = false) {
     const player = state.workspacePlayers[workspace];
     if (!player) return;
     if (player.timerId !== null) window.clearInterval(player.timerId);
@@ -15538,19 +15574,25 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     player.playheadTimers.forEach((timerId) => window.clearTimeout(timerId));
     player.playheadTimers.clear();
     player.scheduledMelNotes.clear();
+    if (pausedByUser && workspace === "piano-roll" && userSettings.rewindOnPause) {
+      setPianoCursorTick(player.startTick || 0, false, false);
+    }
     state.workspacePlayers[workspace] = null;
-    if (workspace === "sequencer" && !(state.isPlaying && state.view === "sequencer")) setPlayhead(-1);
+    if (workspace === "sequencer" && !(state.isPlaying && state.view === "sequencer")) {
+      if (pausedByUser && userSettings.rewindOnPause) setPlayhead(0);
+      else if (!pausedByUser) setPlayhead(-1);
+    }
     updateWorkspacePlayButton(workspace, false);
   }
 
-  function stopAllWorkspacePlayers() {
-    Object.keys(WORKSPACE_PLAY_BUTTONS).forEach(stopWorkspacePlayback);
+  function stopAllWorkspacePlayers(pausedByUser = false) {
+    Object.keys(WORKSPACE_PLAY_BUTTONS).forEach((workspace) => stopWorkspacePlayback(workspace, pausedByUser));
   }
 
   async function toggleWorkspacePlayback(workspace) {
     const existingPlayer = state.workspacePlayers[workspace];
     if (existingPlayer) {
-      stopWorkspacePlayback(workspace);
+      stopWorkspacePlayback(workspace, true);
       return;
     }
     const player = {
@@ -15559,7 +15601,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       scheduledMelNotes: new Set(),
       startTime: 0,
       nextStepTime: 0,
-      stepIndex: 0,
+      stepIndex: workspace === "sequencer" && !userSettings.rewindOnPause && state.currentStep >= 0
+        ? state.currentStep
+        : 0,
     };
     state.workspacePlayers[workspace] = player;
     updateWorkspacePlayButton(workspace, true);
@@ -15612,8 +15656,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       ? Boolean(state.workspacePlayers[workspace])
       : state.isPlaying && state.playbackMode === "arrangement";
     if (currentPlaybackActive) {
-      stopAllWorkspacePlayers();
-      if (state.isPlaying) stopPlayback();
+      stopAllWorkspacePlayers(true);
+      if (state.isPlaying) stopPlayback(false, true);
       return;
     }
     stopAllWorkspacePlayers();
@@ -23193,7 +23237,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     });
   }
 
-  function stopPlayback(remote = false) {
+  function stopPlayback(remote = false, pausedByUser = false) {
     if ((state.isPlaying || state.isStartingPlayback) && !remote &&
       !collaboration.applyingRemote && collaboration.session) {
       sendCollaborationMessage({ type: "transport", action: "stop" });
@@ -23201,6 +23245,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     state.playbackRequestId += 1;
     state.isStartingPlayback = false;
     const stoppedPlaybackMode = state.playbackMode;
+    const wasPlaying = state.isPlaying;
     if (stoppedPlaybackMode === "piano-roll" && state.isPlaying) updatePianoCursorFromTime(state.playbackStartTime);
     if (state.keyboardRecordingCountdown) cancelKeyboardRecordingCountdown();
     if (state.schedulerId !== null) window.clearInterval(state.schedulerId);
@@ -23225,7 +23270,16 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       try { source.stop(state.audioContext?.currentTime || 0); } catch { /* The source may have ended between scheduler ticks. */ }
     });
     state.arrangementSources.clear();
-    if (stoppedPlaybackMode === "arrangement" && state.view === "arrangement") state.arrangementCursor = 0;
+    if (stoppedPlaybackMode === "arrangement" && state.view === "arrangement") {
+      if (pausedByUser) {
+        if (wasPlaying && userSettings.rewindOnPause) state.arrangementCursor = state.playbackStartBar;
+      } else {
+        state.arrangementCursor = 0;
+      }
+    }
+    if (pausedByUser && wasPlaying && userSettings.rewindOnPause && stoppedPlaybackMode === "piano-roll") {
+      setPianoCursorTick(state.pianoPlaybackStartTick, false, false);
+    }
     if (state.audioContext) {
       const now = state.audioContext.currentTime;
       [...state.patterns, ...state.melTracks, ...state.arrangementTracks].forEach((track) => {
@@ -23733,6 +23787,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   }
 
   let collaborationLeaveTimeout = null;
+  let discardCollaborationCopyOnLeave = false;
   let selectedProjectId = null;
 
   function renderCollaborationStatus(message = "Not connected") {
@@ -24341,10 +24396,14 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     });
   }
 
-  async function createLocalCollaborationProject({ serverUrl, roomCode, revision, snapshot, assets, projectName: sharedProjectName }) {
+  async function createLocalCollaborationProject({
+    serverUrl, roomCode, revision, snapshot, assets, projectName: sharedProjectName, isHost,
+  }) {
     if (!state.currentUser) throw new Error("Choose a profile before joining a room.");
     const projectId = makeId();
-    const projectName = `${sharedProjectName || state.projectName} (Room ${roomCode.slice(0, 4)})`.slice(0, 64);
+    const projectName = (typeof sharedProjectName === "string" && sharedProjectName
+      ? sharedProjectName
+      : state.projectName).slice(0, 64);
     const project = { id: projectId, name: projectName, ownerId: state.currentUser, updatedAt: Date.now() };
     const previousProjectId = state.projectId;
     const previousProjectName = state.projectName;
@@ -24352,7 +24411,14 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     const previousProjectCreationCounts = { ...state.projectCreationCounts };
     const previousProjects = [...state.projects];
     try {
-      collaboration.session = { serverUrl, roomCode, projectId, revision };
+      collaboration.session = {
+        serverUrl,
+        roomCode,
+        projectId,
+        revision,
+        isHost: isHost === true,
+        returnProjectId: previousProjectId,
+      };
       collaboration.sharedSnapshot = snapshot;
       collaboration.sharedAssets = assets || [];
       if (!saveCollaborationSession()) throw new Error("session storage is unavailable");
@@ -24370,6 +24436,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       window.location.reload();
     } catch (error) {
       collaboration.session = null;
+      collaboration.manualLeave = false;
       saveCollaborationSession();
       state.projects = previousProjects;
       state.projectId = previousProjectId;
@@ -24558,6 +24625,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         ...pending,
         roomCode: message.roomCode,
         revision: message.revision,
+        isHost: true,
       });
       return;
     }
@@ -24584,6 +24652,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
           snapshot: message.snapshot,
           assets: message.assets || [],
           projectName: message.projectName,
+          isHost: false,
         });
         return;
       }
@@ -24800,6 +24869,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
 
   async function leaveCollaborationRoom() {
     if (!collaboration.session) return;
+    discardCollaborationCopyOnLeave = collaboration.session.isHost === false &&
+      !window.confirm("Keep this room's project in your personal library? Choose Cancel to discard it when leaving.");
     await flushSaveState();
     collaboration.manualLeave = true;
     if (!sendCollaborationMessage({ type: "leave" })) {
@@ -24815,13 +24886,15 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     window.clearTimeout(collaborationLeaveTimeout);
     collaborationLeaveTimeout = null;
     if (!collaboration.session) return;
-    collaboration.lastRoomCode = collaboration.session.roomCode;
+    const session = collaboration.session;
+    collaboration.lastRoomCode = session.roomCode;
     if (!serverConfirmed) {
       recordLocalCollaborationActivity("left", getCurrentUserName());
     }
     collaboration.socket?.close();
     collaboration.socket = null;
     collaboration.session = null;
+    collaboration.manualLeave = false;
     collaboration.localDirty = false;
     collaboration.conflicted = false;
     collaboration.conflictMessage = "";
@@ -24836,7 +24909,46 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     collaboration.sentUpdates.clear();
     saveCollaborationSession();
     updateCollaborationLockUi();
+    if (discardCollaborationCopyOnLeave && session.isHost === false) {
+      discardCollaborationCopyOnLeave = false;
+      void discardLocalCollaborationProject(session);
+      return;
+    }
+    discardCollaborationCopyOnLeave = false;
     renderCollaborationStatus("Room left. This project's local copy is saved.");
+  }
+
+  async function discardLocalCollaborationProject(session) {
+    const project = state.projects.find((item) => item.id === session.projectId);
+    const returnProject = state.projects.find((item) =>
+      item.id === session.returnProjectId && item.ownerId === state.currentUser);
+    if (!project || !returnProject) {
+      showToast("Could not discard the room copy because the project you had open before joining is unavailable.");
+      return;
+    }
+    const previousProjects = state.projects;
+    const previousProjectId = state.projectId;
+    const previousProjectName = state.projectName;
+    const previousActiveProjectIds = { ...state.activeProjectIds };
+    try {
+      state.projects = state.projects.filter((item) => item.id !== project.id);
+      state.projectId = returnProject.id;
+      state.projectName = returnProject.name;
+      state.activeProjectIds = { ...state.activeProjectIds, [state.currentUser]: returnProject.id };
+      writeProjectCatalog();
+      await replaceProjectRecordingAssets(project.id, []);
+      await deleteCachedProjectSnapshot(project.id);
+      window.localStorage.removeItem(getProjectStorageKey(project.id));
+      window.localStorage.removeItem(`${getProjectStorageKey(project.id)}:dj`);
+      window.location.reload();
+    } catch (error) {
+      state.projects = previousProjects;
+      state.projectId = previousProjectId;
+      state.projectName = previousProjectName;
+      state.activeProjectIds = previousActiveProjectIds;
+      try { writeProjectCatalog(); } catch { /* Preserve the original storage error for the user. */ }
+      showToast(`Could not fully discard the room copy: ${error.message || "local project storage is unavailable"}`);
+    }
   }
 
   async function persistStateSnapshot(snapshot, projectId = state.projectId) {
@@ -26829,6 +26941,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     metronomeVolume: 100,
     theme: "dark",
     accent: "lime",
+    rewindOnPause: false,
+    blueprintLayout: "workspace-top",
   };
   let drummerAudio = null;
   let drummerDestination = null;
@@ -26848,6 +26962,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
             : 100,
           theme: saved.theme === "light" ? "light" : "dark",
           accent: ["lime", "blue", "violet", "coral"].includes(saved.accent) ? saved.accent : "lime",
+          rewindOnPause: saved.rewindOnPause === true,
+          blueprintLayout: ["workspace-top", "track-top", "side-by-side"].includes(saved.blueprintLayout)
+            ? saved.blueprintLayout
+            : "workspace-top",
         });
       }
     } catch (error) {
@@ -26858,6 +26976,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     document.documentElement.dataset.accent = userSettings.accent;
     $("#settings-theme").value = userSettings.theme;
     $("#settings-accent").value = userSettings.accent;
+    $("#settings-pause-behavior").value = userSettings.rewindOnPause ? "rewind" : "stay";
+    updateBlueprintLayoutButtons();
+    activateSettingsPage("accessibility");
     $("#settings-audio-input").value = userSettings.audioInputDeviceId;
     $("#settings-audio-output").value = userSettings.audioOutputDeviceId;
     $("#settings-drummer-output").value = userSettings.drummerDeviceId;
@@ -26875,6 +26996,24 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       renderCollaborationActivityLog();
     });
     $("#settings-close").addEventListener("click", () => $("#settings-dialog").close());
+    const settingsNav = $("#settings-nav");
+    settingsNav.addEventListener("click", (event) => {
+      const tab = event.target instanceof Element ? event.target.closest("[data-settings-page]") : null;
+      if (tab) activateSettingsPage(tab.dataset.settingsPage);
+    });
+    settingsNav.addEventListener("keydown", (event) => {
+      const tabs = Array.from(settingsNav.querySelectorAll("[data-settings-page]"));
+      const currentIndex = tabs.indexOf(event.target);
+      if (currentIndex < 0) return;
+      let nextIndex;
+      if (event.key === "ArrowDown") nextIndex = (currentIndex + 1) % tabs.length;
+      else if (event.key === "ArrowUp") nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+      else if (event.key === "Home") nextIndex = 0;
+      else if (event.key === "End") nextIndex = tabs.length - 1;
+      else return;
+      event.preventDefault();
+      activateSettingsPage(tabs[nextIndex].dataset.settingsPage, true);
+    });
     $("#settings-theme").addEventListener("change", (event) => {
       userSettings.theme = event.target.value === "light" ? "light" : "dark";
       document.documentElement.dataset.theme = userSettings.theme;
@@ -26886,6 +27025,29 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         : "lime";
       document.documentElement.dataset.accent = userSettings.accent;
       persistUserSettings();
+    });
+    $("#settings-pause-behavior").addEventListener("change", (event) => {
+      userSettings.rewindOnPause = event.target.value === "rewind";
+      persistUserSettings();
+    });
+    document.querySelectorAll("[data-blueprint-layout]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const layout = button.dataset.blueprintLayout;
+        if (!["workspace-top", "track-top", "side-by-side"].includes(layout)) return;
+        userSettings.blueprintLayout = layout;
+        updateBlueprintLayoutButtons();
+        renderViewLayout();
+        persistUserSettings();
+      });
+    });
+    $("#settings-create-room").addEventListener("click", () => {
+      $("#settings-dialog").close();
+      openCollaborationDialog();
+      void startCollaborationRoom("create");
+    });
+    $("#settings-join-room").addEventListener("click", () => {
+      $("#settings-dialog").close();
+      openCollaborationDialog();
     });
     $("#settings-audio-input").addEventListener("change", (event) => {
       userSettings.audioInputDeviceId = event.target.value;
@@ -26921,6 +27083,43 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     });
     loadCollaborationActivity();
     renderCollaborationActivityLog();
+  }
+
+  function updateBlueprintLayoutButtons() {
+    document.querySelectorAll("[data-blueprint-layout]").forEach((button) => {
+      const selected = button.dataset.blueprintLayout === userSettings.blueprintLayout;
+      button.setAttribute("aria-pressed", String(selected));
+      button.classList.toggle("is-selected", selected);
+    });
+  }
+
+  function activateSettingsPage(page, focus = false) {
+    const tabs = Array.from(document.querySelectorAll("[data-settings-page]"));
+    const selectedTab = tabs.find((tab) => tab.dataset.settingsPage === page);
+    if (!selectedTab) return;
+    tabs.forEach((tab) => {
+      const selected = tab === selectedTab;
+      tab.setAttribute("aria-selected", String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+      tab.classList.toggle("is-selected", selected);
+    });
+    document.querySelectorAll("[data-settings-panel]").forEach((panel) => {
+      panel.hidden = panel.dataset.settingsPanel !== page;
+    });
+    if (focus) selectedTab.focus();
+  }
+
+  function openCollaborationDialog() {
+    try {
+      $("#collaboration-server-url").value =
+        window.localStorage.getItem(COLLABORATION_URL_KEY) || DEFAULT_COLLABORATION_SERVER_URL;
+    } catch {
+      $("#collaboration-server-url").value = DEFAULT_COLLABORATION_SERVER_URL;
+    }
+    renderCollaborationStatus(collaboration.session
+      ? `Connected to room ${collaboration.session.roomCode}.`
+      : "Not connected");
+    $("#collaboration-dialog").showModal();
   }
 
   function persistUserSettings() {
@@ -27786,7 +27985,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     document.addEventListener("pointercancel", finishStepSelectionDrag);
     playButton.addEventListener("click", () => {
       if (state.keyboardRecordingCountdown) cancelKeyboardRecordingCountdown();
-      if (state.isStartingPlayback || state.isPlaying && state.playbackMode === "arrangement") stopPlayback();
+      if (state.isStartingPlayback || state.isPlaying && state.playbackMode === "arrangement") stopPlayback(false, true);
       else {
         if (state.isPlaying) stopPlayback();
         startPlayback("arrangement");
@@ -27949,10 +28148,17 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       const main = $("#arrangement-main");
       const updateRatio = (moveEvent) => {
         const bounds = main.getBoundingClientRect();
-        const available = bounds.height - viewResizer.offsetHeight;
+        const horizontal = userSettings.blueprintLayout === "side-by-side";
+        const available = (horizontal ? bounds.width : bounds.height) -
+          (horizontal ? viewResizer.offsetWidth : viewResizer.offsetHeight);
         if (available <= 0) return;
-        const pointerOffset = moveEvent.clientY - bounds.top - viewResizer.offsetHeight / 2;
-        state.workspaceRatio = Math.max(20, Math.min(80, Math.round(pointerOffset / available * 100)));
+        const pointerOffset = horizontal
+          ? moveEvent.clientX - bounds.left - viewResizer.offsetWidth / 2
+          : moveEvent.clientY - bounds.top - viewResizer.offsetHeight / 2;
+        const leadingRatio = pointerOffset / available * 100;
+        const workspaceFirst = horizontal || userSettings.blueprintLayout !== "track-top";
+        state.workspaceRatio = Math.max(20, Math.min(80,
+          Math.round(workspaceFirst ? leadingRatio : 100 - leadingRatio)));
         renderViewLayout();
       };
       const finish = () => {
@@ -27966,9 +28172,15 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       document.addEventListener("pointercancel", finish);
     });
     viewResizer.addEventListener("keydown", (event) => {
-      if (event.key === "ArrowUp") setWorkspaceRatio(state.workspaceRatio + 5);
-      else if (event.key === "ArrowDown") setWorkspaceRatio(state.workspaceRatio - 5);
-      else if (event.key === "Home") setWorkspaceRatio(20);
+      const horizontal = userSettings.blueprintLayout === "side-by-side";
+      const workspaceFirst = horizontal || userSettings.blueprintLayout !== "track-top";
+      if ((horizontal && event.key === "ArrowRight") ||
+        (!horizontal && event.key === (workspaceFirst ? "ArrowDown" : "ArrowUp"))) {
+        setWorkspaceRatio(state.workspaceRatio + 5);
+      } else if ((horizontal && event.key === "ArrowLeft") ||
+        (!horizontal && event.key === (workspaceFirst ? "ArrowUp" : "ArrowDown"))) {
+        setWorkspaceRatio(state.workspaceRatio - 5);
+      } else if (event.key === "Home") setWorkspaceRatio(20);
       else if (event.key === "End") setWorkspaceRatio(80);
       else return;
       event.preventDefault();
@@ -28349,21 +28561,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     });
     $("#switch-user-button").addEventListener("click", () => { void switchUser(); });
     bindCloudAccountSettings();
-    $("#collaborate-button").addEventListener("click", () => {
-      $("#project-dialog").close();
-      try {
-        $("#collaboration-server-url").value =
-          window.localStorage.getItem(COLLABORATION_URL_KEY) || DEFAULT_COLLABORATION_SERVER_URL;
-      } catch {
-        $("#collaboration-server-url").value = DEFAULT_COLLABORATION_SERVER_URL;
-      }
-      renderCollaborationStatus(collaboration.session
-        ? `Connected to room ${collaboration.session.roomCode}.`
-        : "Not connected");
-      $("#collaboration-dialog").showModal();
-    });
     $("#collaboration-dialog-close").addEventListener("click", () => $("#collaboration-dialog").close());
-    $("#collaboration-create-room").addEventListener("click", () => { void startCollaborationRoom("create"); });
     $("#collaboration-join-room").addEventListener("click", () => { void startCollaborationRoom("join"); });
     $("#collaboration-copy-code").addEventListener("click", async () => {
       if (!collaboration.session) return;
@@ -28596,7 +28794,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         event.preventDefault();
         if (event.repeat) return;
         if (state.keyboardRecordingCountdown) cancelKeyboardRecordingCountdown();
-        if (state.isPlaying && state.playbackMode === "arrangement") stopPlayback();
+        if (state.isPlaying && state.playbackMode === "arrangement") stopPlayback(false, true);
         else {
           if (state.isPlaying) stopPlayback();
           startPlayback("arrangement");

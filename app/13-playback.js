@@ -995,7 +995,7 @@
     });
   }
 
-  function stopPlayback(remote = false) {
+  function stopPlayback(remote = false, pausedByUser = false) {
     if ((state.isPlaying || state.isStartingPlayback) && !remote &&
       !collaboration.applyingRemote && collaboration.session) {
       sendCollaborationMessage({ type: "transport", action: "stop" });
@@ -1003,6 +1003,7 @@
     state.playbackRequestId += 1;
     state.isStartingPlayback = false;
     const stoppedPlaybackMode = state.playbackMode;
+    const wasPlaying = state.isPlaying;
     if (stoppedPlaybackMode === "piano-roll" && state.isPlaying) updatePianoCursorFromTime(state.playbackStartTime);
     if (state.keyboardRecordingCountdown) cancelKeyboardRecordingCountdown();
     if (state.schedulerId !== null) window.clearInterval(state.schedulerId);
@@ -1027,7 +1028,16 @@
       try { source.stop(state.audioContext?.currentTime || 0); } catch { /* The source may have ended between scheduler ticks. */ }
     });
     state.arrangementSources.clear();
-    if (stoppedPlaybackMode === "arrangement" && state.view === "arrangement") state.arrangementCursor = 0;
+    if (stoppedPlaybackMode === "arrangement" && state.view === "arrangement") {
+      if (pausedByUser) {
+        if (wasPlaying && userSettings.rewindOnPause) state.arrangementCursor = state.playbackStartBar;
+      } else {
+        state.arrangementCursor = 0;
+      }
+    }
+    if (pausedByUser && wasPlaying && userSettings.rewindOnPause && stoppedPlaybackMode === "piano-roll") {
+      setPianoCursorTick(state.pianoPlaybackStartTick, false, false);
+    }
     if (state.audioContext) {
       const now = state.audioContext.currentTime;
       [...state.patterns, ...state.melTracks, ...state.arrangementTracks].forEach((track) => {
