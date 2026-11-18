@@ -3384,6 +3384,7 @@
       else if (pausedByUser && userSettings.pauseBehavior === "playback-start") setPlayhead(player.startStep || 0);
       else if (!pausedByUser) setPlayhead(-1);
     }
+    if (quickAction && workspace === "piano-roll") setQuickActionPianoPlayhead(0);
     updateWorkspacePlayButton(workspace, false, quickAction);
   }
 
@@ -3418,7 +3419,7 @@
       playheadTimers: new Set(),
       scheduledMelNotes: new Set(),
       startTime: 0,
-      startTick: workspace === "piano-roll" ? state.pianoCursorTick : 0,
+      startTick: workspace === "piano-roll" && !quickAction ? state.pianoCursorTick : 0,
       startStep,
       nextStepTime: 0,
       stepIndex: startStep,
@@ -3435,7 +3436,7 @@
         const { startBar, endBar } = getPianoLoopRange();
         const loopStartTick = state.pianoLoopEnabled ? startBar * PIANO_TICKS_PER_BAR : 0;
         const loopEndTick = state.pianoLoopEnabled ? endBar * PIANO_TICKS_PER_BAR : loopTicks;
-        const cursorTick = state.pianoLoopEnabled &&
+        const cursorTick = quickAction ? 0 : state.pianoLoopEnabled &&
           (state.pianoCursorTick < loopStartTick || state.pianoCursorTick >= loopEndTick)
           ? loopStartTick
           : state.pianoCursorTick % loopTicks;
@@ -3446,6 +3447,7 @@
         player.stepIndex = Math.floor(cursorTick) % PIANO_TICKS_PER_BAR;
       } else {
         player.nextStepTime = player.startTime;
+        if (quickAction) setQuickActionStepPlayhead(0);
       }
       updateTrackGains();
       updateWorkspacePlayButton(workspace, true, quickAction);

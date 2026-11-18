@@ -44,6 +44,8 @@
   let drummerGainNode = null;
   let drummerConnected = false;
   let quickMixerEffectsOpen = false;
+  let quickActionStepPlayhead = -1;
+  let quickActionPianoPlayheadTick = 0;
 
   function initializeSettings() {
     try {
@@ -671,6 +673,7 @@
     });
     viewport.append(grid);
     root.append(viewport);
+    setQuickActionStepPlayhead(quickActionStepPlayhead);
   }
 
   function renderQuickPianoRoll(root) {
@@ -747,6 +750,7 @@
     viewport.append(ruler);
     const grid = document.createElement("div");
     grid.className = "quick-piano-grid";
+    grid.dataset.snapTicks = String(snapTicks);
     for (let midi = 84; midi >= 61; midi -= 1) {
       const row = document.createElement("div");
       row.className = `quick-piano-row${[1, 3, 6, 8, 10].includes(midi % 12) ? " is-black" : ""}`;
@@ -791,6 +795,29 @@
     }
     viewport.append(grid);
     root.append(viewport);
+    setQuickActionPianoPlayhead(quickActionPianoPlayheadTick);
+  }
+
+  function setQuickActionStepPlayhead(step) {
+    quickActionStepPlayhead = Number.isFinite(step) ? Math.floor(step) : -1;
+    const grid = document.querySelector("#quick-action-content .quick-step-grid");
+    if (!grid) return;
+    grid.querySelectorAll(".quick-step-cell.is-playhead").forEach((cell) => {
+      cell.classList.remove("is-playhead");
+    });
+    if (quickActionStepPlayhead < 0) return;
+    grid.querySelectorAll(`.quick-step-cell[data-step="${quickActionStepPlayhead}"]`).forEach((cell) => {
+      cell.classList.add("is-playhead");
+    });
+  }
+
+  function setQuickActionPianoPlayhead(tick) {
+    quickActionPianoPlayheadTick = Math.max(0, Number.isFinite(tick) ? tick : 0);
+    const grid = document.querySelector("#quick-action-content .quick-piano-grid");
+    if (!grid) return;
+    const snapTicks = Math.max(1, Number(grid.dataset.snapTicks) || 1);
+    grid.style.setProperty("--quick-piano-playhead-x",
+      `${34 + quickActionPianoPlayheadTick / snapTicks * 12}px`);
   }
 
   function activateSettingsPage(page, focus = false) {

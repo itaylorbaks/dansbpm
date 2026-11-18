@@ -1218,7 +1218,9 @@ body:has(#arrangement-view:not([hidden])) .workspace-tabs {
 .quick-step-cell { min-width: 5px; height: 100%; min-height: calc(13px * var(--density-scale)); border: 1px solid #35363c; border-radius: 2px; background: var(--panel-raised); padding: 0; cursor: pointer; }
 .quick-step-cell.is-bar { border-left-color: var(--muted); }
 .quick-step-cell.is-on { border-color: var(--accent); background: var(--accent); }
-.quick-piano-grid { min-width: max-content; }
+.quick-step-cell.is-playhead { outline: 1px solid var(--accent); outline-offset: -1px; }
+.quick-piano-grid { position: relative; min-width: max-content; }
+.quick-piano-grid::after { position: absolute; top: 0; bottom: 0; left: var(--quick-piano-playhead-x, 34px); z-index: 2; width: 1px; background: var(--accent); content: ""; pointer-events: none; }
 .quick-piano-row { display: flex; height: calc(16px * var(--density-scale)); }
 .quick-piano-key { width: 34px; flex: 0 0 34px; overflow: hidden; border-right: 1px solid var(--stroke); border-bottom: 1px solid var(--stroke); color: var(--muted); font: 7px var(--mono); text-align: center; }
 .quick-piano-row.is-black .quick-piano-key { background: color-mix(in srgb, var(--panel-raised), black 25%); }

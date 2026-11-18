@@ -30,8 +30,10 @@
             const eventTick = clockStep + tickOffset;
             const swingOffset = Math.floor(eventTick / 2) % 2 === 1 ? getStepDuration() * (state.swing / 100) : 0;
             const eventTime = player.nextStepTime + tickOffset * getSchedulerTickDuration();
-            scheduleStep(step % getGridStepCount(pattern), eventTime + swingOffset, pattern, null, false,
+            const displayedStep = step % getGridStepCount(pattern);
+            scheduleStep(displayedStep, eventTime + swingOffset, pattern, null, false,
               quickAction ? null : player);
+            if (quickAction) scheduleQuickActionStepPlayhead(displayedStep, eventTime + swingOffset, player);
           });
           schedulePatternPianoNotes(pattern, clockStep % (pattern.steps * 2), player.nextStepTime);
         }
@@ -46,6 +48,20 @@
       const cycleTicks = workspace === "sequencer" ? (getPattern()?.steps || state.steps) * 2 : 32;
       player.stepIndex = (clockStep + 1) % cycleTicks;
     }
+    if (quickAction && workspace === "piano-roll") {
+      const loopTicks = Math.max(1, getPianoPlaybackSource().loopBars * PIANO_TICKS_PER_BAR);
+      const elapsedTicks = Math.max(0, now - player.startTime) / (240 / state.bpm) * PIANO_TICKS_PER_BAR;
+      setQuickActionPianoPlayhead((player.startTick + elapsedTicks) % loopTicks);
+    }
+  }
+
+  function scheduleQuickActionStepPlayhead(step, time, player) {
+    const displayDelay = Math.max(0, (time - state.audioContext.currentTime) * 1000);
+    const timerId = window.setTimeout(() => {
+      player.playheadTimers.delete(timerId);
+      if (quickActionWorkspacePlayers.sequencer === player) setQuickActionStepPlayhead(step);
+    }, displayDelay);
+    player.playheadTimers.add(timerId);
   }
 
   function scheduleWorkspaceMelLoop(player, now, lookAhead) {

@@ -9657,7 +9657,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=23a12eb582c6");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=9b44eec61b2e");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -15908,6 +15908,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       else if (pausedByUser && userSettings.pauseBehavior === "playback-start") setPlayhead(player.startStep || 0);
       else if (!pausedByUser) setPlayhead(-1);
     }
+    if (quickAction && workspace === "piano-roll") setQuickActionPianoPlayhead(0);
     updateWorkspacePlayButton(workspace, false, quickAction);
   }
 
@@ -15942,7 +15943,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       playheadTimers: new Set(),
       scheduledMelNotes: new Set(),
       startTime: 0,
-      startTick: workspace === "piano-roll" ? state.pianoCursorTick : 0,
+      startTick: workspace === "piano-roll" && !quickAction ? state.pianoCursorTick : 0,
       startStep,
       nextStepTime: 0,
       stepIndex: startStep,
@@ -15959,7 +15960,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         const { startBar, endBar } = getPianoLoopRange();
         const loopStartTick = state.pianoLoopEnabled ? startBar * PIANO_TICKS_PER_BAR : 0;
         const loopEndTick = state.pianoLoopEnabled ? endBar * PIANO_TICKS_PER_BAR : loopTicks;
-        const cursorTick = state.pianoLoopEnabled &&
+        const cursorTick = quickAction ? 0 : state.pianoLoopEnabled &&
           (state.pianoCursorTick < loopStartTick || state.pianoCursorTick >= loopEndTick)
           ? loopStartTick
           : state.pianoCursorTick % loopTicks;
@@ -15970,6 +15971,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         player.stepIndex = Math.floor(cursorTick) % PIANO_TICKS_PER_BAR;
       } else {
         player.nextStepTime = player.startTime;
+        if (quickAction) setQuickActionStepPlayhead(0);
       }
       updateTrackGains();
       updateWorkspacePlayButton(workspace, true, quickAction);
@@ -16022,8 +16024,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
             const eventTick = clockStep + tickOffset;
             const swingOffset = Math.floor(eventTick / 2) % 2 === 1 ? getStepDuration() * (state.swing / 100) : 0;
             const eventTime = player.nextStepTime + tickOffset * getSchedulerTickDuration();
-            scheduleStep(step % getGridStepCount(pattern), eventTime + swingOffset, pattern, null, false,
+            const displayedStep = step % getGridStepCount(pattern);
+            scheduleStep(displayedStep, eventTime + swingOffset, pattern, null, false,
               quickAction ? null : player);
+            if (quickAction) scheduleQuickActionStepPlayhead(displayedStep, eventTime + swingOffset, player);
           });
           schedulePatternPianoNotes(pattern, clockStep % (pattern.steps * 2), player.nextStepTime);
         }
@@ -16038,6 +16042,20 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       const cycleTicks = workspace === "sequencer" ? (getPattern()?.steps || state.steps) * 2 : 32;
       player.stepIndex = (clockStep + 1) % cycleTicks;
     }
+    if (quickAction && workspace === "piano-roll") {
+      const loopTicks = Math.max(1, getPianoPlaybackSource().loopBars * PIANO_TICKS_PER_BAR);
+      const elapsedTicks = Math.max(0, now - player.startTime) / (240 / state.bpm) * PIANO_TICKS_PER_BAR;
+      setQuickActionPianoPlayhead((player.startTick + elapsedTicks) % loopTicks);
+    }
+  }
+
+  function scheduleQuickActionStepPlayhead(step, time, player) {
+    const displayDelay = Math.max(0, (time - state.audioContext.currentTime) * 1000);
+    const timerId = window.setTimeout(() => {
+      player.playheadTimers.delete(timerId);
+      if (quickActionWorkspacePlayers.sequencer === player) setQuickActionStepPlayhead(step);
+    }, displayDelay);
+    player.playheadTimers.add(timerId);
   }
 
   function scheduleWorkspaceMelLoop(player, now, lookAhead) {
@@ -28300,6 +28318,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   let drummerGainNode = null;
   let drummerConnected = false;
   let quickMixerEffectsOpen = false;
+  let quickActionStepPlayhead = -1;
+  let quickActionPianoPlayheadTick = 0;
 
   function initializeSettings() {
     try {
@@ -28927,6 +28947,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     });
     viewport.append(grid);
     root.append(viewport);
+    setQuickActionStepPlayhead(quickActionStepPlayhead);
   }
 
   function renderQuickPianoRoll(root) {
@@ -29003,6 +29024,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     viewport.append(ruler);
     const grid = document.createElement("div");
     grid.className = "quick-piano-grid";
+    grid.dataset.snapTicks = String(snapTicks);
     for (let midi = 84; midi >= 61; midi -= 1) {
       const row = document.createElement("div");
       row.className = `quick-piano-row${[1, 3, 6, 8, 10].includes(midi % 12) ? " is-black" : ""}`;
@@ -29047,6 +29069,29 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     }
     viewport.append(grid);
     root.append(viewport);
+    setQuickActionPianoPlayhead(quickActionPianoPlayheadTick);
+  }
+
+  function setQuickActionStepPlayhead(step) {
+    quickActionStepPlayhead = Number.isFinite(step) ? Math.floor(step) : -1;
+    const grid = document.querySelector("#quick-action-content .quick-step-grid");
+    if (!grid) return;
+    grid.querySelectorAll(".quick-step-cell.is-playhead").forEach((cell) => {
+      cell.classList.remove("is-playhead");
+    });
+    if (quickActionStepPlayhead < 0) return;
+    grid.querySelectorAll(`.quick-step-cell[data-step="${quickActionStepPlayhead}"]`).forEach((cell) => {
+      cell.classList.add("is-playhead");
+    });
+  }
+
+  function setQuickActionPianoPlayhead(tick) {
+    quickActionPianoPlayheadTick = Math.max(0, Number.isFinite(tick) ? tick : 0);
+    const grid = document.querySelector("#quick-action-content .quick-piano-grid");
+    if (!grid) return;
+    const snapTicks = Math.max(1, Number(grid.dataset.snapTicks) || 1);
+    grid.style.setProperty("--quick-piano-playhead-x",
+      `${34 + quickActionPianoPlayheadTick / snapTicks * 12}px`);
   }
 
   function activateSettingsPage(page, focus = false) {
