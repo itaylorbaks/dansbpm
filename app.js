@@ -9135,7 +9135,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=c8c672fefec4");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=287c2e997c30");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -9771,11 +9771,13 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     return track.family;
   }
 
-  function renderStepInstrumentLibrary(query = "") {
+  function renderStepInstrumentLibrary(query = "", titleOnly = false) {
     const library = $("#step-instrument-library");
     library.replaceChildren();
     const instruments = getStepPickerInstruments()
-      .filter((track) => matchesInstrumentSearch(track, query));
+      .filter((track) => titleOnly
+        ? matchesInstrumentTitle(track, query)
+        : matchesInstrumentSearch(track, query));
     const groups = new Map();
     instruments.forEach((track) => {
       const groupName = getStepInstrumentGroup(track);
@@ -18326,6 +18328,13 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       track.sampleOneShot ? "one shot" : "",
     ].filter(Boolean).join(" "));
     return terms.every((term) => searchable.includes(term));
+  }
+
+  function matchesInstrumentTitle(track, query) {
+    const terms = normalizeSoundSearch(query).split(/\s+/).filter(Boolean);
+    if (!terms.length) return true;
+    const title = normalizeSoundSearch(track.name);
+    return terms.every((term) => title.includes(term));
   }
 
   function getStepPickerInstruments() {
@@ -28000,12 +28009,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     soundSearchInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
-        const firstResult = $("#sound-library-search-results").querySelector(".sound-library-search-result");
-        if (firstResult instanceof HTMLButtonElement) navigateToSoundSearchResult(firstResult);
-        else {
-          renderSoundSearchSuggestions("");
-          renderStepInstrumentLibrary(soundSearchInput.value.trim());
-        }
+        renderSoundSearchSuggestions("");
+        renderStepInstrumentLibrary(soundSearchInput.value.trim(), true);
       } else if (event.key === "Escape") {
         renderSoundSearchSuggestions("");
         soundSearchInput.blur();

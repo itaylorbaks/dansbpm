@@ -46,11 +46,13 @@
     return track.family;
   }
 
-  function renderStepInstrumentLibrary(query = "") {
+  function renderStepInstrumentLibrary(query = "", titleOnly = false) {
     const library = $("#step-instrument-library");
     library.replaceChildren();
     const instruments = getStepPickerInstruments()
-      .filter((track) => matchesInstrumentSearch(track, query));
+      .filter((track) => titleOnly
+        ? matchesInstrumentTitle(track, query)
+        : matchesInstrumentSearch(track, query));
     const groups = new Map();
     instruments.forEach((track) => {
       const groupName = getStepInstrumentGroup(track);

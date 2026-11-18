@@ -546,12 +546,8 @@
     soundSearchInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
-        const firstResult = $("#sound-library-search-results").querySelector(".sound-library-search-result");
-        if (firstResult instanceof HTMLButtonElement) navigateToSoundSearchResult(firstResult);
-        else {
-          renderSoundSearchSuggestions("");
-          renderStepInstrumentLibrary(soundSearchInput.value.trim());
-        }
+        renderSoundSearchSuggestions("");
+        renderStepInstrumentLibrary(soundSearchInput.value.trim(), true);
       } else if (event.key === "Escape") {
         renderSoundSearchSuggestions("");
         soundSearchInput.blur();

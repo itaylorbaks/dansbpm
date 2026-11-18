@@ -34,6 +34,13 @@
     return terms.every((term) => searchable.includes(term));
   }
 
+  function matchesInstrumentTitle(track, query) {
+    const terms = normalizeSoundSearch(query).split(/\s+/).filter(Boolean);
+    if (!terms.length) return true;
+    const title = normalizeSoundSearch(track.name);
+    return terms.every((term) => title.includes(term));
+  }
+
   function getStepPickerInstruments() {
     return state.tracks.filter((track) =>
       !track.sourceId && (["piano-roll", "mel-track"].includes(stepInstrumentPickerMode) || track.kind !== "drumkit"));
