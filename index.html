@@ -27,9 +27,9 @@
         </button>
         <div class="save-state"><span class="save-dot"></span><span id="save-state">All changes saved</span></div>
         <div class="topbar-actions">
-          <button class="quiet-button workspace-open-button" id="open-beat-grid-button" type="button" aria-label="Open Step" title="Open Step">
+          <button class="quiet-button workspace-open-button" id="open-beat-grid-button" type="button" aria-label="Open Rack" title="Open Rack">
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4h3v3H3zm5.5 0h3v3h-3zm5.5 0h3v3h-3zM3 9h3v3H3zm5.5 0h3v3h-3zm5.5 0h3v3h-3zM3 14h3v3H3zm5.5 0h3v3h-3zm5.5 0h3v3h-3z" /></svg>
-            <span>Step</span>
+            <span>Rack</span>
           </button>
           <button class="quiet-button workspace-open-button" id="open-piano-roll-button" type="button" aria-label="Open Piano Roll" title="Open Piano Roll">
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4h14v12H3zM6 4v7m4-7v7m4-7v7M6 11h2v5m4-5h2v5" /></svg>
@@ -113,7 +113,7 @@
         <div class="workspace-tabs" role="tablist" aria-label="Workspace">
           <button class="workspace-tab" id="sequencer-tab" type="button" role="tab" aria-selected="false" aria-controls="sequencer-view">
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h2v2H3zm6 0h2v2H9zm6 0h2v2h-2zM3 11h2v2H3zm6 0h2v2H9zm6 0h2v2h-2z" /></svg>
-            Step
+            Rack
           </button>
           <button class="workspace-tab is-selected" id="arrangement-tab" type="button" role="tab" aria-selected="true" aria-controls="arrangement-view">
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4h14M3 8h9M3 12h14M3 16h9" /><path d="M14 6v4m-2-2h4M10 14v4m-2-2h4" /></svg>
@@ -163,10 +163,10 @@
                     <section class="workspace workspace-tool-panel" id="sequencer-view" role="tabpanel" aria-labelledby="sequencer-tab" hidden>
                       <div class="section-heading">
                         <div>
-                          <div class="eyebrow">STEP <span class="heading-dot"></span></div>
+                          <div class="eyebrow">RACK <span class="heading-dot"></span></div>
                         </div>
                         <div class="sequencer-actions" id="sequencer-actions">
-                          <button class="quiet-button workspace-play-button" id="sequencer-workspace-play-button" type="button" aria-label="Play step sequencer workspace" aria-pressed="false"><span class="play-icon" aria-hidden="true"></span><span class="workspace-play-label">Play</span></button>
+                          <button class="quiet-button workspace-play-button" id="sequencer-workspace-play-button" type="button" aria-label="Play Rack workspace" aria-pressed="false"><span class="play-icon" aria-hidden="true"></span><span class="workspace-play-label">Play</span></button>
                           <label class="pattern-select-control">
                             <span>PATTERN</span>
                             <select id="sequencer-pattern-select" aria-label="Select pattern to edit"></select>
@@ -175,7 +175,7 @@
                           <button class="quiet-button" id="new-pattern-sequencer-button" type="button">＋ New</button>
                           <label class="pattern-select-control">
                             <span>STEP SIZE</span>
-                            <select id="grid-resolution-select" aria-label="Step grid subdivision">
+                            <select id="grid-resolution-select" aria-label="Rack subdivision">
                               <option value="1/4">1/4</option>
                               <option value="1/8">1/8</option>
                               <option value="1/16" selected>1/16</option>
@@ -183,17 +183,17 @@
                               <option value="1/64">1/64</option>
                             </select>
                           </label>
-                          <div class="length-control step-length-control" role="group" aria-label="Step grid length">
+                          <div class="length-control step-length-control" role="group" aria-label="Rack length">
                             <span class="control-caption">LENGTH</span>
                             <div class="segmented-control">
-                              <button class="length-button" id="decrease-pattern-bars" type="button" aria-label="Remove one bar from step grid">−</button>
+                              <button class="length-button" id="decrease-pattern-bars" type="button" aria-label="Remove one bar from Rack">−</button>
                               <span class="length-value" id="pattern-bars-value">1 BAR</span>
-                              <button class="length-button" id="increase-pattern-bars" type="button" aria-label="Add one bar to step grid">+</button>
+                              <button class="length-button" id="increase-pattern-bars" type="button" aria-label="Add one bar to Rack">+</button>
                             </div>
                           </div>
                           <label class="scale-control">
                             <span>SCALE</span>
-                            <input id="sequencer-scale-slider" type="range" min="50" max="400" step="1" value="100" aria-label="Step grid scale">
+                            <input id="sequencer-scale-slider" type="range" min="50" max="400" step="1" value="100" aria-label="Rack scale">
                             <output id="sequencer-scale-value" for="sequencer-scale-slider">100%</output>
                           </label>
                           <button class="quiet-button keyboard-record-button" id="step-keyboard-record-button" type="button" aria-pressed="false">Record keys</button>
@@ -212,12 +212,12 @@
                         </div>
                       </div>
                       <div class="sequencer-card">
-                        <div class="sequencer-grid-scroll" id="sequencer-grid-scroll" role="region" aria-label="Scrollable step grid" tabindex="0">
+                        <div class="sequencer-grid-scroll" id="sequencer-grid-scroll" role="region" aria-label="Scrollable Rack" tabindex="0">
                           <div class="grid-header">
                             <div class="track-header-label"><span>TRACK</span><span class="header-track-count" id="track-count">06</span></div>
                             <div class="steps-header" id="steps-header" aria-hidden="true"></div>
                           </div>
-                          <div class="track-list" id="track-list" aria-label="Drum step sequencer"></div>
+                          <div class="track-list" id="track-list" aria-label="Drum Rack"></div>
                         </div>
                         <div class="grid-footer">
                           <div class="grid-legend"><span class="legend-swatch"></span>STEP ON <span class="legend-playhead"></span>PLAYHEAD</div>
@@ -656,7 +656,7 @@
                         <button class="quiet-button workspace-play-button quick-action-play-button" id="quick-action-play-button" type="button" aria-label="Play Quick Action" aria-pressed="false" hidden><span class="play-icon" aria-hidden="true"></span></button>
                         <select id="quick-action-view-select" aria-label="Quick Action view">
                           <option value="mixer">Mixer</option>
-                          <option value="sequencer">Step Grid</option>
+                          <option value="sequencer">Rack</option>
                           <option value="piano-roll">Piano Roll</option>
                         </select>
                       </div>
@@ -980,7 +980,7 @@
                   <span>Quick Action view</span>
                   <select id="settings-quick-action-view">
                     <option value="mixer">Mixer</option>
-                    <option value="sequencer">Step Grid</option>
+                    <option value="sequencer">Rack</option>
                     <option value="piano-roll">Piano Roll</option>
                   </select>
                 </label>
@@ -1102,7 +1102,7 @@
           <h2>Quick Help</h2>
           <div class="help-sections">
             <section class="help-section">
-              <h3>Step</h3>
+              <h3>Rack</h3>
               <ul>
                 <li>Click cells to toggle hits. Press <kbd>Space</kbd> to play or stop; adjust tempo and swing while playing.</li>
                 <li>Use <strong>+</strong> to load a row sample, the arrow to change its instrument, and <strong>Add instrument</strong> to add a row. <strong>MIX</strong> controls row pitch, level, swing, and EQ.</li>
@@ -1112,7 +1112,7 @@
             <section class="help-section">
               <h3>Piano Roll</h3>
               <ul>
-                <li>Choose an instrument, click to add notes, and drag notes or their edges to edit them. Click the bar ruler to move the playhead. Drum kits are available here, not in Step.</li>
+                <li>Choose an instrument, click to add notes, and drag notes or their edges to edit them. Click the bar ruler to move the playhead. Drum kits are available here, not in Rack.</li>
                 <li>Arrow keys move selected notes by a snap step or semitone. <kbd>Shift</kbd> + <kbd>←</kbd>/<kbd>→</kbd> changes note length; <kbd>Ctrl</kbd> + <kbd>↑</kbd>/<kbd>↓</kbd> moves notes by an octave.</li>
                 <li>Press <kbd>P</kbd> to place the current non-empty Mel or pattern at the Track View playhead.</li>
               </ul>
@@ -1123,7 +1123,7 @@
                 <li>Add an instrument track for an empty Mel lane, choose its instrument from the track label, then drop or paste Mels onto it. Import recordings or add audio tracks to arrange audio. Click the bar ruler to move the playhead; playback combines tracks at the project tempo.</li>
                 <li>Use each track's mute button, <strong>S</strong> button, and volume slider to mute, solo, or set its level.</li>
                 <li>Use <strong>Snap</strong> for beat-grid placement, movement, and resizing. Drag the upper-right handle to repeat; the lower-right handle trims or extends (extensions are silent).</li>
-                <li>Press <kbd>P</kbd> in Step or Piano Roll to place content; press <kbd>S</kbd> to split clips at the playhead. Arrow keys nudge selected clips by one bar.</li>
+                <li>Press <kbd>P</kbd> in Rack or Piano Roll to place content; press <kbd>S</kbd> to split clips at the playhead. Arrow keys nudge selected clips by one bar.</li>
               </ul>
             </section>
             <section class="help-section">
@@ -1277,6 +1277,6 @@
       </div>
     </section>
     <script src="assets/vendor/lame.min.js"></script>
-    <script src="app.js?v=9b44eec61b2e"></script>
+    <script src="app.js?v=33f5713d1e2d"></script>
   </body>
 </html>

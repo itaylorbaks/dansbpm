@@ -33,7 +33,7 @@
   function getCollaborationViewName(view) {
     return ({
       arrangement: "Arrangement",
-      sequencer: "Step Sequencer",
+      sequencer: "Rack",
       "piano-roll": "Piano Roll",
       mixer: "Mixer",
       dj: "DJ",

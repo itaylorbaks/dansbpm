@@ -3355,7 +3355,7 @@
       const labelElement = button.querySelector(".workspace-play-label");
       if (labelElement) labelElement.textContent = label;
       button.setAttribute("aria-label", quickAction
-        ? `${playing ? "Pause" : "Play"} Quick Action ${workspace === "piano-roll" ? "Piano Roll" : "Step Grid"}`
+        ? `${playing ? "Pause" : "Play"} Quick Action ${workspace === "piano-roll" ? "Piano Roll" : "Rack"}`
         : `${playing ? "Stop" : "Play"} ${workspace === "piano-roll" ? "piano roll" : workspace} workspace`);
       button.setAttribute("aria-pressed", String(playing));
       button.classList.toggle("is-playing", playing);

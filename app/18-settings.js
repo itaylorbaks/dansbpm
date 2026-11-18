@@ -31,13 +31,13 @@
     { id: "copy", label: "Copy", group: "Arrangement / Mixer", views: ["arrangement", "mixer"], default: { code: "KeyC", ctrl: true } },
     { id: "paste", label: "Paste", group: "Arrangement / Mixer", views: ["arrangement", "mixer"], default: { code: "KeyV", ctrl: true } },
     { id: "cut", label: "Cut", group: "Arrangement / Mixer", views: ["arrangement", "mixer"], default: { code: "KeyX", ctrl: true } },
-    { id: "select-all-editor", label: "Select all", group: "Step Grid / Piano Roll", views: ["sequencer", "piano-roll"], default: { code: "KeyA", ctrl: true } },
-    { id: "copy-editor", label: "Copy", group: "Step Grid / Piano Roll", views: ["piano-roll"], default: { code: "KeyC", ctrl: true } },
-    { id: "paste-editor", label: "Paste", group: "Step Grid / Piano Roll", views: ["piano-roll"], default: { code: "KeyV", ctrl: true } },
-    { id: "cut-editor", label: "Cut", group: "Step Grid / Piano Roll", views: ["piano-roll"], default: { code: "KeyX", ctrl: true } },
+    { id: "select-all-editor", label: "Select all", group: "Rack / Piano Roll", views: ["sequencer", "piano-roll"], default: { code: "KeyA", ctrl: true } },
+    { id: "copy-editor", label: "Copy", group: "Rack / Piano Roll", views: ["piano-roll"], default: { code: "KeyC", ctrl: true } },
+    { id: "paste-editor", label: "Paste", group: "Rack / Piano Roll", views: ["piano-roll"], default: { code: "KeyV", ctrl: true } },
+    { id: "cut-editor", label: "Cut", group: "Rack / Piano Roll", views: ["piano-roll"], default: { code: "KeyX", ctrl: true } },
     { id: "split", label: "Split selected clips", group: "Track View", views: ["arrangement", "mixer"], default: { code: "KeyS" } },
     { id: "slice", label: "Toggle slice tool", group: "Track View", views: ["track-view"], default: { code: "KeyT" } },
-    { id: "place", label: "Place editor at playhead", group: "Step Grid / Piano Roll", views: ["sequencer", "piano-roll"], default: { code: "KeyP" } },
+    { id: "place", label: "Place editor at playhead", group: "Rack / Piano Roll", views: ["sequencer", "piano-roll"], default: { code: "KeyP" } },
   ];
   let drummerAudio = null;
   let drummerDestination = null;
@@ -602,12 +602,12 @@
     const gridSummary = document.createElement("summary");
     gridSummary.textContent = "GRID";
     const lengthSelect = document.createElement("select");
-    lengthSelect.setAttribute("aria-label", "Quick Action step grid length");
+    lengthSelect.setAttribute("aria-label", "Quick Action Rack length");
     [1, 2, 4, 8].forEach((bars) => lengthSelect.add(new Option(`${bars} BAR${bars === 1 ? "" : "S"}`, String(bars))));
     lengthSelect.value = String(pattern.steps / 16);
     lengthSelect.addEventListener("change", () => setLength(Number(lengthSelect.value) * 16));
     const resolutionSelect = document.createElement("select");
-    resolutionSelect.setAttribute("aria-label", "Quick Action step grid subdivision");
+    resolutionSelect.setAttribute("aria-label", "Quick Action Rack subdivision");
     ["1/4", "1/8", "1/16", "1/32", "1/64"].forEach((resolution) =>
       resolutionSelect.add(new Option(resolution, resolution)));
     resolutionSelect.value = getPatternGridResolution(pattern);

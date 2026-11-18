@@ -952,7 +952,7 @@
         : -1;
       const stepCount = getGridStepCount();
       if (targetTrackIndex < 0 || stepCount < 1) {
-        showToast("Select a step in the current Step Grid before pasting.");
+        showToast("Select a step in the current Rack before pasting.");
         return;
       }
       const targetStep = Math.max(0, Math.min(stepCount - 1, stepSelectionAnchor.step));
