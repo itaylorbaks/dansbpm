@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
+    "drive:oauth": "node google-drive-oauth-setup.js",
     "test": "node --test"
   },
   "engines": {

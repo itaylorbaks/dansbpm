@@ -229,13 +229,14 @@ export function createCollaborationServer({
   maxPayloadBytes = MAX_ROOM_BYTES + 1024 * 1024,
   roomTtlMs = 24 * 60 * 60 * 1000,
   databaseUrl,
+  driveStorage,
   dataDirectory = process.env.DANSBPM_DATA_DIR ||
     join(dirname(fileURLToPath(import.meta.url)), ".data"),
 } = {}) {
   const origins = new Set(allowedOrigins);
   const rooms = new Map();
   const clients = new Map();
-  const accountApi = createAccountApi({ allowedOrigins, dataDirectory, databaseUrl });
+  const accountApi = createAccountApi({ allowedOrigins, dataDirectory, databaseUrl, driveStorage });
 
   const server = createServer((request, response) => {
     if (request.url === "/healthz") {

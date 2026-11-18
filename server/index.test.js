@@ -8,8 +8,12 @@ import { gunzipSync } from "node:zlib";
 import { WebSocket } from "ws";
 import { createCollaborationServer } from "./index.js";
 
-async function openServer({ dataDirectory } = {}) {
-  const app = createCollaborationServer({ allowedOrigins: ["http://localhost"], dataDirectory });
+async function openServer({ dataDirectory, driveStorage } = {}) {
+  const app = createCollaborationServer({
+    allowedOrigins: ["http://localhost"],
+    dataDirectory,
+    driveStorage,
+  });
   app.server.listen(0, "127.0.0.1");
   await once(app.server, "listening");
   const address = app.server.address();
@@ -422,6 +426,205 @@ test("accounts authenticate and persist compressed project files", async (t) => 
   });
   assert.equal(downloaded.status, 200);
   assert.deepEqual(await downloaded.json(), updatedFile);
+});
+
+test("Google Drive-backed projects stay compressed off-server and are removed with their account", async (t) => {
+  const dataDirectory = await mkdtemp(join(tmpdir(), "dansbpm-drive-test-"));
+  const folders = new Map();
+  const files = new Map();
+  let nextFileId = 0;
+  const driveStorage = {
+    async createAccountFolder(accountId) {
+      const id = `folder-${accountId}`;
+      folders.set(id, new Set());
+      return id;
+    },
+    async createProjectFile(folderId, name, data) {
+      const id = `file-${++nextFileId}`;
+      files.set(id, { folderId, name, data: Buffer.from(data) });
+      folders.get(folderId).add(id);
+      return id;
+    },
+    async updateProjectFile(fileId, data) {
+      files.get(fileId).data = Buffer.from(data);
+    },
+    async getProjectFile(fileId) {
+      return files.get(fileId).data;
+    },
+    async deleteProjectFile(fileId) {
+      const file = files.get(fileId);
+      folders.get(file.folderId).delete(fileId);
+      files.delete(fileId);
+    },
+    async deleteAccountFolder(folderId) {
+      for (const fileId of folders.get(folderId)) files.delete(fileId);
+      folders.delete(folderId);
+    },
+  };
+  let app = await openServer({ dataDirectory, driveStorage });
+  t.after(async () => {
+    await app.close();
+    await rm(dataDirectory, { recursive: true, force: true });
+  });
+  const request = (path, options = {}) => fetch(`${app.httpUrl}${path}`, {
+    ...options,
+    headers: {
+      origin: "http://localhost",
+      ...(options.headers || {}),
+    },
+  });
+  const registration = await request("/api/register", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Drive user", password: "correct horse battery" }),
+  });
+  const session = await registration.json();
+  const projectId = "drive-project";
+  await request("/api/projects", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ id: projectId, name: "Drive song" }),
+  });
+  const projectFile = {
+    app: "DansBPM",
+    format: "dansbpm-project",
+    version: 1,
+    project: { name: "Drive song", snapshot: { bpm: 120 } },
+    assets: [{ dataUrl: "data:audio/wav;base64,AA==", metadata: { trackId: "audio" } }],
+  };
+  const saved = await request(`/api/projects/${projectId}/file`, {
+    method: "PUT",
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      "content-type": "application/vnd.dansbpm.project+json",
+    },
+    body: JSON.stringify(projectFile),
+  });
+  assert.equal(saved.status, 200);
+  assert.equal(files.size, 1);
+  assert.deepEqual(JSON.parse(gunzipSync(files.values().next().value.data).toString("utf8")), projectFile);
+  assert.deepEqual(await (await request(`/api/projects/${projectId}/file`, {
+    headers: { authorization: `Bearer ${session.token}` },
+  })).json(), projectFile);
+  const storedAccount = JSON.parse(await readFile(join(dataDirectory, "accounts.json"), "utf8"))[session.account.id];
+  assert.equal(storedAccount.driveFolderId, `folder-${session.account.id}`);
+  assert.equal(typeof storedAccount.projects[0].driveFileId, "string");
+  assert.equal(Object.hasOwn(storedAccount.projects[0], "fileData"), false);
+  await assert.rejects(readFile(join(dataDirectory, "projects", session.account.id, `${projectId}.bpm.gz`)), {
+    code: "ENOENT",
+  });
+
+  await request(`/api/projects/${projectId}`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${session.token}` },
+  });
+  assert.equal(files.size, 0);
+  await request("/api/account", {
+    method: "DELETE",
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ password: "correct horse battery" }),
+  });
+  assert.equal(folders.size, 0);
+});
+
+test("existing cloud project bundles migrate to Google Drive on the next sign-in", async (t) => {
+  const dataDirectory = await mkdtemp(join(tmpdir(), "dansbpm-drive-migration-test-"));
+  const folders = new Map();
+  const files = new Map();
+  const driveStorage = {
+    async createAccountFolder(accountId) {
+      const id = `folder-${accountId}`;
+      folders.set(id, new Set());
+      return id;
+    },
+    async createProjectFile(folderId, name, data) {
+      const id = `file-${name}`;
+      files.set(id, { folderId, data: Buffer.from(data) });
+      folders.get(folderId).add(id);
+      return id;
+    },
+    async updateProjectFile(fileId, data) {
+      files.get(fileId).data = Buffer.from(data);
+    },
+    async getProjectFile(fileId) {
+      return files.get(fileId).data;
+    },
+    async deleteProjectFile(fileId) {
+      const file = files.get(fileId);
+      folders.get(file.folderId).delete(fileId);
+      files.delete(fileId);
+    },
+    async deleteAccountFolder(folderId) {
+      for (const fileId of folders.get(folderId)) files.delete(fileId);
+      folders.delete(folderId);
+    },
+  };
+  let app = await openServer({ dataDirectory });
+  t.after(async () => {
+    await app.close();
+    await rm(dataDirectory, { recursive: true, force: true });
+  });
+  const request = (path, options = {}) => fetch(`${app.httpUrl}${path}`, {
+    ...options,
+    headers: {
+      origin: "http://localhost",
+      ...(options.headers || {}),
+    },
+  });
+  const registration = await request("/api/register", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Existing user", password: "correct horse battery" }),
+  });
+  const session = await registration.json();
+  const projectId = "legacy-project";
+  await request("/api/projects", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ id: projectId, name: "Legacy song" }),
+  });
+  const projectFile = {
+    app: "DansBPM",
+    format: "dansbpm-project",
+    version: 1,
+    project: { name: "Legacy song", snapshot: { bpm: 100 } },
+    assets: [],
+  };
+  await request(`/api/projects/${projectId}/file`, {
+    method: "PUT",
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      "content-type": "application/vnd.dansbpm.project+json",
+    },
+    body: JSON.stringify(projectFile),
+  });
+  await app.close();
+
+  app = await openServer({ dataDirectory, driveStorage });
+  const login = await request("/api/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Existing user", password: "correct horse battery" }),
+  });
+  const migratedSession = await login.json();
+  assert.equal(login.status, 200);
+  assert.equal(files.size, 1);
+  assert.deepEqual(JSON.parse(gunzipSync(files.values().next().value.data).toString("utf8")), projectFile);
+  await assert.rejects(readFile(join(dataDirectory, "projects", session.account.id, `${projectId}.bpm.gz`)), {
+    code: "ENOENT",
+  });
+  assert.deepEqual(await (await request(`/api/projects/${projectId}/file`, {
+    headers: { authorization: `Bearer ${migratedSession.token}` },
+  })).json(), projectFile);
 });
 
 test("cloud project numbers do not reset when a project is deleted or the server restarts", async (t) => {

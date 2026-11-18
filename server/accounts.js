@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import { gzip } from "node:zlib";
 import { join } from "node:path";
 import { Pool } from "pg";
+import { createGoogleDriveStorage } from "./google-drive-storage.js";
 
 const scryptAsync = promisify(scrypt);
 const gzipAsync = promisify(gzip);
@@ -107,6 +108,7 @@ export function createAccountApi({
   allowedOrigins = [],
   dataDirectory,
   databaseUrl = process.env.DATABASE_URL,
+  driveStorage = createGoogleDriveStorage(),
 } = {}) {
   const origins = new Set(allowedOrigins);
   const accountsPath = join(dataDirectory, "accounts.json");
@@ -118,6 +120,7 @@ export function createAccountApi({
   let sessionKey;
   let ready;
   let persistQueue = Promise.resolve();
+  const driveAccountTasks = new Map();
 
   async function loadSessionKey() {
     if (databasePool) {
@@ -350,6 +353,30 @@ export function createAccountApi({
     );
   }
 
+  async function ensureDriveAccount(account) {
+    if (!driveStorage) return;
+    if (driveAccountTasks.has(account.id)) return driveAccountTasks.get(account.id);
+    const task = (async () => {
+      if (!account.driveFolderId) {
+        account.driveFolderId = await driveStorage.createAccountFolder(account.id);
+        await persistAccounts();
+      }
+      for (const project of account.projects) {
+        if (!project.hasFile || project.driveFileId) continue;
+        const compressed = await readProjectFile(account.id, project.id);
+        project.driveFileId = await driveStorage.createProjectFile(
+          account.driveFolderId,
+          `${project.id}.bpm.gz`,
+          compressed,
+        );
+        await persistAccounts();
+        await deleteProjectFile(account.id, project.id);
+      }
+    })().finally(() => driveAccountTasks.delete(account.id));
+    driveAccountTasks.set(account.id, task);
+    return task;
+  }
+
   function createSessionToken(accountId) {
     const nonce = randomBytes(32).toString("hex");
     const value = `${accountId}.${nonce}`;
@@ -415,11 +442,13 @@ export function createAccountApi({
           return true;
         }
         const account = { id, name, normalizedName, salt, passwordHash, projects: [] };
+        if (driveStorage) account.driveFolderId = await driveStorage.createAccountFolder(id);
         accounts[id] = account;
         try {
           await persistAccounts();
         } catch (error) {
           delete accounts[id];
+          if (account.driveFolderId) await driveStorage.deleteAccountFolder(account.driveFolderId);
           throw error;
         }
         const token = createSessionToken(id);
@@ -440,6 +469,7 @@ export function createAccountApi({
           sendJson(response, 401, { error: "Profile name or password is incorrect." });
           return true;
         }
+        await ensureDriveAccount(account);
         const token = createSessionToken(account.id);
         sendJson(response, 200, {
           account: publicAccount(account),
@@ -454,6 +484,7 @@ export function createAccountApi({
         sendJson(response, 401, { error: "Sign in to access cloud projects." });
         return true;
       }
+      await ensureDriveAccount(account);
 
       if (request.method === "PATCH" && url.pathname === "/api/account") {
         const body = await readJsonBody(request);
@@ -519,6 +550,9 @@ export function createAccountApi({
         if (!(await passwordMatches(account, body.password))) {
           sendJson(response, 401, { error: "The password is incorrect." });
           return true;
+        }
+        if (driveStorage && account.driveFolderId) {
+          await driveStorage.deleteAccountFolder(account.driveFolderId);
         }
         const projectDirectory = join(dataDirectory, "projects", account.id);
         const pendingDeleteDirectory = join(
@@ -610,11 +644,13 @@ export function createAccountApi({
           return true;
         }
         if (projectMatch[2] === "file" && request.method === "GET") {
-          if (!project.hasFile) {
+          if (!project.hasFile || driveStorage && !project.driveFileId) {
             sendJson(response, 404, { error: "This project has not been saved to the cloud yet." });
             return true;
           }
-          const compressed = await readProjectFile(account.id, project.id);
+          const compressed = driveStorage
+            ? await driveStorage.getProjectFile(project.driveFileId)
+            : await readProjectFile(account.id, project.id);
           response.writeHead(200, {
             "content-type": "application/json; charset=utf-8",
             "content-encoding": "gzip",
@@ -641,7 +677,19 @@ export function createAccountApi({
             return true;
           }
           const compressed = await gzipAsync(body);
-          await writeProjectFile(account.id, project.id, compressed);
+          if (driveStorage) {
+            if (project.driveFileId) {
+              await driveStorage.updateProjectFile(project.driveFileId, compressed);
+            } else {
+              project.driveFileId = await driveStorage.createProjectFile(
+                account.driveFolderId,
+                `${project.id}.bpm.gz`,
+                compressed,
+              );
+            }
+          } else {
+            await writeProjectFile(account.id, project.id, compressed);
+          }
           project.name = safeProjectName(document.project.name) || project.name;
           project.updatedAt = Date.now();
           project.revision += 1;
@@ -663,9 +711,13 @@ export function createAccountApi({
           return true;
         }
         if (!projectMatch[2] && request.method === "DELETE") {
+          if (driveStorage && project.driveFileId) {
+            await driveStorage.deleteProjectFile(project.driveFileId);
+          } else {
+            await deleteProjectFile(account.id, project.id);
+          }
           account.projects = account.projects.filter((item) => item.id !== project.id);
           await persistAccounts();
-          await deleteProjectFile(account.id, project.id);
           sendJson(response, 200, { deleted: true });
           return true;
         }
