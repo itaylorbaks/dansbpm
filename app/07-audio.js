@@ -1274,9 +1274,72 @@
 
   function getArrangementClipRepeatLength(type, clip) {
     const tempoRatio = getArrangementClipTempoRatio(clip);
-    if (type === "pattern") return (getPattern(clip.patternId)?.steps || 16) / 16 * tempoRatio;
-    if (type === "mel") return getMelLengthBars(getMel(clip.melId) || { bars: 1, notes: [] }) * tempoRatio;
-    return Math.max(0.01, clip.buffer.duration / getAudioClipTempoRatio(clip)) / (240 / state.bpm);
+    if (type === "pattern") {
+      return (Number.isFinite(clip.repeatLengthBars) && clip.repeatLengthBars > 0
+        ? clip.repeatLengthBars : (getPattern(clip.patternId)?.steps || 16) / 16) * tempoRatio;
+    }
+    if (type === "mel") {
+      return (Number.isFinite(clip.repeatLengthBars) && clip.repeatLengthBars > 0
+        ? clip.repeatLengthBars : getMelLengthBars(getMel(clip.melId) || { bars: 1, notes: [] })) * tempoRatio;
+    }
+    return Math.max(0.01, Number.isFinite(clip.repeatLengthSeconds) && clip.repeatLengthSeconds > 0
+      ? clip.repeatLengthSeconds / getAudioClipTempoRatio(clip)
+      : clip.buffer.duration / getAudioClipTempoRatio(clip)) / (240 / state.bpm);
+  }
+
+  function getArrangementClipRepeatPhaseBars(type, clip) {
+    const tempoRatio = getArrangementClipTempoRatio(clip);
+    if (type === "audio") {
+      const sourceOffset = clip.sourceOffsetSeconds || 0;
+      const repeatStart = clip.repeatStartSeconds;
+      const repeatLength = clip.repeatLengthSeconds;
+      if (Number.isFinite(repeatStart) && Number.isFinite(repeatLength) && repeatLength > 0) {
+        return (((sourceOffset - repeatStart) % repeatLength + repeatLength) % repeatLength) /
+          ((240 / state.bpm) * getAudioClipTempoRatio(clip));
+      }
+      return sourceOffset / ((240 / state.bpm) * getAudioClipTempoRatio(clip));
+    }
+    const sourceOffset = clip.sourceOffsetBars || 0;
+    const repeatStart = clip.repeatStartBars;
+    const repeatLength = clip.repeatLengthBars;
+    if (Number.isFinite(repeatStart) && Number.isFinite(repeatLength) && repeatLength > 0) {
+      return (((sourceOffset - repeatStart) % repeatLength + repeatLength) % repeatLength) * tempoRatio;
+    }
+    return sourceOffset * tempoRatio;
+  }
+
+  function getArrangementPatternStepEvents(clip, pattern, fromElapsed = 0, toElapsed = Infinity) {
+    const stepsPerBar = getStepsPerBar(pattern);
+    const patternBars = pattern.steps / 16;
+    const tempoScale = getArrangementClipTempoRatio(clip);
+    const sourceDuration = getArrangementClipDuration("pattern", clip) / tempoScale;
+    const windows = getArrangementClipSourceWindows(
+      patternBars,
+      clip.sourceOffsetBars || 0,
+      clip.repeatCount,
+      sourceDuration,
+      clip.repeatStartBars,
+      clip.repeatLengthBars,
+      fromElapsed,
+      toElapsed,
+    );
+    const gridStepCount = getGridStepCount(pattern);
+    const ticksPerGridStep = getGridTicksPerStep(pattern);
+    const events = [];
+    windows.forEach((window) => {
+      const firstStep = Math.max(0, Math.ceil(window.sourceOffset * stepsPerBar - 0.0001));
+      const lastStep = Math.ceil((window.sourceOffset + window.duration) * stepsPerBar - 0.0001);
+      for (let sourceStep = firstStep; sourceStep < lastStep; sourceStep += 1) {
+        const sourcePosition = sourceStep / stepsPerBar;
+        if (sourcePosition < window.sourceOffset - 0.0001) continue;
+        events.push({
+          patternStep: sourceStep % gridStepCount,
+          tick: (sourceStep % gridStepCount) * ticksPerGridStep,
+          elapsedSource: window.elapsedSource + sourcePosition - window.sourceOffset,
+        });
+      }
+    });
+    return events;
   }
 
   function getAudioClipSegments(clip, fromBar = clip.startBar, toBar = Infinity) {
@@ -1287,29 +1350,29 @@
     const segments = [];
     if (!sourceDuration) return segments;
     const clipSourceDuration = Number.isFinite(clip.durationSeconds) ? clip.durationSeconds : sourceDuration;
-    const playableDuration = Math.max(0, Math.min(
+    const sourceWindows = getArrangementClipSourceWindows(
+      sourceDuration,
+      sourceOffset,
+      clip.repeatCount,
       clipSourceDuration,
-      sourceDuration * (clip.repeatCount || 1) - sourceOffset,
-    ));
-    let elapsed = 0;
-    while (elapsed < playableDuration) {
-      const position = sourceOffset + elapsed;
-      const offsetInBuffer = position % sourceDuration;
-      const segmentDuration = Math.min(sourceDuration - offsetInBuffer, playableDuration - elapsed);
-      const segmentStart = clip.startBar + elapsed / (secondsPerBar * tempoRatio);
+      clip.repeatStartSeconds,
+      clip.repeatLengthSeconds,
+    );
+    sourceWindows.forEach((window) => {
+      const segmentStart = clip.startBar + window.elapsedSource / (secondsPerBar * tempoRatio);
+      const segmentDuration = window.duration;
       const segmentEnd = segmentStart + segmentDuration / (secondsPerBar * tempoRatio);
       if (segmentEnd > fromBar && segmentStart < toBar) {
         const audibleStart = Math.max(segmentStart, fromBar);
         const audibleEnd = Math.min(segmentEnd, toBar);
         segments.push({
           startBar: audibleStart,
-          sourceOffsetSeconds: offsetInBuffer + (audibleStart - segmentStart) * secondsPerBar * tempoRatio,
+          sourceOffsetSeconds: window.sourceOffset + (audibleStart - segmentStart) * secondsPerBar * tempoRatio,
           durationSeconds: (audibleEnd - audibleStart) * secondsPerBar * tempoRatio,
-          loopIndex: Math.floor(position / sourceDuration),
+          loopIndex: window.index,
         });
       }
-      elapsed += segmentDuration;
-    }
+    });
     return segments;
   }
 
@@ -1317,28 +1380,29 @@
     const melBars = getMelLengthBars(mel);
     const sourceOffset = clip.sourceOffsetBars || 0;
     const tempoRatio = getArrangementClipTempoRatio(clip);
-    const sourceEnd = Math.min(melBars * (clip.repeatCount || 1),
-      sourceOffset + getArrangementClipDuration("mel", clip) / tempoRatio);
+    const sourceWindows = getArrangementClipSourceWindows(
+      melBars,
+      sourceOffset,
+      clip.repeatCount,
+      getArrangementClipDuration("mel", clip) / tempoRatio,
+      clip.repeatStartBars,
+      clip.repeatLengthBars,
+    );
     const events = [];
-    mel.notes.forEach((note) => {
+    sourceWindows.forEach((window) => mel.notes.forEach((note) => {
       const noteStart = note.startTick / PIANO_TICKS_PER_BAR;
       const noteEnd = noteStart + note.durationTicks / PIANO_TICKS_PER_BAR;
-      const firstLoop = Math.max(0, Math.floor(sourceOffset / melBars));
-      const lastLoop = Math.ceil(sourceEnd / melBars);
-      for (let loop = firstLoop; loop < lastLoop; loop += 1) {
-        const noteStartSource = loop * melBars + noteStart;
-        const noteEndSource = loop * melBars + noteEnd;
-        const audibleStart = Math.max(sourceOffset, noteStartSource);
-        const audibleEnd = Math.min(sourceEnd, noteEndSource);
-        if (audibleEnd <= audibleStart) continue;
-        events.push({
-          note,
-          loop,
-          startBar: clip.startBar + (audibleStart - sourceOffset) * tempoRatio,
-          endBar: clip.startBar + (audibleEnd - sourceOffset) * tempoRatio,
-        });
-      }
-    });
+      const audibleStart = Math.max(window.sourceOffset, noteStart);
+      const audibleEnd = Math.min(window.sourceOffset + window.duration, noteEnd);
+      if (audibleEnd <= audibleStart) return;
+      const elapsedSource = window.elapsedSource + audibleStart - window.sourceOffset;
+      events.push({
+        note,
+        loop: window.index,
+        startBar: clip.startBar + elapsedSource * tempoRatio,
+        endBar: clip.startBar + (elapsedSource + audibleEnd - audibleStart) * tempoRatio,
+      });
+    }));
     return events;
   }
 

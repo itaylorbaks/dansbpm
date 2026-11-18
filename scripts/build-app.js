@@ -9,6 +9,7 @@ const parts = [
   "00-library-catalog.js",
   "01-app-config.js",
   "02-state.js",
+  "arrangement-clip-repeat-processing.js",
   "03-sequencer.js",
   "04-piano-roll.js",
   "05-instruments.js",

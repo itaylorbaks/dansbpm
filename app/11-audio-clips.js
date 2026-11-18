@@ -140,10 +140,15 @@
     if (!bufferDuration || !sampleChannels.length) return;
     const sourceOffset = clip.sourceOffsetSeconds || 0;
     const tempoRatio = getAudioClipTempoRatio(clip);
-    const sourcePlayableDuration = Math.max(0, Math.min(
+    const sourceWindows = getArrangementClipSourceWindows(
+      bufferDuration,
+      sourceOffset,
+      clip.repeatCount,
       clip.durationSeconds ?? bufferDuration,
-      bufferDuration * (clip.repeatCount || 1) - sourceOffset,
-    ));
+      clip.repeatStartSeconds,
+      clip.repeatLengthSeconds,
+    );
+    const sourcePlayableDuration = sourceWindows.reduce((duration, window) => duration + window.duration, 0);
     const playableOutputDuration = sourcePlayableDuration / tempoRatio;
     const secondsPerBar = 240 / state.bpm;
     const canvasScale = width / (displayWidth * pixelRatio);
@@ -155,17 +160,22 @@
     context.lineWidth = Math.max(1, pixelRatio * 0.65);
     context.globalAlpha = 0.88;
     const center = height / 2;
+    let firstWindow = 0;
     for (let x = 0; x < playableWidth; x += 1) {
-      let sourcePosition = sourceOffset + x * secondsPerPixel * tempoRatio;
-      const sourceEnd = Math.min(sourceOffset + sourcePlayableDuration,
-        sourceOffset + (x + 1) * secondsPerPixel * tempoRatio);
+      const sourceStart = x * secondsPerPixel * tempoRatio;
+      const sourceEnd = Math.min(sourcePlayableDuration, (x + 1) * secondsPerPixel * tempoRatio);
+      while (firstWindow < sourceWindows.length &&
+        sourceWindows[firstWindow].elapsedSource + sourceWindows[firstWindow].duration <= sourceStart) firstWindow += 1;
       let peak = 0;
-      while (sourcePosition < sourceEnd) {
-        const offsetInBuffer = sourcePosition % bufferDuration;
-        const loopStart = sourcePosition - offsetInBuffer;
-        const segmentEnd = Math.min(sourceEnd, loopStart + bufferDuration);
-        const localStart = sourcePosition - loopStart;
-        const localEnd = segmentEnd - loopStart;
+      for (let windowIndex = firstWindow; windowIndex < sourceWindows.length; windowIndex += 1) {
+        const window = sourceWindows[windowIndex];
+        const windowEnd = window.elapsedSource + window.duration;
+        if (window.elapsedSource >= sourceEnd) break;
+        const overlapStart = Math.max(sourceStart, window.elapsedSource);
+        const overlapEnd = Math.min(sourceEnd, windowEnd);
+        if (overlapEnd <= overlapStart) continue;
+        const localStart = window.sourceOffset + overlapStart - window.elapsedSource;
+        const localEnd = window.sourceOffset + overlapEnd - window.elapsedSource;
         const sampleCount = sampleChannels[0].length;
         const sampleStartSeconds = clip.reversed ? bufferDuration - localEnd : localStart;
         const sampleEndSeconds = clip.reversed ? bufferDuration - localStart : localEnd;
@@ -177,7 +187,6 @@
             peak = Math.max(peak, Math.abs(samples[sample]));
           }
         }
-        sourcePosition = segmentEnd;
       }
       const amplitude = Math.max(1, peak * (height * 0.45));
       context.beginPath();
@@ -492,7 +501,7 @@
     const repeatHandle = makeArrangementResizeHandle("audio", clip, track, element, name, "repeat");
     const resizeHandle = makeArrangementResizeHandle("audio", clip, track, element, name);
     updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength("audio", clip), durationBars,
-      (clip.sourceOffsetSeconds || 0) / ((240 / state.bpm) * getAudioClipTempoRatio(clip)));
+      getArrangementClipRepeatPhaseBars("audio", clip));
     element.addEventListener("dragstart", (event) => {
       selectArrangementTrack(track.id);
       if (!(event.shiftKey && (event.ctrlKey || event.metaKey))) selectArrangementItem("audio", clip.id, event);
@@ -541,7 +550,7 @@
     const repeatHandle = makeArrangementResizeHandle("mel", clip, track, element, name, "repeat");
     const resizeHandle = makeArrangementResizeHandle("mel", clip, track, element, name);
     updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength("mel", clip), bars,
-      (clip.sourceOffsetBars || 0) * getArrangementClipTempoRatio(clip));
+      getArrangementClipRepeatPhaseBars("mel", clip));
     const waveform = makeActivityWaveform(
       getMelActivityWaveform(mel, clip, bars, getActivityWaveformSampleCount(Math.max(1, bars * BAR_WIDTH))),
       track.color,
@@ -617,7 +626,7 @@
     });
     element.append(waveform, icon, text, repeatHandle, resizeHandle);
     if (pattern) updateArrangementClipRepeatMarkers(element, clip, getArrangementClipRepeatLength("pattern", clip), totalBars,
-      (clip.sourceOffsetBars || 0) * getArrangementClipTempoRatio(clip));
+      getArrangementClipRepeatPhaseBars("pattern", clip));
     return element;
   }
 
@@ -701,8 +710,13 @@
     });
   }
 
+  function getClipboardEditorView() {
+    return getLastInteractedViewArea() === "track-view" ? "arrangement" : state.view;
+  }
+
   function copyEditorSelection({ trackOnly = false } = {}) {
-    if (state.view === "sequencer") {
+    const editorView = getClipboardEditorView();
+    if (editorView === "sequencer") {
       if (!state.selectedStepCells.size) return;
       const tracks = Array.from(document.querySelectorAll(".track-row"), (row) =>
         state.tracks.find((track) => track.id === row.dataset.trackId)).filter(Boolean);
@@ -732,7 +746,7 @@
       state.clipboard = { type: "sequencer", items, pasteCount: 0 };
       return;
     }
-    if (state.view === "piano-roll") {
+    if (editorView === "piano-roll") {
       const selectedIds = new Set(state.selectedPianoNoteIds);
       if (state.selectedPianoNoteId) selectedIds.add(state.selectedPianoNoteId);
       const notes = state.pianoNotes.filter((note) => selectedIds.has(note.id));
@@ -747,7 +761,7 @@
       };
       return;
     }
-    if (!["arrangement", "mixer"].includes(state.view)) return;
+    if (!["arrangement", "mixer"].includes(editorView)) return;
     let trackCopy = null;
     if (trackOnly || !state.selectedArrangementItems.size) {
       const selectedTrackId = state.selectedMixerTrackId;
@@ -885,9 +899,10 @@
   }
 
   function pasteEditorClipboard({ newTrack = false } = {}) {
-    const expectedType = state.view === "sequencer" ? "sequencer" :
-      state.view === "piano-roll" ? "piano-roll" :
-        ["arrangement", "mixer"].includes(state.view) ? "arrangement" : null;
+    const editorView = getClipboardEditorView();
+    const expectedType = editorView === "sequencer" ? "sequencer" :
+      editorView === "piano-roll" ? "piano-roll" :
+        ["arrangement", "mixer"].includes(editorView) ? "arrangement" : null;
     if (!state.clipboard) {
       showToast("Copy selected items before pasting.");
       return;
@@ -1138,6 +1153,7 @@
     const cursor = snapArrangementBar(bar);
     setArrangementCursor(cursor);
     let splitCount = 0;
+    let audioMelAdded = false;
     const canSplit = (type, clip) => {
       const selected = state.selectedArrangementItems.has(arrangementSelectionKey(type, clip.id));
       const start = clip.startBar;
@@ -1150,13 +1166,27 @@
       const leftDuration = cursor - clip.startBar;
       const totalDuration = getArrangementClipDuration("pattern", clip);
       const tempoRatio = getArrangementClipTempoRatio(clip);
-      clip.durationBars = leftDuration / tempoRatio;
+      const sourceStart = getArrangementClipSourcePosition(
+        clip.sourceOffsetBars || 0, 0, clip.repeatStartBars, clip.repeatLengthBars,
+      );
+      const leftSourceDuration = leftDuration / tempoRatio;
+      const rightSourceStart = getArrangementClipSourcePosition(
+        clip.sourceOffsetBars || 0, leftSourceDuration, clip.repeatStartBars, clip.repeatLengthBars,
+      );
+      const rightSourceDuration = (totalDuration - leftDuration) / tempoRatio;
+      clip.durationBars = leftSourceDuration;
+      clip.sourceOffsetBars = sourceStart;
+      clip.repeatStartBars = sourceStart;
+      clip.repeatLengthBars = leftSourceDuration;
+      clip.repeatCount = 1;
       const right = {
         ...clip,
         id: makeId(),
         startBar: cursor,
-        durationBars: (totalDuration - leftDuration) / tempoRatio,
-        sourceOffsetBars: (clip.sourceOffsetBars || 0) + leftDuration / tempoRatio,
+        durationBars: rightSourceDuration,
+        sourceOffsetBars: rightSourceStart,
+        repeatStartBars: rightSourceStart,
+        repeatLengthBars: rightSourceDuration,
       };
       state.patternClips.push(right);
       splitKeys.add(arrangementSelectionKey("pattern", clip.id));
@@ -1171,13 +1201,27 @@
         const leftDuration = cursor - clip.startBar;
         const totalDuration = getArrangementClipDuration("mel", clip);
         const tempoRatio = getArrangementClipTempoRatio(clip);
-        clip.durationBars = leftDuration / tempoRatio;
+        const sourceStart = getArrangementClipSourcePosition(
+          clip.sourceOffsetBars || 0, 0, clip.repeatStartBars, clip.repeatLengthBars,
+        );
+        const leftSourceDuration = leftDuration / tempoRatio;
+        const rightSourceStart = getArrangementClipSourcePosition(
+          clip.sourceOffsetBars || 0, leftSourceDuration, clip.repeatStartBars, clip.repeatLengthBars,
+        );
+        const rightSourceDuration = (totalDuration - leftDuration) / tempoRatio;
+        clip.durationBars = leftSourceDuration;
+        clip.sourceOffsetBars = sourceStart;
+        clip.repeatStartBars = sourceStart;
+        clip.repeatLengthBars = leftSourceDuration;
+        clip.repeatCount = 1;
         const right = {
           ...clip,
           id: makeId(),
           startBar: cursor,
-          durationBars: (totalDuration - leftDuration) / tempoRatio,
-          sourceOffsetBars: (clip.sourceOffsetBars || 0) + leftDuration / tempoRatio,
+          durationBars: rightSourceDuration,
+          sourceOffsetBars: rightSourceStart,
+          repeatStartBars: rightSourceStart,
+          repeatLengthBars: rightSourceDuration,
         };
         track.clips.push(right);
         splitKeys.add(arrangementSelectionKey("mel", clip.id));
@@ -1193,16 +1237,30 @@
         const secondsPerBar = 240 / state.bpm;
         const leftDuration = (cursor - clip.startBar) * secondsPerBar * getAudioClipTempoRatio(clip);
         const totalDuration = clip.durationSeconds ?? clip.buffer.duration;
+        const sourceStart = getArrangementClipSourcePosition(
+          clip.sourceOffsetSeconds || 0, 0, clip.repeatStartSeconds, clip.repeatLengthSeconds,
+        );
+        const rightSourceStart = getArrangementClipSourcePosition(
+          clip.sourceOffsetSeconds || 0, leftDuration, clip.repeatStartSeconds, clip.repeatLengthSeconds,
+        );
         clip.durationSeconds = leftDuration;
+        clip.sourceOffsetSeconds = sourceStart;
+        clip.repeatStartSeconds = sourceStart;
+        clip.repeatLengthSeconds = leftDuration;
+        clip.repeatCount = 1;
         clip.fadeOutSeconds = 0;
         const right = {
           ...clip,
           id: makeId(),
           startBar: cursor,
           durationSeconds: totalDuration - leftDuration,
-          sourceOffsetSeconds: (clip.sourceOffsetSeconds || 0) + leftDuration,
+          sourceOffsetSeconds: rightSourceStart,
+          repeatStartSeconds: rightSourceStart,
+          repeatLengthSeconds: totalDuration - leftDuration,
           fadeInSeconds: 0,
         };
+        audioMelAdded = ensureAudioClipMel(clip) || audioMelAdded;
+        audioMelAdded = ensureAudioClipMel(right) || audioMelAdded;
         track.clips.push(right);
         splitKeys.add(arrangementSelectionKey("audio", clip.id));
         splitKeys.add(arrangementSelectionKey("audio", right.id));
@@ -1219,6 +1277,7 @@
     }
     state.selectedArrangementItems = splitKeys;
     state.arrangementSelectionFromMarquee = false;
+    if (audioMelAdded) renderMelOptions();
     updateArrangementLength();
     renderArrangement();
     saveState();

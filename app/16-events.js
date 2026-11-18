@@ -883,21 +883,22 @@
       }
       if ((!isTyping || pianoRollSelectAll) && !dialogOpen && !event.repeat && (event.ctrlKey || event.metaKey) && !event.altKey) {
         const key = event.key.toLowerCase();
-        if (key === "a" && ["arrangement", "sequencer", "piano-roll", "mixer"].includes(state.view)) {
+        const clipboardView = getClipboardEditorView();
+        if (key === "a" && ["arrangement", "sequencer", "piano-roll", "mixer"].includes(clipboardView)) {
           event.preventDefault();
-          if (state.view === "arrangement" || state.view === "mixer") selectAllArrangementItems();
-          else if (state.view === "sequencer") selectAllStepCells();
+          if (clipboardView === "arrangement" || clipboardView === "mixer") selectAllArrangementItems();
+          else if (clipboardView === "sequencer") selectAllStepCells();
           else selectAllPianoNotes();
-        } else if (key === "c" && ["arrangement", "sequencer", "piano-roll", "mixer"].includes(state.view)) {
+        } else if (key === "c" && ["arrangement", "sequencer", "piano-roll", "mixer"].includes(clipboardView)) {
           event.preventDefault();
-          copyEditorSelection({ trackOnly: event.shiftKey && ["arrangement", "mixer"].includes(state.view) });
-        } else if (key === "v" && ["arrangement", "sequencer", "piano-roll", "mixer"].includes(state.view)) {
+          copyEditorSelection({ trackOnly: event.shiftKey && ["arrangement", "mixer"].includes(clipboardView) });
+        } else if (key === "v" && ["arrangement", "sequencer", "piano-roll", "mixer"].includes(clipboardView)) {
           event.preventDefault();
-          pasteEditorClipboard({ newTrack: event.shiftKey && ["arrangement", "mixer"].includes(state.view) });
-        } else if (key === "x" && ["arrangement", "piano-roll", "mixer"].includes(state.view)) {
+          pasteEditorClipboard({ newTrack: event.shiftKey && ["arrangement", "mixer"].includes(clipboardView) });
+        } else if (key === "x" && ["arrangement", "piano-roll", "mixer"].includes(clipboardView)) {
           event.preventDefault();
           copyEditorSelection();
-          if (state.view === "piano-roll") deleteSelectedPianoNote();
+          if (clipboardView === "piano-roll") deleteSelectedPianoNote();
           else deleteSelectedArrangementItems();
         }
       }

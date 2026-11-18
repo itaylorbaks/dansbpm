@@ -834,12 +834,21 @@
           if (!instrument) throw new Error(`The edited Mel for ${clip.name} has no available instrument.`);
           const clipDurationBars = getArrangementClipDuration("audio", clip);
           const tempoRatio = getArrangementClipTempoRatio(clip);
+          const audioTempoRatio = getAudioClipTempoRatio(clip);
+          const melSourceSecondsPerBar = (240 / state.bpm) * audioTempoRatio * tempoRatio;
+          const hasAudioRepeatRegion = Number.isFinite(clip.repeatStartSeconds) &&
+            Number.isFinite(clip.repeatLengthSeconds) && clip.repeatLengthSeconds > 0;
           const melClip = {
             melId: editedMel.id,
             startBar: clip.startBar,
-            sourceOffsetBars: 0,
+            sourceOffsetBars: hasAudioRepeatRegion
+              ? (clip.sourceOffsetSeconds || 0) / melSourceSecondsPerBar : 0,
             repeatCount: clip.repeatCount || 1,
             durationBars: clipDurationBars / tempoRatio,
+            ...(hasAudioRepeatRegion ? {
+              repeatStartBars: clip.repeatStartSeconds / melSourceSecondsPerBar,
+              repeatLengthBars: clip.repeatLengthSeconds / melSourceSecondsPerBar,
+            } : {}),
             tempoLockBpm: clip.tempoLockBpm,
           };
           const clipEndBar = Math.min(arrangementEndBar, clip.startBar + clipDurationBars);

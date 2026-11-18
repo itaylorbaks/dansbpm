@@ -372,6 +372,8 @@
         durationSeconds: clip.durationSeconds,
         sourceOffsetSeconds: clip.sourceOffsetSeconds || 0,
         repeatCount: clip.repeatCount || 1,
+        ...(Number.isFinite(clip.repeatStartSeconds) ? { repeatStartSeconds: clip.repeatStartSeconds } : {}),
+        ...(Number.isFinite(clip.repeatLengthSeconds) ? { repeatLengthSeconds: clip.repeatLengthSeconds } : {}),
         clipGain: Number.isFinite(clip.clipGain) ? Math.max(0, Math.min(2, clip.clipGain)) : 1,
         fadeInSeconds: clip.fadeInSeconds || 0,
         fadeOutSeconds: clip.fadeOutSeconds || 0,
@@ -572,6 +574,10 @@
             durationSeconds: Number.isFinite(record.durationSeconds) ? record.durationSeconds : buffer.duration,
             sourceOffsetSeconds: Number.isFinite(record.sourceOffsetSeconds) ? record.sourceOffsetSeconds : 0,
             repeatCount: Number.isInteger(record.repeatCount) ? Math.max(1, record.repeatCount) : 1,
+            ...(Number.isFinite(record.repeatStartSeconds) && record.repeatStartSeconds >= 0
+              ? { repeatStartSeconds: record.repeatStartSeconds } : {}),
+            ...(Number.isFinite(record.repeatLengthSeconds) && record.repeatLengthSeconds > 0
+              ? { repeatLengthSeconds: record.repeatLengthSeconds } : {}),
             clipGain: Number.isFinite(record.clipGain) ? Math.max(0, Math.min(2, record.clipGain)) : 1,
             fadeInSeconds: Number.isFinite(record.fadeInSeconds)
               ? Math.max(0, Math.min(10, record.fadeInSeconds)) : 0,

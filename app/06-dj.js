@@ -2019,34 +2019,28 @@
       if (patternTrack.muted || (hasViewTrackSolo && !patternTrack.solo)) return;
       const stepsPerBar = getStepsPerBar(pattern);
       const sourceOffset = clip.sourceOffsetBars || 0;
-      const sourceBars = pattern.steps / 16 * (clip.repeatCount || 1);
+      const patternBars = pattern.steps / 16;
       const tempoScale = getArrangementClipTempoRatio(clip);
       const clipDuration = getArrangementClipDuration("pattern", clip);
-      const sourceEndStep = Math.min(sourceBars * stepsPerBar,
-        Math.ceil((sourceOffset + clipDuration / tempoScale) * stepsPerBar - 0.0001));
-      const currentSourceStep = (sourceOffset + (currentBar - clip.startBar) / tempoScale) * stepsPerBar;
-      const firstStep = Math.max(0, Math.ceil(sourceOffset * stepsPerBar - 0.0001), Math.floor(currentSourceStep) - 3);
-      const lastStep = Math.min(sourceEndStep,
-        Math.ceil((sourceOffset + (currentBar + lookAheadBars - clip.startBar) / tempoScale) * stepsPerBar) + 4);
-      const gridStepCount = getGridStepCount(pattern);
-      const ticksPerGridStep = getGridTicksPerStep(pattern);
+      const sourceDuration = clipDuration / tempoScale;
+      const scheduleFrom = Math.max(0,
+        (currentBar - clip.startBar) / tempoScale - 4 / stepsPerBar);
+      const scheduleTo = Math.min(sourceDuration,
+        (currentBar + lookAheadBars - clip.startBar) / tempoScale + 4 / stepsPerBar);
+      const stepEvents = getArrangementPatternStepEvents(clip, pattern, scheduleFrom, scheduleTo);
       const patternTrackIds = getPatternTrackIds(pattern);
 
-      for (let sourceStep = firstStep; sourceStep < lastStep; sourceStep += 1) {
-        const sourcePosition = sourceStep / stepsPerBar;
-        const sourceOffsetBars = sourcePosition - sourceOffset;
-        const patternStep = sourceStep % gridStepCount;
-        const tick = patternStep * ticksPerGridStep;
-        const bar = clip.startBar + sourceOffsetBars * tempoScale;
+      stepEvents.forEach(({ patternStep, tick, elapsedSource }) => {
+        const bar = clip.startBar + elapsedSource * tempoScale;
         const time = getDjSongTimeForBar(deck, bar) +
           (Math.floor(tick / 2) % 2 === 1
             ? getStepDuration() * tempoScale * state.swing / 100 / deck.songRate : 0);
-        if (!isInLookAhead(time)) continue;
+        if (!isInLookAhead(time)) return;
         state.tracks.forEach((track) => {
           if (!patternTrackIds.includes(track.id) || !pattern.cells?.[track.id]?.[patternStep] ||
             track.muted || (hasInstrumentSolo && !track.solo) ||
             hasPatternStepPianoNotes(pattern, track.id)) return;
-          const eventKey = `pattern:${clip.id}:${sourceStep}:${track.id}`;
+          const eventKey = `pattern:${clip.id}:${Math.round(elapsedSource * stepsPerBar)}:${track.id}`;
           if (deck.songEvents.has(eventKey)) return;
           const trackTime = time +
             (getTrackStepTime(track, patternStep, pattern, time, tempoScale) - time) / deck.songRate;
@@ -2056,36 +2050,45 @@
             getDjSongGain(deck, `pattern:${clip.id}:${track.id}`, volume));
           deck.songEvents.add(eventKey);
         });
-      }
+      });
 
-      const patternBars = pattern.steps / 16;
-      const loopCount = Math.ceil(sourceBars / patternBars);
+      const sourceWindows = getArrangementClipSourceWindows(
+        patternBars,
+        sourceOffset,
+        clip.repeatCount,
+        sourceDuration,
+        clip.repeatStartBars,
+        clip.repeatLengthBars,
+        scheduleFrom,
+        scheduleTo,
+      );
       Object.entries(pattern.stepPianoNotes || {}).forEach(([trackId, notes]) => {
         const track = state.tracks.find((item) => item.id === trackId);
         if (!track || !Array.isArray(notes) || !patternTrackIds.includes(trackId) ||
           patternTrack.muted || (hasViewTrackSolo && !patternTrack.solo) ||
           track.muted || (hasInstrumentSolo && !track.solo)) return;
-        for (let loop = 0; loop < loopCount; loop += 1) {
-          notes.forEach((note) => {
-            const sourcePosition = loop * patternBars + note.startTick / PIANO_TICKS_PER_BAR;
-            if (sourcePosition < sourceOffset || sourcePosition >= sourceOffset + clipDuration / tempoScale) return;
-            const bar = clip.startBar + (sourcePosition - sourceOffset) * tempoScale;
-            const time = getDjSongTimeForBar(deck, bar) +
-              (Math.floor(note.startTick / 2) % 2 === 1
-                ? getStepDuration() * tempoScale * state.swing / 100 / deck.songRate : 0);
-            const eventKey = `pattern-piano:${clip.id}:${trackId}:${loop}:${note.id}`;
-            if (deck.songEvents.has(eventKey) || !isInLookAhead(time)) return;
-            const clipEnd = (sourceOffset + clipDuration / tempoScale - sourcePosition) *
-              tempoScale * secondsPerBar;
-            const duration = Math.min(
-              note.durationTicks * getSchedulerTickDuration() * tempoScale / deck.songRate, clipEnd);
-            if (duration > 0) {
-              playPianoNote(track, time, note.midi, duration, note.velocity ?? 0.8, patternTrack,
-                getDjSongGain(deck, `pattern:${clip.id}:${trackId}`, (patternTrack.volume ?? 1) * (track.volume ?? 1)), note);
-              deck.songEvents.add(eventKey);
-            }
-          });
-        }
+        sourceWindows.forEach((window) => notes.forEach((note) => {
+          const noteStart = note.startTick / PIANO_TICKS_PER_BAR;
+          const windowEnd = window.sourceOffset + window.duration;
+          if (noteStart < window.sourceOffset || noteStart >= windowEnd) return;
+          const elapsedSource = window.elapsedSource + noteStart - window.sourceOffset;
+          const bar = clip.startBar + elapsedSource * tempoScale;
+          const time = getDjSongTimeForBar(deck, bar) +
+            (Math.floor(note.startTick / 2) % 2 === 1
+              ? getStepDuration() * tempoScale * state.swing / 100 / deck.songRate : 0);
+          const eventKey = `pattern-piano:${clip.id}:${trackId}:${Math.round(elapsedSource * PIANO_TICKS_PER_BAR)}:${note.id}`;
+          if (deck.songEvents.has(eventKey) || !isInLookAhead(time)) return;
+          const clipEnd = (windowEnd - noteStart) * tempoScale * secondsPerBar;
+          const duration = Math.min(
+            note.durationTicks * getSchedulerTickDuration() * tempoScale / deck.songRate,
+            clipEnd,
+          );
+          if (duration > 0) {
+            playPianoNote(track, time, note.midi, duration, note.velocity ?? 0.8, patternTrack,
+              getDjSongGain(deck, `pattern:${clip.id}:${trackId}`, (patternTrack.volume ?? 1) * (track.volume ?? 1)), note);
+            deck.songEvents.add(eventKey);
+          }
+        }));
       });
     });
 
@@ -3131,63 +3134,63 @@
       if (!pattern) return;
       const stepsPerBar = getStepsPerBar(pattern);
       const sourceOffset = clip.sourceOffsetBars || 0;
-      const sourceBars = pattern.steps / 16 * (clip.repeatCount || 1);
+      const patternBars = pattern.steps / 16;
       const tempoScale = getArrangementClipTempoRatio(clip);
       const clipDuration = getArrangementClipDuration("pattern", clip);
-      const sourceEndStep = Math.min(sourceBars * stepsPerBar,
-        Math.ceil((sourceOffset + clipDuration / tempoScale) * stepsPerBar - 0.0001));
       const clipStartTime = state.playbackStartTime + (clip.startBar - state.playbackStartBar) * secondsPerBar;
-      const currentSourceStep = (sourceOffset + (now - clipStartTime) / secondsPerBar / tempoScale) * stepsPerBar;
-      const firstStep = Math.max(0, Math.ceil(sourceOffset * stepsPerBar - 0.0001), Math.floor(currentSourceStep) - 3);
-      const lastStep = Math.min(sourceEndStep,
-        Math.ceil((sourceOffset + (now + lookAhead - clipStartTime) / secondsPerBar / tempoScale) * stepsPerBar) + 4);
-      const gridStepCount = getGridStepCount(pattern);
-      const ticksPerGridStep = getGridTicksPerStep(pattern);
+      const sourceDuration = clipDuration / tempoScale;
+      const scheduleFrom = Math.max(0,
+        (now - clipStartTime) / (secondsPerBar * tempoScale) - 4 / stepsPerBar);
+      const scheduleTo = Math.min(sourceDuration,
+        (now + lookAhead - clipStartTime) / (secondsPerBar * tempoScale) + 4 / stepsPerBar);
+      const stepEvents = getArrangementPatternStepEvents(clip, pattern, scheduleFrom, scheduleTo);
       const patternTrack = state.patterns.find((item) => item.id === (clip.trackId || clip.patternId)) || pattern;
-      for (let sourceStep = firstStep; sourceStep < lastStep; sourceStep += 1) {
-        const sourcePosition = sourceStep / stepsPerBar;
-        const relativePosition = sourcePosition - sourceOffset;
-        const patternStep = sourceStep % gridStepCount;
-        const tick = patternStep * ticksPerGridStep;
-        const time = clipStartTime + relativePosition * tempoScale * secondsPerBar +
+      stepEvents.forEach(({ patternStep, tick, elapsedSource }) => {
+        const time = clipStartTime + elapsedSource * tempoScale * secondsPerBar +
           (Math.floor(tick / 2) % 2 === 1
             ? getStepDuration() * tempoScale * (state.swing / 100) : 0);
-        if (time < now || time < notBefore || time >= now + lookAhead || time >= state.playbackEndTime) continue;
-        const key = `${state.arrangementLoopIteration}:${clip.id}:${sourceStep}`;
-        if (state.scheduledArrangementSteps.has(key)) continue;
+        if (time < now || time < notBefore || time >= now + lookAhead || time >= state.playbackEndTime) return;
+        const key = `${state.arrangementLoopIteration}:${clip.id}:step:${Math.round(elapsedSource * stepsPerBar)}`;
+        if (state.scheduledArrangementSteps.has(key)) return;
         scheduleArrangementVoice(() =>
           scheduleStep(patternStep, time, pattern, null, false, null, patternTrack, tempoScale));
         state.scheduledArrangementSteps.add(key);
-      }
+      });
       const hasSolo = state.tracks.some((track) => track.solo);
       Object.entries(pattern.stepPianoNotes || {}).forEach(([trackId, notes]) => {
         const track = state.tracks.find((item) => item.id === trackId);
         if (!track || !Array.isArray(notes) || !getPatternTrackIds(pattern).includes(trackId) ||
           track.muted || (hasSolo && !track.solo)) return;
-        const patternBars = pattern.steps / 16;
-        const loopCount = Math.ceil(sourceBars / patternBars);
-        for (let loop = 0; loop < loopCount; loop += 1) {
-          notes.forEach((note) => {
-            const sourcePosition = loop * patternBars + note.startTick / PIANO_TICKS_PER_BAR;
-            if (sourcePosition < sourceOffset || sourcePosition >= sourceOffset + clipDuration / tempoScale) return;
-            const when = clipStartTime + (sourcePosition - sourceOffset) * tempoScale * secondsPerBar +
-              (Math.floor(note.startTick / 2) % 2 === 1
-                ? getStepDuration() * tempoScale * (state.swing / 100) : 0);
-            if (when < now || when < notBefore || when >= now + lookAhead || when >= state.playbackEndTime) return;
-            const key = `${state.arrangementLoopIteration}:${clip.id}:piano:${trackId}:${loop}:${note.id}`;
-            if (state.scheduledArrangementSteps.has(key)) return;
-            const clipEnd = (sourceOffset + clipDuration / tempoScale - sourcePosition) *
-              tempoScale * secondsPerBar;
-            const noteDuration = Math.min(note.durationTicks * getSchedulerTickDuration() * tempoScale, clipEnd);
-            if (noteDuration > 0) {
-              scheduleArrangementVoice(() =>
-                playPianoNote(track, when, note.midi, noteDuration, note.velocity ?? 0.8,
-                  patternTrack, getPatternSourceGain(patternTrack, track), note));
-            }
-            state.scheduledArrangementSteps.add(key);
-          });
-        }
-
+        const sourceWindows = getArrangementClipSourceWindows(
+          patternBars,
+          sourceOffset,
+          clip.repeatCount,
+          sourceDuration,
+          clip.repeatStartBars,
+          clip.repeatLengthBars,
+          scheduleFrom,
+          scheduleTo,
+        );
+        sourceWindows.forEach((window) => notes.forEach((note) => {
+          const noteStart = note.startTick / PIANO_TICKS_PER_BAR;
+          const windowEnd = window.sourceOffset + window.duration;
+          if (noteStart < window.sourceOffset || noteStart >= windowEnd) return;
+          const relativePosition = window.elapsedSource + noteStart - window.sourceOffset;
+          const when = clipStartTime + relativePosition * tempoScale * secondsPerBar +
+            (Math.floor(note.startTick / 2) % 2 === 1
+              ? getStepDuration() * tempoScale * (state.swing / 100) : 0);
+          if (when < now || when < notBefore || when >= now + lookAhead || when >= state.playbackEndTime) return;
+          const key = `${state.arrangementLoopIteration}:${clip.id}:piano:${trackId}:${Math.round(relativePosition * PIANO_TICKS_PER_BAR)}:${note.id}`;
+          if (state.scheduledArrangementSteps.has(key)) return;
+          const clipEnd = (windowEnd - noteStart) * tempoScale * secondsPerBar;
+          const noteDuration = Math.min(note.durationTicks * getSchedulerTickDuration() * tempoScale, clipEnd);
+          if (noteDuration > 0) {
+            scheduleArrangementVoice(() =>
+              playPianoNote(track, when, note.midi, noteDuration, note.velocity ?? 0.8,
+                patternTrack, getPatternSourceGain(patternTrack, track), note));
+          }
+          state.scheduledArrangementSteps.add(key);
+        }));
       });
     });
   }

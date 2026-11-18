@@ -13,6 +13,21 @@
     return { id: makeId(), name, instrumentId, bars, notes: notes.map((note) => ({ ...note })), audioSourceClipId: null };
   }
 
+  function ensureAudioClipMel(clip) {
+    if (state.mels.some((mel) => mel.audioSourceClipId === clip.id)) return false;
+    const baseName = `${clip.name.replace(/\.[^.]+$/, "").trim() || "Audio"} Mel`.slice(0, 48);
+    let name = baseName;
+    let suffix = 2;
+    while (state.mels.some((mel) => mel.name.toLowerCase() === name.toLowerCase())) {
+      name = `${baseName.slice(0, 60 - String(suffix).length)} ${suffix}`;
+      suffix += 1;
+    }
+    const mel = makeMel(name);
+    mel.audioSourceClipId = clip.id;
+    state.mels.push(mel);
+    return true;
+  }
+
   function captureCurrentMel() {
     if (state.stepPianoEditContext) return;
     const mel = getMel();
@@ -766,9 +781,13 @@
     const finalSliceTicks = durationTicks - (sliceCount - 1) * sliceTicks;
     const keepLastSliceAtEnd = finalSliceTicks < sliceTicks - 0.0001;
     const sliceOrder = getPianoChopperSliceOrder(sliceCount, $("#piano-chopper-organize").value, keepLastSliceAtEnd);
-    let mel = getMel();
-    if (state.pianoNotes.length &&
-      !state.pianoNotes.some((note) => note.audioSlice?.clipId === clip.id)) {
+    let mel = state.mels.slice().reverse().find((item) => item.audioSourceClipId === clip.id) || null;
+    if (mel) {
+      if (state.selectedMelId !== mel.id) {
+        captureCurrentMel();
+        loadMel(mel.id);
+      }
+    } else {
       captureCurrentMel();
       const baseName = `${clip.name.replace(/\.[^.]+$/, "").trim() || "Audio"} Chops`.slice(0, 48);
       let melName = baseName;
@@ -778,6 +797,7 @@
         suffix += 1;
       }
       mel = makeMel(melName, state.selectedPianoTrackId, state.pianoBars, []);
+      mel.audioSourceClipId = clip.id;
       state.mels.push(mel);
       loadMel(mel.id);
     }
@@ -892,10 +912,17 @@
       const clipDurationBars = clipSourceDuration / tempoRatio / secondsPerBar;
       const bars = [1, 2, 4, 8].find((bar) => bar * PIANO_TICKS_PER_BAR >=
         Math.min(maxTicks, clipDurationBars * PIANO_TICKS_PER_BAR)) || 8;
-      const name = clip.name.replace(/\.[^.]+$/, "").trim() || "Audio transcription";
-      const mel = makeMel(name, state.selectedPianoTrackId, bars, notes);
-      mel.audioSourceClipId = clip.id;
-      state.mels.push(mel);
+      let mel = state.mels.slice().reverse().find((item) => item.audioSourceClipId === clip.id);
+      if (mel) {
+        mel.instrumentId = state.selectedPianoTrackId;
+        mel.bars = bars;
+        mel.notes = notes.map((note) => ({ ...note }));
+      } else {
+        const name = clip.name.replace(/\.[^.]+$/, "").trim() || "Audio transcription";
+        mel = makeMel(name, state.selectedPianoTrackId, bars, notes);
+        mel.audioSourceClipId = clip.id;
+        state.mels.push(mel);
+      }
       state.selectedMelId = mel.id;
       loadMel(mel.id);
       const detectedKey = clip.audioMetadata?.key?.match(/^([A-G]#?) (major|minor)$/i);
@@ -957,7 +984,7 @@
     audioOptions.hidden = false;
     audioToggle?.setAttribute("aria-expanded", "true");
     if (audioToggle) audioToggle.title = "Collapse Audio options";
-    if (linkedMel) {
+    if (linkedMel?.notes.length) {
       renderMelOptions();
       renderPianoInstrumentOptions();
       renderPianoRoll();
