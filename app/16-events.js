@@ -835,6 +835,12 @@
       const dialogOpen = $("#help-dialog").open || $("#project-dialog").open || $("#source-browser-dialog").open ||
         $("#step-instrument-dialog").open || $("#step-track-mix-dialog").open || $("#audio-tempo-dialog").open;
       if (!isTextEntry && !dialogOpen && (event.ctrlKey || event.metaKey) && !event.altKey &&
+        (event.key.toLowerCase() === "y" || event.key.toLowerCase() === "z" && event.shiftKey)) {
+        event.preventDefault();
+        if (!event.repeat) redoCurrentView();
+        return;
+      }
+      if (!isTextEntry && !dialogOpen && (event.ctrlKey || event.metaKey) && !event.altKey &&
         !event.shiftKey && event.key.toLowerCase() === "z") {
         event.preventDefault();
         if (!event.repeat) undoCurrentView();

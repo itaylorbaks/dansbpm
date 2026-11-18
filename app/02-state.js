@@ -196,6 +196,7 @@
   let arrangementMarqueeDeselectPending = false;
   let suppressStepClick = false;
   const undoStacks = new Map();
+  const redoStacks = new Map();
   const undoLatest = new Map();
   let isApplyingUndo = false;
   const collaboration = {

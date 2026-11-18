@@ -711,6 +711,7 @@
       if (state.audioContext) initializeAudio();
       await restoreArrangement();
       undoStacks.clear();
+      redoStacks.clear();
       undoLatest.clear();
       seedUndoHistory();
       updateProjectNameLabel();
@@ -1351,11 +1352,13 @@
       history.push(previous);
       if (history.length > MAX_UNDO_STEPS) history.shift();
       undoStacks.set(scope, history);
+      redoStacks.delete(scope);
     }
     undoLatest.set(scope, next);
   }
 
   function seedUndoHistory() {
+    redoStacks.clear();
     ["track-view", "piano-roll", "step-grid", "dj"].forEach((scope) => {
       undoLatest.set(scope, createUndoSnapshot(scope));
     });
@@ -1487,15 +1490,52 @@
       showToast("Nothing to undo in this view.");
       return;
     }
+    const current = undoLatest.get(scope);
     isApplyingUndo = true;
     let restored = false;
     try {
       applyUndoSnapshot(scope, snapshot);
       undoLatest.set(scope, createUndoSnapshot(scope));
+      if (current) {
+        const redoHistory = redoStacks.get(scope) || [];
+        redoHistory.push(current);
+        if (redoHistory.length > MAX_UNDO_STEPS) redoHistory.shift();
+        redoStacks.set(scope, redoHistory);
+      }
       restored = true;
     } catch (error) {
       history.push(snapshot);
       showToast(`Could not undo that action: ${error.message || "the previous state could not be restored"}`);
+    } finally {
+      isApplyingUndo = false;
+    }
+    if (!restored) return;
+  }
+
+  function redoCurrentView() {
+    const scope = getUndoScope();
+    const history = redoStacks.get(scope);
+    const snapshot = history?.pop();
+    if (!snapshot) {
+      showToast("Nothing to redo in this view.");
+      return;
+    }
+    const current = undoLatest.get(scope);
+    isApplyingUndo = true;
+    let restored = false;
+    try {
+      applyUndoSnapshot(scope, snapshot);
+      undoLatest.set(scope, createUndoSnapshot(scope));
+      if (current) {
+        const undoHistory = undoStacks.get(scope) || [];
+        undoHistory.push(current);
+        if (undoHistory.length > MAX_UNDO_STEPS) undoHistory.shift();
+        undoStacks.set(scope, undoHistory);
+      }
+      restored = true;
+    } catch (error) {
+      history.push(snapshot);
+      showToast(`Could not redo that action: ${error.message || "the next state could not be restored"}`);
     } finally {
       isApplyingUndo = false;
     }

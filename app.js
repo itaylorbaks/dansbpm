@@ -6634,6 +6634,7 @@ const DRIVE_SAMPLE_TRACKS = [
   let arrangementMarqueeDeselectPending = false;
   let suppressStepClick = false;
   const undoStacks = new Map();
+  const redoStacks = new Map();
   const undoLatest = new Map();
   let isApplyingUndo = false;
   const collaboration = {
@@ -9134,7 +9135,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=ec8e499cd7f9");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=c8c672fefec4");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -24248,6 +24249,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       if (state.audioContext) initializeAudio();
       await restoreArrangement();
       undoStacks.clear();
+      redoStacks.clear();
       undoLatest.clear();
       seedUndoHistory();
       updateProjectNameLabel();
@@ -24888,11 +24890,13 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       history.push(previous);
       if (history.length > MAX_UNDO_STEPS) history.shift();
       undoStacks.set(scope, history);
+      redoStacks.delete(scope);
     }
     undoLatest.set(scope, next);
   }
 
   function seedUndoHistory() {
+    redoStacks.clear();
     ["track-view", "piano-roll", "step-grid", "dj"].forEach((scope) => {
       undoLatest.set(scope, createUndoSnapshot(scope));
     });
@@ -25024,15 +25028,52 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       showToast("Nothing to undo in this view.");
       return;
     }
+    const current = undoLatest.get(scope);
     isApplyingUndo = true;
     let restored = false;
     try {
       applyUndoSnapshot(scope, snapshot);
       undoLatest.set(scope, createUndoSnapshot(scope));
+      if (current) {
+        const redoHistory = redoStacks.get(scope) || [];
+        redoHistory.push(current);
+        if (redoHistory.length > MAX_UNDO_STEPS) redoHistory.shift();
+        redoStacks.set(scope, redoHistory);
+      }
       restored = true;
     } catch (error) {
       history.push(snapshot);
       showToast(`Could not undo that action: ${error.message || "the previous state could not be restored"}`);
+    } finally {
+      isApplyingUndo = false;
+    }
+    if (!restored) return;
+  }
+
+  function redoCurrentView() {
+    const scope = getUndoScope();
+    const history = redoStacks.get(scope);
+    const snapshot = history?.pop();
+    if (!snapshot) {
+      showToast("Nothing to redo in this view.");
+      return;
+    }
+    const current = undoLatest.get(scope);
+    isApplyingUndo = true;
+    let restored = false;
+    try {
+      applyUndoSnapshot(scope, snapshot);
+      undoLatest.set(scope, createUndoSnapshot(scope));
+      if (current) {
+        const undoHistory = undoStacks.get(scope) || [];
+        undoHistory.push(current);
+        if (undoHistory.length > MAX_UNDO_STEPS) undoHistory.shift();
+        undoStacks.set(scope, undoHistory);
+      }
+      restored = true;
+    } catch (error) {
+      history.push(snapshot);
+      showToast(`Could not redo that action: ${error.message || "the next state could not be restored"}`);
     } finally {
       isApplyingUndo = false;
     }
@@ -28247,6 +28288,12 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       );
       const dialogOpen = $("#help-dialog").open || $("#project-dialog").open || $("#source-browser-dialog").open ||
         $("#step-instrument-dialog").open || $("#step-track-mix-dialog").open || $("#audio-tempo-dialog").open;
+      if (!isTextEntry && !dialogOpen && (event.ctrlKey || event.metaKey) && !event.altKey &&
+        (event.key.toLowerCase() === "y" || event.key.toLowerCase() === "z" && event.shiftKey)) {
+        event.preventDefault();
+        if (!event.repeat) redoCurrentView();
+        return;
+      }
       if (!isTextEntry && !dialogOpen && (event.ctrlKey || event.metaKey) && !event.altKey &&
         !event.shiftKey && event.key.toLowerCase() === "z") {
         event.preventDefault();
