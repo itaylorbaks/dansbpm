@@ -1571,6 +1571,7 @@
       state.pianoSelectionFromMarquee = false;
     }
     state.view = view;
+    updateFullscreenViewToggle();
     state.workspaceHidden = false;
     state.lastInteractedViewArea = view === "arrangement" ? "track-view" : "workspace";
     sendCollaborationView();

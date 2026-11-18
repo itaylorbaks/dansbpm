@@ -15,7 +15,7 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="app-shell">
+    <div class="app-shell" id="app-shell">
       <header class="topbar">
         <a class="brand" href="#" aria-label="DansBPM home">
           <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
@@ -37,6 +37,9 @@
           </button>
           <button class="icon-button help-button" id="help-button" type="button" aria-label="Show keyboard shortcuts">?</button>
           <button class="icon-button settings-button" id="settings-button" type="button" aria-label="Settings" title="Settings">⚙</button>
+          <button class="icon-button app-fullscreen-button" id="app-fullscreen-button" type="button" aria-label="Expand all views to fullscreen" title="Fullscreen" aria-pressed="false">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4" /></svg>
+          </button>
           <button class="export-button" id="export-song-button" type="button" aria-label="Export song" title="Export song" aria-haspopup="dialog" aria-controls="export-song-dialog">
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v9m0 0 3.5-3.5M10 12 6.5 8.5M4 13v3h12v-3" /></svg>
             Export song
@@ -150,6 +153,18 @@
                       <button class="quiet-button collaboration-workspace-action" data-collaboration-scope="workspace" data-collaboration-action="discard" type="button" hidden>Discard</button>
                       <button class="quiet-button" id="show-track-view-button" type="button" hidden>Show Track View</button>
                       <button class="quiet-button" id="workspace-fullscreen-button" type="button" aria-label="Expand workspace to fullscreen" aria-controls="workspace-area" aria-pressed="false">Expand</button>
+                      <div class="fullscreen-controls" role="group" aria-label="Fullscreen controls">
+                        <div class="fullscreen-indicators" aria-label="Project indicators">
+                          <span class="fullscreen-indicator"><span>BPM</span><output data-fullscreen-indicator-value="tempo">124</output></span>
+                          <span class="fullscreen-indicator"><span>KEY</span><output data-fullscreen-indicator-value="key">—</output></span>
+                          <span class="fullscreen-indicator"><span>POS</span><output data-fullscreen-indicator-value="position">00:00.000</output></span>
+                          <span class="fullscreen-indicator"><span>SW</span><output data-fullscreen-indicator-value="swing">0%</output></span>
+                        </div>
+                        <button class="quiet-button fullscreen-view-toggle" type="button" aria-label="Switch workspace view" title="Switch workspace view">Arrangement</button>
+                        <button class="quiet-button app-fullscreen-button" type="button" aria-label="Expand all views to fullscreen" title="Fullscreen" aria-pressed="false">
+                          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4" /></svg>
+                        </button>
+                      </div>
                       <button class="quiet-button" id="hide-workspace-button" type="button">Hide</button>
                     </div>
                   </div>
@@ -626,6 +641,18 @@
                       </button>
                       <button class="quiet-button" id="show-workspace-button" type="button" hidden>Show Workspace</button>
                       <button class="quiet-button" id="track-view-fullscreen-button" type="button" aria-label="Expand Track View to fullscreen" aria-controls="track-view-area" aria-pressed="false">Expand</button>
+                      <div class="fullscreen-controls" id="track-view-fullscreen-controls" role="group" aria-label="Fullscreen controls">
+                        <div class="fullscreen-indicators" aria-label="Project indicators">
+                          <span class="fullscreen-indicator"><span>BPM</span><output data-fullscreen-indicator-value="tempo">124</output></span>
+                          <span class="fullscreen-indicator"><span>KEY</span><output data-fullscreen-indicator-value="key">—</output></span>
+                          <span class="fullscreen-indicator"><span>POS</span><output data-fullscreen-indicator-value="position">00:00.000</output></span>
+                          <span class="fullscreen-indicator"><span>SW</span><output data-fullscreen-indicator-value="swing">0%</output></span>
+                        </div>
+                        <button class="quiet-button fullscreen-view-toggle" type="button" aria-label="Switch workspace view" title="Switch workspace view">Arrangement</button>
+                        <button class="quiet-button app-fullscreen-button" type="button" aria-label="Expand all views to fullscreen" title="Fullscreen" aria-pressed="false">
+                          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4" /></svg>
+                        </button>
+                      </div>
                       <button class="quiet-button" id="hide-track-view-button" type="button">Hide</button>
                       <button class="quiet-button" id="arrangement-snap-button" type="button" aria-pressed="true" title="Snap the playhead and clips to quarter-note beats">SNAP ON</button>
                       <button class="quiet-button" id="arrangement-slice-button" type="button" aria-pressed="false" title="Click a clip to split it at that point">SLICE</button>
@@ -1286,6 +1313,6 @@
       <button class="continue-as-guest" id="continue-as-guest" type="button">Continue as Guest</button>
     </section>
     <script src="assets/vendor/lame.min.js"></script>
-    <script src="app.js?v=f5a759cb70c8"></script>
+    <script src="app.js?v=208fe5aa57a7"></script>
   </body>
 </html>

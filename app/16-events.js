@@ -292,6 +292,12 @@
     $("#show-track-view-button").addEventListener("click", () => setViewVisibility(false, false, "hide-track-view-button"));
     $("#workspace-fullscreen-button").addEventListener("click", toggleWorkspaceFullscreen);
     $("#track-view-fullscreen-button").addEventListener("click", toggleTrackViewFullscreen);
+    document.querySelectorAll(".app-fullscreen-button").forEach((button) => {
+      button.addEventListener("click", toggleAppFullscreen);
+    });
+    document.querySelectorAll(".fullscreen-view-toggle").forEach((button) => {
+      button.addEventListener("click", toggleFullscreenWorkspaceView);
+    });
     const viewResizer = $("#view-resizer");
     viewResizer.addEventListener("pointerdown", (event) => {
       if (event.button !== 0) return;

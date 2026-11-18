@@ -7772,6 +7772,71 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     button.setAttribute("aria-pressed", String(isFullscreen));
   }
 
+  function updateAppFullscreenButton() {
+    const isFullscreen = document.fullscreenElement === $("#app-shell");
+    document.querySelectorAll(".app-fullscreen-button").forEach((button) => {
+      button.setAttribute("aria-label", isFullscreen ? "Restore all views" : "Expand all views to fullscreen");
+      button.title = isFullscreen ? "Exit fullscreen" : "Fullscreen";
+      button.setAttribute("aria-pressed", String(isFullscreen));
+    });
+  }
+
+  const fullscreenWorkspaceViews = [
+    ["sequencer", "Rack"],
+    ["arrangement", "Arrangement"],
+    ["piano-roll", "Piano Roll"],
+    ["mixer", "Mixer"],
+    ["dj", "DJ View"],
+  ];
+
+  function updateFullscreenViewToggle() {
+    const currentIndex = fullscreenWorkspaceViews.findIndex(([view]) => view === state.view);
+    const currentName = fullscreenWorkspaceViews[currentIndex]?.[1] || "Workspace";
+    const nextName = fullscreenWorkspaceViews[(currentIndex + 1) % fullscreenWorkspaceViews.length][1];
+    document.querySelectorAll(".fullscreen-view-toggle").forEach((button) => {
+      button.textContent = currentName;
+      button.setAttribute("aria-label", `Current view: ${currentName}. Switch to ${nextName}`);
+      button.title = `Switch to ${nextName}`;
+    });
+  }
+
+  function toggleFullscreenWorkspaceView() {
+    const currentIndex = fullscreenWorkspaceViews.findIndex(([view]) => view === state.view);
+    const nextIndex = (currentIndex + 1) % fullscreenWorkspaceViews.length;
+    setWorkspaceView(fullscreenWorkspaceViews[nextIndex][0]);
+  }
+
+  async function toggleAppFullscreen() {
+    const appShell = $("#app-shell");
+    try {
+      if (document.fullscreenElement === appShell) {
+        await document.exitFullscreen();
+      } else if (document.fullscreenElement) {
+        showToast("Exit the current fullscreen view first.");
+      } else if (!appShell.requestFullscreen) {
+        showToast("Fullscreen is unavailable in this browser.");
+      } else {
+        await appShell.requestFullscreen();
+      }
+    } catch (error) {
+      showToast(`Could not change app fullscreen: ${error.message || "the browser denied the request"}`);
+    }
+  }
+
+  [
+    ["#tempo-value", "tempo"],
+    ["#project-key-value", "key"],
+    ["#playhead-time-value", "position"],
+    ["#swing-value", "swing"],
+  ].forEach(([sourceSelector, indicatorName]) => {
+    const source = $(sourceSelector);
+    const targets = document.querySelectorAll(`[data-fullscreen-indicator-value="${indicatorName}"]`);
+    if (!source || !targets.length) return;
+    const sync = () => targets.forEach((target) => { target.textContent = source.textContent || ""; });
+    sync();
+    new MutationObserver(sync).observe(source, { childList: true, characterData: true, subtree: true });
+  });
+
   async function toggleWorkspaceFullscreen() {
     const workspace = $("#workspace-area");
     try {
@@ -7809,9 +7874,13 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   document.addEventListener("fullscreenchange", () => {
     updateWorkspaceFullscreenButton();
     updateTrackViewFullscreenButton();
+    updateAppFullscreenButton();
+    updateFullscreenViewToggle();
     syncAssetLibraryDialogFullscreen();
     updatePianoRulerViewport();
   });
+  updateAppFullscreenButton();
+  updateFullscreenViewToggle();
 
   function setViewVisibility(workspaceHidden, trackViewHidden, focusTarget = null) {
     state.workspaceHidden = workspaceHidden;
@@ -9800,7 +9869,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=f5a759cb70c8");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=208fe5aa57a7");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -23485,6 +23554,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       state.pianoSelectionFromMarquee = false;
     }
     state.view = view;
+    updateFullscreenViewToggle();
     state.workspaceHidden = false;
     state.lastInteractedViewArea = view === "arrangement" ? "track-view" : "workspace";
     sendCollaborationView();
@@ -31672,6 +31742,12 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     $("#show-track-view-button").addEventListener("click", () => setViewVisibility(false, false, "hide-track-view-button"));
     $("#workspace-fullscreen-button").addEventListener("click", toggleWorkspaceFullscreen);
     $("#track-view-fullscreen-button").addEventListener("click", toggleTrackViewFullscreen);
+    document.querySelectorAll(".app-fullscreen-button").forEach((button) => {
+      button.addEventListener("click", toggleAppFullscreen);
+    });
+    document.querySelectorAll(".fullscreen-view-toggle").forEach((button) => {
+      button.addEventListener("click", toggleFullscreenWorkspaceView);
+    });
     const viewResizer = $("#view-resizer");
     viewResizer.addEventListener("pointerdown", (event) => {
       if (event.button !== 0) return;

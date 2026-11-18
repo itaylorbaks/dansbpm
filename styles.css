@@ -129,6 +129,11 @@ body.is-exporting .app-shell { cursor: wait; opacity: .7; pointer-events: none; 
 .storage-indicator-meter span { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--accent); transition: width .2s ease; }
 .storage-indicator[data-level="warning"] .storage-indicator-meter span { background: #d3a34b; }
 .storage-indicator[data-level="critical"] .storage-indicator-meter span { background: #e36a6a; }
+.fullscreen-controls { display: none; align-items: center; gap: 5px; }
+.fullscreen-indicators { display: flex; align-items: center; gap: 5px; }
+.fullscreen-indicator { display: flex; align-items: baseline; gap: 4px; border: 1px solid #303136; border-radius: 3px; background: #17181b; padding: 2px 5px; color: var(--faint); font: 7px var(--mono); letter-spacing: .3px; }
+.fullscreen-indicator output { color: var(--accent); font: 9px var(--mono); }
+.fullscreen-view-toggle { height: 20px; padding: 0 7px; font: 8px var(--mono); white-space: nowrap; }
 .workspace-open-button svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .topbar-actions .workspace-open-button.is-active { border-color: #687641; background: var(--accent-soft); color: var(--accent); }
 .icon-button { display: grid; place-items: center; width: 31px; height: 31px; padding: 0; border: 1px solid var(--stroke); border-radius: 7px; background: transparent; color: #a3a4aa; cursor: pointer; }
@@ -1560,3 +1565,29 @@ body:has(#dj-view:not([hidden])).is-dj-expanded #workspace-area { grid-row: 1; b
   .quick-action-divider { width: 100%; min-width: 0; height: 6px; min-height: 6px; flex: 0 0 6px; border: 0; border-top: 1px solid #303136; border-bottom: 1px solid #303136; cursor: row-resize; }
   .quick-action-panel:not(.is-floating) { width: 100%; min-height: 120px; max-height: 70%; flex: 0 1 auto; border-top: 1px solid var(--stroke); border-left: 0; }
 }
+
+.app-shell:fullscreen {
+  display: flex;
+  width: 100%;
+  max-width: none;
+  height: 100dvh;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--page);
+}
+.app-shell:fullscreen > .topbar,
+.app-shell:fullscreen > .collaboration-presence-bar { display: none; }
+.app-shell:fullscreen > main { min-height: 0; flex: 1; }
+.app-shell:fullscreen > main > .transport-panel,
+.app-shell:fullscreen > main > .workspace-tabs,
+.app-shell:fullscreen .arrangement-heading,
+.app-shell:fullscreen .arrangement-footer,
+.app-shell:fullscreen #workspace-fullscreen-button,
+.app-shell:fullscreen #track-view-fullscreen-button { display: none; }
+.app-shell:fullscreen #arrangement-view { min-height: 0; height: 100%; flex: 1; }
+.app-shell:fullscreen #arrangement-card { min-height: 0; border: 0; border-radius: 0; }
+.app-shell:fullscreen .fullscreen-controls { display: flex; }
+.app-shell:fullscreen:has(#workspace-area:not([hidden])) #track-view-fullscreen-controls { display: none; }
+body:has(#arrangement-view:not([hidden])) .app-shell:fullscreen { padding: 0; }
