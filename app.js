@@ -9656,7 +9656,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=47fe83bf0d23");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=c1dac9d34191");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -18100,12 +18100,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   }
 
   function getMixerSourceTracks() {
-    const selectedPatternIsRoutedToCopy = state.patternClips.some((clip) =>
-      clip.patternId === state.selectedPatternId && (clip.trackId || clip.patternId) !== clip.patternId);
-    const patternTrackIds = new Set([
-      ...(selectedPatternIsRoutedToCopy ? [] : [state.selectedPatternId]),
-      ...state.patternClips.map((clip) => clip.trackId || clip.patternId),
-    ]);
+    const patternTrackIds = new Set(state.patternClips.map((clip) => clip.trackId || clip.patternId));
     return [
       ...state.patterns.filter((track) => patternTrackIds.has(track.id))
         .map((track) => ({ track, type: "Pattern" })),

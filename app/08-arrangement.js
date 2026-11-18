@@ -439,12 +439,7 @@
   }
 
   function getMixerSourceTracks() {
-    const selectedPatternIsRoutedToCopy = state.patternClips.some((clip) =>
-      clip.patternId === state.selectedPatternId && (clip.trackId || clip.patternId) !== clip.patternId);
-    const patternTrackIds = new Set([
-      ...(selectedPatternIsRoutedToCopy ? [] : [state.selectedPatternId]),
-      ...state.patternClips.map((clip) => clip.trackId || clip.patternId),
-    ]);
+    const patternTrackIds = new Set(state.patternClips.map((clip) => clip.trackId || clip.patternId));
     return [
       ...state.patterns.filter((track) => patternTrackIds.has(track.id))
         .map((track) => ({ track, type: "Pattern" })),
