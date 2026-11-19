@@ -9870,7 +9870,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=4c29ad11da61");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=9ccbb1d7318b");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -12016,9 +12016,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     if (workspace === "sequencer") {
       tracks = getPatternTrackIds(getPattern()).map((trackId) => state.tracks.find((track) => track.id === trackId));
     } else if (workspace === "piano-roll") {
-      const trackId = state.stepPianoEditContext?.trackId || getMel()?.instrumentId || state.selectedPianoTrackId;
-      const track = getPianoTrack(trackId);
-      if (track) tracks = [track];
+      const { instrument } = getPianoPlaybackSource();
+      if (instrument) tracks = [instrument];
     } else if (workspace === "arrangement") {
       const arrangedPatterns = new Set(state.patternClips.map((clip) => clip.patternId));
       const trackIds = [...arrangedPatterns].flatMap((patternId) => {
@@ -12033,6 +12032,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     tracks.filter((track) => track && (track.sampleUrl || track.kind === "sample"))
       .forEach((track) => uniqueSamples.set(track.sampleUrl || track.id, track));
     await Promise.all(Array.from(uniqueSamples.values(), loadLibrarySample));
+    if (workspace === "piano-roll") {
+      const { instrument } = getPianoPlaybackSource();
+      if (instrument) ensureSequencerTrackAudio(instrument);
+    }
   }
 
   async function previewInstrumentSound(track) {
@@ -25040,7 +25043,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   function playPianoNote(track, time, midi, duration, velocity = 0.8, outputTrack = track, outputNode = null, noteOptions = {}) {
     if (!track) return;
     velocity *= Math.max(0, Math.min(1, noteOptions.volume ?? 1));
-    if (!track.libraryOnly || !outputNode) ensureSequencerTrackAudio(track);
+    ensureSequencerTrackAudio(track);
     ensureTrackAudio(outputTrack);
     outputNode ||= outputTrack.gainNode;
     outputNode = getSoundProcessingInput(track, outputNode);
@@ -25573,7 +25576,15 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       await loadLibrarySamplesForPlayback(mode);
       if (requestId !== state.playbackRequestId) return;
       if (mode === "piano-roll") {
-        await preparePianoAudioSliceBuffers(getPianoPlaybackSource().notes);
+        const pianoSource = getPianoPlaybackSource();
+        if (pianoSource.notes?.length && !pianoSource.instrument) {
+          throw new Error("Choose an instrument before playing Piano Roll notes.");
+        }
+        if (pianoSource.instrument) {
+          await loadLibrarySample(pianoSource.instrument);
+          ensureSequencerTrackAudio(pianoSource.instrument);
+        }
+        await preparePianoAudioSliceBuffers(pianoSource.notes);
         if (requestId !== state.playbackRequestId) return;
       }
       const arrangementPlayback = mode === "arrangement";

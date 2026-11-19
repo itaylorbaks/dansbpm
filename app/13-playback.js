@@ -208,7 +208,7 @@
   function playPianoNote(track, time, midi, duration, velocity = 0.8, outputTrack = track, outputNode = null, noteOptions = {}) {
     if (!track) return;
     velocity *= Math.max(0, Math.min(1, noteOptions.volume ?? 1));
-    if (!track.libraryOnly || !outputNode) ensureSequencerTrackAudio(track);
+    ensureSequencerTrackAudio(track);
     ensureTrackAudio(outputTrack);
     outputNode ||= outputTrack.gainNode;
     outputNode = getSoundProcessingInput(track, outputNode);
@@ -741,7 +741,15 @@
       await loadLibrarySamplesForPlayback(mode);
       if (requestId !== state.playbackRequestId) return;
       if (mode === "piano-roll") {
-        await preparePianoAudioSliceBuffers(getPianoPlaybackSource().notes);
+        const pianoSource = getPianoPlaybackSource();
+        if (pianoSource.notes?.length && !pianoSource.instrument) {
+          throw new Error("Choose an instrument before playing Piano Roll notes.");
+        }
+        if (pianoSource.instrument) {
+          await loadLibrarySample(pianoSource.instrument);
+          ensureSequencerTrackAudio(pianoSource.instrument);
+        }
+        await preparePianoAudioSliceBuffers(pianoSource.notes);
         if (requestId !== state.playbackRequestId) return;
       }
       const arrangementPlayback = mode === "arrangement";

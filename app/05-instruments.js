@@ -1551,9 +1551,8 @@
     if (workspace === "sequencer") {
       tracks = getPatternTrackIds(getPattern()).map((trackId) => state.tracks.find((track) => track.id === trackId));
     } else if (workspace === "piano-roll") {
-      const trackId = state.stepPianoEditContext?.trackId || getMel()?.instrumentId || state.selectedPianoTrackId;
-      const track = getPianoTrack(trackId);
-      if (track) tracks = [track];
+      const { instrument } = getPianoPlaybackSource();
+      if (instrument) tracks = [instrument];
     } else if (workspace === "arrangement") {
       const arrangedPatterns = new Set(state.patternClips.map((clip) => clip.patternId));
       const trackIds = [...arrangedPatterns].flatMap((patternId) => {
@@ -1568,6 +1567,10 @@
     tracks.filter((track) => track && (track.sampleUrl || track.kind === "sample"))
       .forEach((track) => uniqueSamples.set(track.sampleUrl || track.id, track));
     await Promise.all(Array.from(uniqueSamples.values(), loadLibrarySample));
+    if (workspace === "piano-roll") {
+      const { instrument } = getPianoPlaybackSource();
+      if (instrument) ensureSequencerTrackAudio(instrument);
+    }
   }
 
   async function previewInstrumentSound(track) {
