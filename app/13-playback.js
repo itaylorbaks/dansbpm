@@ -1,3 +1,6 @@
+  const vstNoiseBuffers = new WeakMap();
+  const vstDriveCurves = new Map();
+
   function registerArrangementPlaybackSource(source) {
     const soundPreview = instrumentPreviewSourceCollector;
     if (soundPreview) {
@@ -348,6 +351,55 @@
     source.start(time, playbackOffset, bufferDuration);
   }
 
+  function getVstNoiseBuffer(context) {
+    let buffer = vstNoiseBuffers.get(context);
+    if (buffer) return buffer;
+    buffer = context.createBuffer(1, context.sampleRate, context.sampleRate);
+    const channel = buffer.getChannelData(0);
+    for (let index = 0; index < channel.length; index += 1) channel[index] = Math.random() * 2 - 1;
+    vstNoiseBuffers.set(context, buffer);
+    return buffer;
+  }
+
+  function getVstDriveCurve(amount) {
+    const strength = Math.round(Math.max(0, Math.min(100, amount)));
+    if (!strength) return null;
+    if (vstDriveCurves.has(strength)) return vstDriveCurves.get(strength);
+    const curve = new Float32Array(2048);
+    const drive = 1 + strength * 0.18;
+    const normalization = Math.tanh(drive);
+    curve.forEach((_, index) => {
+      const input = index * 2 / (curve.length - 1) - 1;
+      curve[index] = Math.tanh(input * drive) / normalization;
+    });
+    vstDriveCurves.set(strength, curve);
+    return curve;
+  }
+
+  function makeVstPeriodicWave(context, shape, position, frequency) {
+    const amount = Math.max(0, Math.min(100, position));
+    if (amount === 0) return null;
+    const partials = Math.max(1, Math.min(48, Math.floor(context.sampleRate * 0.45 / frequency)));
+    const real = new Float32Array(partials + 1);
+    const imaginary = new Float32Array(partials + 1);
+    const morph = amount / 100;
+    for (let partial = 1; partial <= partials; partial += 1) {
+      let amplitude = 0;
+      if (shape === "sawtooth") amplitude = (partial % 2 ? 1 : -1) / partial;
+      else if (shape === "square" && partial % 2) amplitude = 1 / partial;
+      else if (shape === "triangle" && partial % 2) {
+        amplitude = (partial % 4 === 1 ? 1 : -1) / (partial * partial);
+      } else if (shape === "sine" && partial === 1) amplitude = 1;
+      if (!amplitude) continue;
+      const brightness = 1 + morph * 2.5 * (partial - 1) / Math.max(1, partials - 1);
+      const phase = morph * Math.PI * 0.45 * (partial - 1) / Math.max(1, partials - 1);
+      amplitude *= brightness;
+      real[partial] = amplitude * Math.sin(phase);
+      imaginary[partial] = amplitude * Math.cos(phase);
+    }
+    return context.createPeriodicWave(real, imaginary);
+  }
+
   function playDansBpmSynthVoice(track, time, midi, duration, velocity, outputNode, noteOptions = {}) {
     const context = state.audioContext;
     const patch = track.patch || {};
@@ -377,7 +429,8 @@
     const filterSustain = Math.max(0, Math.min(1, parameter("filterSustain", 0.25)));
     const filterSustainFrequency = cutoff * Math.pow(2, Math.log2(Math.max(1, filterPeak / cutoff)) * filterSustain);
 
-    filter.type = "lowpass";
+    filter.type = ["lowpass", "highpass", "bandpass", "notch"].includes(patch.filterType)
+      ? patch.filterType : "lowpass";
     filter.Q.setValueAtTime(Math.max(0.1, Math.min(18, Number(patch.resonance) || 0.2)) * 4, time);
     filter.frequency.setValueAtTime(cutoff, time);
     filter.frequency.linearRampToValueAtTime(filterPeak, time + filterAttack);
@@ -391,12 +444,36 @@
     envelope.gain.setValueAtTime(peak * sustain, gateEnd);
     envelope.gain.linearRampToValueAtTime(0.0001, gateEnd + release);
 
-    const oscillators = [
-      { type: patch.wave || "sawtooth", rate: frequency, level: 0.62, detune: Number(noteOptions.detune) || 0 },
-      { type: patch.osc2Wave || patch.wave || "sawtooth", rate: frequency, level: Math.max(0, Math.min(0.7, parameter("osc2Level", 0.28))), detune: parameter("osc2Detune", 0) + (Number(noteOptions.detune) || 0) },
-      { type: "sine", rate: frequency / 2, level: Math.max(0, Math.min(0.7, parameter("subLevel", 0))), detune: 0 },
-    ];
-    const activeOscillators = oscillators.filter((oscillator) => oscillator.level > 0).map((settings) => {
+    const unisonCount = Math.round(Math.max(1, Math.min(7, parameter("unison", 1))));
+    const unisonSpread = Math.max(0, Math.min(60, parameter("unisonSpread", 0)));
+    const osc1Wave = patch.wave || "sawtooth";
+    const wavetablePosition = parameter("wavetablePosition", 0);
+    const oscillatorSettings = Array.from({ length: unisonCount }, (_, index) => ({
+      type: osc1Wave,
+      rate: frequency,
+      level: 0.62 / Math.sqrt(unisonCount),
+      detune: (Number(noteOptions.detune) || 0) +
+        (unisonCount === 1 ? 0 : (index / (unisonCount - 1) - 0.5) * unisonSpread),
+      wavetablePosition,
+      pan: unisonCount === 1 ? 0 : (index / (unisonCount - 1) - 0.5) * 1.2,
+      fm: parameter("fmAmount", 0),
+    }));
+    oscillatorSettings.push(
+      {
+        type: patch.osc2Wave || osc1Wave,
+        rate: frequency,
+        level: Math.max(0, Math.min(0.7, parameter("osc2Level", 0.28))),
+        detune: parameter("osc2Detune", 0) + (Number(noteOptions.detune) || 0),
+        wavetablePosition,
+      },
+      {
+        type: "sine",
+        rate: frequency / 2,
+        level: Math.max(0, Math.min(0.7, parameter("subLevel", 0))),
+        detune: 0,
+      },
+    );
+    const activeOscillators = oscillatorSettings.filter((oscillator) => oscillator.level > 0).map((settings) => {
       const oscillator = context.createOscillator();
       registerArrangementPlaybackSource(oscillator);
       const gain = context.createGain();
@@ -404,15 +481,69 @@
       oscillator.frequency.setValueAtTime(settings.rate, time);
       oscillator.detune.setValueAtTime(settings.detune, time);
       gain.gain.setValueAtTime(settings.level, time);
+      const periodicWave = makeVstPeriodicWave(context, settings.type, settings.wavetablePosition || 0, settings.rate);
+      if (periodicWave) oscillator.setPeriodicWave(periodicWave);
+      if (settings.pan) {
+        const panner = context.createStereoPanner();
+        panner.pan.setValueAtTime(settings.pan, time);
+        gain.connect(panner);
+        panner.connect(filter);
+      } else {
+        gain.connect(filter);
+      }
       oscillator.connect(gain);
-      gain.connect(filter);
       oscillator.start(time);
       oscillator.stop(gateEnd + release + 0.02);
+      if (settings.fm > 0) {
+        const modulator = context.createOscillator();
+        registerArrangementPlaybackSource(modulator);
+        const modulatorGain = context.createGain();
+        modulator.frequency.setValueAtTime(frequency * 2, time);
+        modulatorGain.gain.setValueAtTime(frequency * settings.fm / 100 * 0.18, time);
+        modulator.connect(modulatorGain);
+        modulatorGain.connect(oscillator.frequency);
+        modulator.start(time);
+        modulator.stop(gateEnd + release + 0.02);
+      }
       return oscillator;
     });
 
+    const driveCurve = getVstDriveCurve(parameter("drive", 0));
+    if (driveCurve) {
+      const shaper = context.createWaveShaper();
+      shaper.curve = driveCurve;
+      shaper.oversample = "4x";
+      filter.connect(shaper);
+      shaper.connect(envelope);
+    } else {
+      filter.connect(envelope);
+    }
     envelope.connect(outputNode);
-    filter.connect(envelope);
+
+    const noiseLevel = Math.max(0, Math.min(0.7, parameter("noiseLevel", 0)));
+    if (noiseLevel > 0) {
+      const noise = context.createBufferSource();
+      registerArrangementPlaybackSource(noise);
+      noise.buffer = getVstNoiseBuffer(context);
+      noise.loop = true;
+      const noiseGain = context.createGain();
+      noiseGain.gain.setValueAtTime(noiseLevel, time);
+      noise.connect(noiseGain);
+      noiseGain.connect(filter);
+      noise.start(time);
+      noise.stop(gateEnd + release + 0.02);
+    }
+
+    const delayMix = Math.max(0, Math.min(100, parameter("delayMix", 0))) / 100;
+    if (delayMix > 0) {
+      const delay = context.createDelay(1.5);
+      const echoGain = context.createGain();
+      delay.delayTime.setValueAtTime(60 / Math.max(30, state.bpm) * 0.75, time);
+      echoGain.gain.setValueAtTime(delayMix * 0.36, time);
+      envelope.connect(delay);
+      delay.connect(echoGain);
+      echoGain.connect(outputNode);
+    }
 
     const lfoRate = Math.max(0, Math.min(20, parameter("lfoRate", 0)));
     const lfoDepth = Math.max(0, Math.min(100, parameter("lfoDepth", 0)));
@@ -421,9 +552,17 @@
       registerArrangementPlaybackSource(lfo);
       const lfoGain = context.createGain();
       lfo.frequency.setValueAtTime(lfoRate, time);
-      lfoGain.gain.setValueAtTime(lfoDepth, time);
+      const target = patch.lfoTarget || "pitch";
+      const modulationScale = target === "filter"
+        ? cutoff * 0.2 * lfoDepth / 100
+        : target === "amp"
+          ? peak * 0.45 * lfoDepth / 100
+          : lfoDepth;
+      lfoGain.gain.setValueAtTime(modulationScale, time);
       lfo.connect(lfoGain);
-      activeOscillators.forEach((oscillator) => lfoGain.connect(oscillator.detune));
+      if (target === "filter") lfoGain.connect(filter.frequency);
+      else if (target === "amp") lfoGain.connect(envelope.gain);
+      else activeOscillators.forEach((oscillator) => lfoGain.connect(oscillator.detune));
       lfo.start(time);
       lfo.stop(gateEnd + release + 0.02);
     }
@@ -1437,6 +1576,10 @@
         id: track.id,
         sourceId: track.sourceId || null,
         libraryOnly: track.libraryOnly === true,
+        ...(track.vstPluginId ? {
+          vstPluginId: track.vstPluginId,
+          patch: track.patch ? { ...track.patch } : {},
+        } : {}),
         name: track.name,
         kind: track.kind,
         color: track.color,

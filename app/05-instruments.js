@@ -5,6 +5,19 @@
   let instrumentPreviewSequence = 0;
   let instrumentPreviewSourceCollector = null;
 
+  function getVstSourceTrack(trackOrId) {
+    const track = typeof trackOrId === "string"
+      ? state.tracks.find((item) => item.id === trackOrId)
+      : trackOrId;
+    if (!track) return null;
+    if (track.vstPluginId && !track.sourceId) return track;
+    return state.tracks.find((item) => item.id === track.sourceId && item.vstPluginId) || null;
+  }
+
+  function isVstInstrument(track) {
+    return Boolean(getVstSourceTrack(track));
+  }
+
   function addPatternInstrument(trackId) {
     const pattern = getPattern();
     const source = state.tracks.find((item) => item.id === trackId && !item.sourceId && item.kind !== "drumkit");
@@ -348,7 +361,7 @@
     const oldTrack = state.tracks.find((track) => track.id === trackId);
     const source = state.tracks.find((track) => track.id === sourceId && !track.sourceId && track.kind !== "drumkit");
     if (!pattern || !oldTrack || !source || oldTrack.kind === "drumkit") return false;
-    if (oldTrack.id === source.id || oldTrack.sourceId === source.id) return true;
+    if (oldTrack.id === source.id || oldTrack.sourceId === source.id) return oldTrack.id;
     captureCurrentPattern();
     pattern.trackIds = getPatternTrackIds(pattern);
     const rowIndex = pattern.trackIds.indexOf(oldTrack.id);
@@ -385,10 +398,14 @@
     renderPresets();
     saveState();
     showToast(`${oldTrack.name} replaced with ${source.name}`);
-    return true;
+    return replacement.id;
   }
 
   function openStepTrackMix(track) {
+    if (isVstInstrument(track)) {
+      openDansBpmSynthEditor(track);
+      return;
+    }
     $("#step-track-mix-context").textContent = state.view === "piano-roll" ? "PIANO ROLL INSTRUMENT" : "STEP ROW MIX";
     $("#step-track-mix-title").textContent = `${track.name} mix`;
     const controls = $("#step-track-mix-controls");
@@ -1353,6 +1370,34 @@
       row.className = "track-row";
       row.dataset.trackId = track.id;
       row.style.setProperty("--track-color", track.color);
+      row.addEventListener("dragover", (event) => {
+        if (!Array.from(event.dataTransfer?.types || []).includes("application/x-pulsegrid-vst")) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+        row.classList.add("is-vst-drop-target");
+      });
+      row.addEventListener("dragleave", (event) => {
+        if (!row.contains(event.relatedTarget)) row.classList.remove("is-vst-drop-target");
+      });
+      row.addEventListener("drop", (event) => {
+        const payload = event.dataTransfer?.getData("application/x-pulsegrid-vst");
+        if (!payload) return;
+        event.preventDefault();
+        row.classList.remove("is-vst-drop-target");
+        try {
+          const { instrumentId, vstPluginId } = JSON.parse(payload);
+          const source = state.tracks.find((item) =>
+            item.id === instrumentId && item.vstPluginId === vstPluginId);
+          if (!source) {
+            showToast("That VST is no longer available.");
+            return;
+          }
+          const assignedTrackId = replacePatternInstrument(track.id, source.id);
+          if (assignedTrackId) showToast(`${source.name} assigned to ${track.name}`);
+        } catch {
+          showToast("That VST could not be assigned.");
+        }
+      });
       const slotsPerBar = getStepsPerBar();
       const stepCount = getGridStepCount();
       const cellHeight = 21;
@@ -1666,9 +1711,13 @@
     button.setAttribute("title", label);
     if (type === "mix") {
       button.classList.add("track-mix-button");
-      button.textContent = "MIX";
+      const vst = getVstSourceTrack(track);
+      button.textContent = vst ? `Mix - ${vst.name}` : "MIX";
+      button.classList.toggle("is-vst", Boolean(vst));
+      button.setAttribute("aria-label", vst ? `Open ${vst.name} editor` : label);
+      button.title = vst ? `${vst.name} VST editor` : label;
       button.setAttribute("aria-haspopup", "dialog");
-      button.setAttribute("aria-controls", "step-track-mix-dialog");
+      button.setAttribute("aria-controls", vst ? "dansbpm-synth-dialog" : "step-track-mix-dialog");
       button.addEventListener("click", () => openStepTrackMix(track));
       return button;
     }

@@ -371,6 +371,30 @@
       const track = getPianoTrack();
       if (track) openStepTrackMix(track);
     });
+    const pianoRollDropTarget = $("#piano-roll-scroll");
+    pianoRollDropTarget.addEventListener("dragover", (event) => {
+      if (!Array.from(event.dataTransfer?.types || []).includes("application/x-pulsegrid-vst")) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      pianoRollDropTarget.classList.add("is-vst-drop-target");
+    });
+    pianoRollDropTarget.addEventListener("dragleave", (event) => {
+      if (!pianoRollDropTarget.contains(event.relatedTarget)) {
+        pianoRollDropTarget.classList.remove("is-vst-drop-target");
+      }
+    });
+    pianoRollDropTarget.addEventListener("drop", (event) => {
+      const payload = event.dataTransfer?.getData("application/x-pulsegrid-vst");
+      if (!payload) return;
+      event.preventDefault();
+      pianoRollDropTarget.classList.remove("is-vst-drop-target");
+      try {
+        const { instrumentId, vstPluginId } = JSON.parse(payload);
+        assignVstToPianoRoll(instrumentId, vstPluginId);
+      } catch {
+        showToast("That VST could not be loaded in Piano Roll.");
+      }
+    });
     $("#piano-draw-mode-button").addEventListener("click", () => {
       state.pianoDrawMode = !state.pianoDrawMode;
       renderPianoRoll();

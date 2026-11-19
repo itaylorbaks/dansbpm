@@ -262,7 +262,11 @@ h1 { margin: 9px 0 4px; font-size: 28px; font-weight: 600; letter-spacing: -1.05
 .track-icon-button.is-active { border-color: rgba(211,243,107,.2); background: var(--accent-soft); color: var(--accent); }
 .track-icon-button svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .track-mix-button { width: 27px; color: #b6c285; font-family: var(--mono); font-size: 7px; font-weight: 700; }
+.track-mix-button.is-vst { width: auto; min-width: 27px; padding: 0 4px; white-space: nowrap; }
 .track-mix-button:hover { border-color: #687641; background: #282b22; color: var(--accent); }
+.track-row.is-vst-drop-target { outline: 1px solid var(--accent); outline-offset: -1px; background: rgba(211,243,107,.06); }
+#piano-track-mix-button.is-vst { white-space: nowrap; }
+#piano-roll-scroll.is-vst-drop-target { outline: 1px solid #93e2bd; outline-offset: -2px; }
 .add-step-instrument-row { width: 100%; min-height: 38px; display: flex; align-items: center; justify-content: center; gap: 7px; border: 1px dashed #3c3e44; border-radius: 0; background: #1a1b1e; color: #9aab63; font-size: 10px; cursor: pointer; }
 .add-step-instrument-row:hover { border-color: #687641; background: #20221d; color: var(--accent); }
 .steps-grid { display: grid; grid-template-columns: repeat(var(--grid-step-count), var(--grid-step-size)); align-items: center; gap: var(--grid-step-gap); padding: 0 6px; }
@@ -499,7 +503,11 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .sound-library-search-empty, .instrument-search-empty { padding: 9px; color: #85868b; font-size: 9px; line-height: 1.45; }
 .source-section-label { display: flex; justify-content: space-between; margin: 14px 0 7px; color: #73747a; font-family: var(--mono); font-size: 8px; letter-spacing: .7px; }
 .instrument-section-label { margin-top: 17px; }
+.vst-section-label { margin-top: 17px; }
 .instrument-section-label span { color: #9a9ba0; }
+.vst-section-label span { color: #9a9ba0; }
+.vst-browser .instrument-source { border-color: rgba(147,226,189,.25); background: rgba(147,226,189,.045); }
+.vst-browser .instrument-source:hover { border-color: #93e2bd; }
 .instrument-browser { display: flex; flex-direction: column; gap: 5px; }
 .instrument-family-group { display: flex; flex-direction: column; gap: 4px; }
 .instrument-family-heading { display: flex; align-items: center; justify-content: space-between; margin: 8px 0 2px; border-bottom: 1px solid #303136; padding: 0 0 5px; color: #aeb0b3; font-family: var(--mono); font-size: 8px; font-weight: 600; letter-spacing: .65px; text-transform: uppercase; cursor: pointer; list-style: none; }
@@ -941,7 +949,10 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .dansbpm-synth-preview-heading { display: flex; align-items: center; gap: 10px; }
 .dansbpm-synth-preview-heading > span { color: var(--muted); font-family: var(--mono); font-size: 9px; }
 .dansbpm-synth-preview canvas { display: block; width: 100%; height: 74px; border: 1px solid #303136; border-radius: 5px; background: #141518; }
-.dansbpm-synth-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 16px 0; }
+.dansbpm-synth-sections { display: grid; gap: 12px; margin: 16px 0; }
+.dansbpm-synth-section { border: 1px solid #303136; border-radius: 6px; background: #191a1d; padding: 10px; }
+.dansbpm-synth-section h3 { margin: 0 0 9px; color: #93e2bd; font-family: var(--mono); font-size: 9px; letter-spacing: .8px; }
+.dansbpm-synth-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .dansbpm-synth-control { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 8px; border: 1px solid #303136; border-radius: 5px; background: #202125; padding: 8px; color: #b7bab1; font-size: 9px; }
 .dansbpm-synth-control input[type="range"] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
 .dansbpm-synth-control select { min-width: 0; grid-column: 1 / -1; border: 1px solid #38393e; border-radius: 4px; background: #17181b; padding: 5px; color: var(--text); font: inherit; }

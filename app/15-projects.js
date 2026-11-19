@@ -495,6 +495,12 @@
           if (typeof savedTrack.libraryOnly === "boolean") {
             track.libraryOnly = savedTrack.libraryOnly;
           }
+          if (typeof savedTrack.vstPluginId === "string") {
+            track.vstPluginId = savedTrack.vstPluginId;
+          }
+          if (track.vstPluginId === "dansbpm-wavetable" && savedTrack.patch) {
+            track.patch = normalizeDansBpmSynthPatch(savedTrack.patch, track.patch);
+          }
           if (Array.isArray(savedTrack.cells)) {
             track.cells = Array.from({ length: STEP_COUNT }, (_, index) => savedTrack.cells[index] === true);
           }

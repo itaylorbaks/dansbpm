@@ -239,13 +239,15 @@
     { id: "bass-sub", name: "Sub Bass", kind: "instrument", family: "Bass", color: "#78a6d4", volume: 0.72, patch: { wave: "sine", cutoff: 420, attack: 0.01, decay: 0.2, sustain: 0.48, release: 0.16 } },
     { id: "bass-fuzz", name: "Fuzz Bass", kind: "instrument", family: "Bass", color: "#d47e78", volume: 0.68, patch: { wave: "sawtooth", cutoff: 1500, attack: 0.004, decay: 0.18, sustain: 0.32, release: 0.12, detune: 5 } },
     {
-      id: "synth-dansbpm", name: "DansBPM Synth", kind: "instrument", family: "In-house Synth", color: "#93e2bd", volume: 0.68,
+      id: "synth-dansbpm", name: "DansBPM Wavetable", kind: "instrument", family: "VST", vstPluginId: "dansbpm-wavetable", color: "#93e2bd", volume: 0.68,
       patch: {
         engine: "dansbpm", wave: "sawtooth", osc2Wave: "square", osc2Detune: 8, osc2Level: 0.28, subLevel: 0.2,
+        wavetablePosition: 0, unison: 1, unisonSpread: 0, fmAmount: 0, noiseLevel: 0,
         cutoff: 3200, resonance: 0.2, filterEnvOctaves: 2.5,
+        filterType: "lowpass", drive: 0, delayMix: 0,
         attack: 0.01, decay: 0.25, sustain: 0.55, release: 0.25,
         filterAttack: 0.02, filterDecay: 0.35, filterSustain: 0.25,
-        lfoRate: 0.18, lfoDepth: 4, output: 0.72,
+        lfoRate: 0.18, lfoDepth: 4, lfoTarget: "pitch", output: 0.72,
       },
     },
   ];

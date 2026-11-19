@@ -135,13 +135,23 @@
     row.dataset.soundId = track.id;
     row.tabIndex = 0;
     row.draggable = true;
-    row.title = `Drag ${track.name} to Track View to create an instrument track`;
-    row.setAttribute("aria-label", `${track.name}, drag to Track View to create an instrument track`);
+    row.title = track.vstPluginId
+      ? `Drag ${track.name} onto a Rack row or Piano Roll`
+      : `Drag ${track.name} to Track View to create an instrument track`;
+    row.setAttribute("aria-label", track.vstPluginId
+      ? `${track.name}, drag to a Rack row or Piano Roll`
+      : `${track.name}, drag to Track View to create an instrument track`);
     row.addEventListener("dragstart", (event) => {
       if (!event.dataTransfer) return;
       event.dataTransfer.setData("application/x-pulsegrid-instrument-source", JSON.stringify({
         instrumentId: track.id,
       }));
+      if (track.vstPluginId) {
+        event.dataTransfer.setData("application/x-pulsegrid-vst", JSON.stringify({
+          instrumentId: track.id,
+          vstPluginId: track.vstPluginId,
+        }));
+      }
       event.dataTransfer.effectAllowed = "copy";
     });
     const color = document.createElement("span");
@@ -161,11 +171,26 @@
     return row;
   }
 
+  function renderVstBrowser() {
+    const browser = $("#vst-browser");
+    const plugins = state.tracks.filter((track) => !track.sourceId && track.vstPluginId);
+    browser.replaceChildren();
+    $("#vst-count").textContent = String(plugins.length);
+    if (!plugins.length) {
+      const empty = document.createElement("div");
+      empty.className = "instrument-search-empty";
+      empty.textContent = "No VST instruments are available";
+      browser.append(empty);
+      return;
+    }
+    plugins.forEach((plugin) => browser.append(makeInstrumentSourceRow(plugin)));
+  }
+
   function renderInstrumentBrowser(query = "", force = false) {
     if (!$("#source-browser-dialog").open && !force) return;
     const browser = $("#instrument-browser");
     browser.replaceChildren();
-    const allInstruments = state.tracks.filter((track) => !track.sourceId);
+    const allInstruments = state.tracks.filter((track) => !track.sourceId && !track.vstPluginId);
     const instruments = allInstruments.filter((track) => matchesInstrumentSearch(track, query));
     $("#drum-sound-count").textContent = String(instruments.length);
     if (!instruments.length && query) {
@@ -758,6 +783,7 @@
     captureCurrentMel();
     renderArrangementAssetBrowser();
     renderRecordingBrowser();
+    renderVstBrowser();
     renderInstrumentBrowser("", true);
   }
 
