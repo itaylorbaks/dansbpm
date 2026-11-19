@@ -860,17 +860,17 @@
         </dialog>
         <dialog class="mixer-effect-dialog" id="mixer-effect-dialog" aria-labelledby="mixer-effect-title">
           <div class="mixer-effect-dialog-heading">
-            <div>
-              <div class="eyebrow" id="mixer-effect-track-name">TRACK EFFECT</div>
-              <h2 id="mixer-effect-title">Effect</h2>
-            </div>
             <div class="mixer-effect-dialog-actions">
               <button class="mixer-effect-preview-button" id="mixer-effect-preview" type="button"
                 aria-label="Play applied lane" title="Play applied lane" aria-pressed="false">
                 <span aria-hidden="true"></span>
               </button>
-              <button class="dialog-close" id="mixer-effect-close" type="button" aria-label="Close effect settings">×</button>
+              <div>
+                <div class="eyebrow" id="mixer-effect-track-name">TRACK EFFECT</div>
+                <h2 id="mixer-effect-title">Effect</h2>
+              </div>
             </div>
+            <button class="dialog-close" id="mixer-effect-close" type="button" aria-label="Close effect settings">×</button>
           </div>
           <div class="mixer-effect-dialog-content" id="mixer-effect-dialog-content"></div>
         </dialog>
