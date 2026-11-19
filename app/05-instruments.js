@@ -1781,6 +1781,7 @@
   function loadPreset(preset) {
     state.selectedPreset = preset.id;
     state.bpm = preset.bpm;
+    updateMixerTempoEffects();
     tempoValue.textContent = String(state.bpm);
     const includedTrackIds = new Set(getPatternTrackIds(getPattern()));
     const slotsPerBar = getStepsPerBar();

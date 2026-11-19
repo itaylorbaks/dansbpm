@@ -56,6 +56,7 @@
     });
 
     state.bpm = bpm;
+    updateMixerTempoEffects();
     tempoValue.textContent = String(state.bpm);
     updateArrangementLength();
     if (isSongWorkspace()) renderArrangement();
@@ -893,6 +894,7 @@
       state.workspaceHidden = false;
       state.trackViewHidden = false;
       state.bpm = 124;
+      updateMixerTempoEffects();
       state.swing = 0;
       state.selectedPreset = "warehouse";
       state.view = "arrangement";

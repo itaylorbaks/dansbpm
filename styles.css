@@ -1059,37 +1059,66 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .mixer-library-effect { flex: 0 0 auto; border: 1px solid #383a40; border-radius: 5px; background: #202125; padding: 7px 8px; color: #c9cac6; font-size: 10px; text-align: left; cursor: grab; }
 .mixer-library-effect:hover { border-color: #666b51; background: #272923; color: #e6e9dc; }
 .mixer-library-effect:active { cursor: grabbing; }
-.mixer-effect-dialog { --effect-accent: hsl(var(--effect-hue, 120) 85% 67%); width: min(680px, calc(100vw - 28px)); max-height: min(90vh, 820px); overflow: auto; border: 1px solid color-mix(in srgb, var(--effect-accent), #3a3b40 58%); border-radius: 12px; background: radial-gradient(ellipse at 50% 0, color-mix(in srgb, var(--effect-accent), transparent 94%), transparent 58%), #17191e; color: var(--text); box-shadow: 0 24px 70px #000c, 0 0 28px color-mix(in srgb, var(--effect-accent), transparent 88%); }
+.mixer-effect-dialog { --effect-accent: hsl(var(--effect-hue, 120) 85% 67%); position: fixed; inset: auto; left: 50%; top: 50%; width: min(460px, calc(100vw - 20px)); max-height: calc(100dvh - 16px); overflow: hidden; margin: 0; padding: 0; transform: translate(-50%, -50%); border: 1px solid color-mix(in srgb, var(--effect-accent), #3a3b40 58%); border-radius: 10px; background: radial-gradient(ellipse at 50% 0, color-mix(in srgb, var(--effect-accent), transparent 94%), transparent 58%), #17191e; color: var(--text); box-shadow: 0 24px 70px #000c, 0 0 28px color-mix(in srgb, var(--effect-accent), transparent 88%); }
 .mixer-effect-dialog::backdrop { background: #0009; backdrop-filter: blur(3px); }
-.mixer-effect-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; border-bottom: 1px solid color-mix(in srgb, var(--effect-accent), #303136 72%); padding: 16px 18px; }
-.mixer-effect-dialog-heading h2 { margin: 4px 0 0; color: var(--effect-accent); font-size: 17px; letter-spacing: .02em; text-shadow: 0 0 16px color-mix(in srgb, var(--effect-accent), transparent 55%); }
-.mixer-effect-dialog-content { display: grid; gap: 14px; padding: 16px 18px 20px; }
+.mixer-effect-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid color-mix(in srgb, var(--effect-accent), #303136 72%); padding: 7px 10px; cursor: grab; touch-action: none; user-select: none; }
+.mixer-effect-dialog-heading:active { cursor: grabbing; }
+.mixer-effect-dialog-heading h2 { margin: 2px 0 0; color: var(--effect-accent); font-size: 13px; letter-spacing: .02em; text-shadow: 0 0 16px color-mix(in srgb, var(--effect-accent), transparent 55%); }
+.mixer-effect-dialog-content { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 5px; max-height: calc(100dvh - 62px); overflow: hidden; padding: 7px 9px 8px; }
 .mixer-effect-screen { position: relative; min-width: 0; overflow: hidden; border: 1px solid color-mix(in srgb, var(--effect-accent), #353942 62%); border-radius: 8px; background: linear-gradient(145deg, #1d222b, #101318 72%); box-shadow: inset 0 0 25px #0008, 0 5px 18px #0005; }
 .mixer-effect-screen::after { position: absolute; inset: 27px 0 22px; background: repeating-linear-gradient(0deg, transparent 0 3px, rgba(220,235,255,.025) 4px); content: ""; pointer-events: none; }
-.mixer-effect-screen-heading, .mixer-effect-screen-footer { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; min-height: 25px; padding: 0 10px; color: #929eaf; font: 8px var(--mono); letter-spacing: .1em; }
+.mixer-effect-screen-heading, .mixer-effect-screen-footer { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; min-height: 18px; padding: 0 7px; color: #929eaf; font: 7px var(--mono); letter-spacing: .1em; }
 .mixer-effect-screen-heading span:first-child { color: var(--effect-accent); }
 .mixer-effect-screen-heading span:last-child { display: inline-flex; align-items: center; gap: 6px; }
 .mixer-effect-screen-heading span:last-child::before { width: 6px; height: 6px; border-radius: 50%; background: var(--effect-accent); box-shadow: 0 0 8px var(--effect-accent); content: ""; }
-.mixer-effect-screen-footer { min-height: 22px; justify-content: flex-start; border-top: 1px solid rgba(180,195,212,.08); color: #738092; font-size: 7px; }
-.mixer-effect-screen canvas { position: relative; z-index: 1; display: block; width: 100%; height: 178px; }
-.mixer-effect-screen.is-equalizer canvas { height: 258px; cursor: grab; }
+.mixer-effect-screen .mixer-effect-screen-footer { min-height: 16px; justify-content: flex-start; border-top: 1px solid rgba(180,195,212,.08); color: #738092; font-size: 6px; }
+.mixer-effect-screen canvas { position: relative; z-index: 1; display: block; width: 100%; height: 84px; }
+.mixer-effect-screen.is-equalizer canvas { height: 112px; cursor: grab; }
 .mixer-effect-screen.is-equalizer canvas.is-dragging { cursor: grabbing; }
-.mixer-effect-screen.is-mid-side canvas { height: 170px; }
-.mixer-effect-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+.mixer-effect-screen.is-mid-side canvas { height: 84px; }
+.mixer-effect-screen.is-guitar-distortion { background: repeating-linear-gradient(135deg, #211d19 0 5px, #2c241c 5px 7px); }
+.mixer-effect-screen.is-blood-overdrive { background: repeating-linear-gradient(0deg, #241916 0 3px, #321c18 3px 4px); }
+.mixer-effect-screen.is-gross-beat { background: repeating-linear-gradient(90deg, #171d27 0 20px, #202c3b 20px 21px), repeating-linear-gradient(0deg, transparent 0 12px, #ffffff10 12px 13px); }
+.mixer-effect-screen.is-stereo-enhancer { background: repeating-linear-gradient(45deg, #17241e 0 4px, #1d3025 4px 5px); }
+.mixer-effect-screen.is-delay-bank { background: repeating-linear-gradient(0deg, #171f28 0 2px, #192d38 2px 3px); }
+.mixer-effect-screen.is-pan-o-matic { background: radial-gradient(ellipse at center, #20251f, #131a18 72%); }
+.mixer-effect-screen.is-chorus { background: repeating-linear-gradient(90deg, #1b1b2b 0 14px, #25243b 14px 15px); }
+.mixer-effect-dialog[data-effect-id="guitarDistortion"] .mixer-effect-knob-control { background: repeating-linear-gradient(135deg, #2a211a 0 4px, #211b17 4px 8px); }
+.mixer-effect-dialog[data-effect-id="bloodOverdrive"] .mixer-effect-knob-control { background: repeating-linear-gradient(0deg, #2b1d1b 0 3px, #211817 3px 6px); }
+.mixer-effect-dialog[data-effect-id="grossBeat"] .mixer-effect-knob-control { background: linear-gradient(145deg, #202b3a, #151b26); }
+.mixer-effect-dialog[data-effect-id="stereoEnhancer"] .mixer-effect-knob-control { background: repeating-linear-gradient(45deg, #1c2a22 0 4px, #20241f 4px 8px); }
+.mixer-effect-dialog[data-effect-id="delayBank"] .mixer-effect-knob-control { background: repeating-linear-gradient(0deg, #192832 0 3px, #1c222b 3px 6px); }
+.mixer-effect-dialog[data-effect-id="panOMatic"] .mixer-effect-knob-control { background: radial-gradient(circle at 50% 30%, #2a3023, #1b201d 70%); }
+.mixer-effect-dialog[data-effect-id="chorus"] .mixer-effect-knob-control { background: repeating-linear-gradient(90deg, #24243a 0 5px, #1b1b2a 5px 10px); }
+.mixer-effect-controls-guitarDistortion,
+.mixer-effect-controls-bloodOverdrive,
+.mixer-effect-controls-grossBeat,
+.mixer-effect-controls-stereoEnhancer,
+.mixer-effect-controls-delayBank,
+.mixer-effect-controls-panOMatic,
+.mixer-effect-controls-chorus { grid-template-columns: repeat(auto-fit, minmax(66px, 1fr)); }
+.mixer-effect-dialog-content > .mixer-effect-screen,
+.mixer-effect-dialog-content > .mixer-effect-controls,
+.mixer-effect-dialog-content > .mixer-eq-bus-switch,
+.mixer-effect-dialog-content > .mixer-effect-help { grid-column: 1 / -1; }
+.mixer-effect-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 4px; min-width: 0; }
 .mixer-effect-controls > .mixer-sidechain-source { grid-column: 1 / -1; }
 .mixer-effect-control output { color: #bfc0bd; font-family: var(--mono); font-size: 8px; text-align: right; }
-.mixer-effect-control { display: grid; grid-template-columns: minmax(76px, 1fr) minmax(80px, 1.5fr) 44px; align-items: center; gap: 7px; min-height: 40px; border: 1px solid #303743; border-radius: 6px; background: linear-gradient(100deg, #242932, #1a1e25); padding: 6px 9px; color: #c1cbd8; font-size: 9px; box-shadow: inset 0 1px #ffffff08; }
+.mixer-effect-control { display: grid; grid-template-columns: minmax(0, 1fr) 34px; grid-template-rows: auto auto; align-items: center; gap: 1px 4px; min-width: 0; min-height: 36px; border: 1px solid #303743; border-radius: 5px; background: linear-gradient(100deg, #242932, #1a1e25); padding: 3px 5px; color: #c1cbd8; font-size: 8px; box-shadow: inset 0 1px #ffffff08; }
+.mixer-effect-control .mixer-control-caption { grid-row: 1; grid-column: 1; }
+.mixer-effect-control input[type="range"] { grid-row: 2; grid-column: 1; }
+.mixer-effect-control output { grid-row: 1; grid-column: 2; }
 .mixer-effect-control input[type="range"] { width: 100%; height: 18px; margin: 0; appearance: none; background: transparent; accent-color: var(--effect-accent); cursor: ew-resize; }
 .mixer-effect-control input[type="range"]::-webkit-slider-runnable-track { height: 5px; border: 1px solid #39414d; border-radius: 4px; background: repeating-linear-gradient(90deg, #313a46 0 1px, transparent 1px 9px), linear-gradient(90deg, color-mix(in srgb, var(--effect-accent), #27303b 44%), #303640); box-shadow: inset 0 1px 3px #0009; }
 .mixer-effect-control input[type="range"]::-webkit-slider-thumb { width: 13px; height: 18px; margin-top: -7px; appearance: none; border: 1px solid #c0c6ce; border-radius: 3px; background: linear-gradient(90deg, #5d6570, #c8cdd3 45%, #747b85); box-shadow: 0 1px 4px #000b; }
 .mixer-effect-control input[type="range"]::-moz-range-track { height: 5px; border: 1px solid #39414d; border-radius: 4px; background: linear-gradient(90deg, color-mix(in srgb, var(--effect-accent), #27303b 44%), #303640); box-shadow: inset 0 1px 3px #0009; }
 .mixer-effect-control input[type="range"]::-moz-range-thumb { width: 11px; height: 16px; border: 1px solid #c0c6ce; border-radius: 3px; background: linear-gradient(90deg, #5d6570, #c8cdd3 45%, #747b85); box-shadow: 0 1px 4px #000b; }
-.mixer-effect-knob-control { display: grid; min-height: 124px; justify-items: center; align-content: center; gap: 7px; border: 1px solid color-mix(in srgb, var(--effect-accent), #303743 70%); border-radius: 8px; background: radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--effect-accent), transparent 92%), transparent 62%), linear-gradient(145deg, #252a33, #191c22); padding: 10px; color: #c1cbd8; font-size: 9px; box-shadow: inset 0 1px #ffffff0a, 0 4px 12px #0004; }
-.mixer-effect-dial { position: relative; width: 72px; height: 72px; border: 1px solid #505966; border-radius: 50%; background: radial-gradient(circle, #252a32 0 52%, transparent 54%), conic-gradient(from 225deg, var(--effect-accent) 0 var(--dial-fill), #3b414b var(--dial-fill) 75%, transparent 75% 100%); box-shadow: inset 0 2px 6px #000b, 0 3px 8px #0008; cursor: grab; touch-action: none; }
+.mixer-effect-knob-control { display: grid; min-width: 0; min-height: 70px; justify-items: center; align-content: center; gap: 3px; border: 1px solid color-mix(in srgb, var(--effect-accent), #303743 70%); border-radius: 6px; background: radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--effect-accent), transparent 92%), transparent 62%), linear-gradient(145deg, #252a33, #191c22); padding: 4px; color: #c1cbd8; font-size: 8px; box-shadow: inset 0 1px #ffffff0a, 0 4px 12px #0004; }
+.mixer-effect-dial { position: relative; width: 42px; height: 42px; border: 1px solid #505966; border-radius: 50%; background: radial-gradient(circle, #252a32 0 52%, transparent 54%), conic-gradient(from 225deg, var(--effect-accent) 0 var(--dial-fill), #3b414b var(--dial-fill) 75%, transparent 75% 100%); box-shadow: inset 0 2px 6px #000b, 0 3px 8px #0008; cursor: grab; touch-action: none; }
 .mixer-effect-dial::before { position: absolute; inset: 3px; border-radius: 50%; background: repeating-conic-gradient(from 225deg, #d6dde5 0 1deg, transparent 1deg 13deg); content: ""; opacity: .35; mask: radial-gradient(circle, transparent 0 68%, #000 70%); }
 .mixer-effect-dial:focus-visible { outline: 2px solid var(--effect-accent); outline-offset: 3px; }
 .mixer-effect-dial:active { cursor: grabbing; }
-.mixer-effect-dial-indicator { position: absolute; top: 9px; left: calc(50% - 1px); z-index: 1; width: 2px; height: 19px; border-radius: 2px; background: #f0f3f6; box-shadow: 0 0 8px var(--effect-accent); transform: rotate(var(--dial-angle)); transform-origin: 50% 27px; }
+.mixer-effect-dial-indicator { position: absolute; top: 5px; left: calc(50% - 1px); z-index: 1; width: 2px; height: 13px; border-radius: 2px; background: #f0f3f6; box-shadow: 0 0 8px var(--effect-accent); transform: rotate(var(--dial-angle)); transform-origin: 50% 16px; }
 .mixer-effect-knob-control output { color: var(--effect-accent); font: 9px var(--mono); }
 .mixer-eq-bus-switch { display: flex; gap: 4px; }
 .mixer-eq-bus-switch button { min-width: 64px; border: 1px solid #3c4653; border-radius: 4px; background: #1b2028; padding: 5px 10px; color: #9aa8b8; font: 8px var(--mono); cursor: pointer; }
@@ -1097,9 +1126,19 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .mixer-reset-effect, .mixer-remove-effect { justify-self: start; }
 .mixer-effect-control.is-selected { background: rgba(211,243,107,.09); box-shadow: 0 0 0 4px rgba(211,243,107,.09); }
 .mixer-effect-control input { width: 100%; }
-.mixer-sidechain-source { grid-template-columns: minmax(80px, 1fr) minmax(65px, 1.4fr); }
+.mixer-sidechain-source { grid-template-columns: minmax(70px, 1fr) minmax(65px, 1.4fr); grid-template-rows: auto; }
 .mixer-effect-help { margin: 0; color: #9a9ca1; font-size: 9px; line-height: 1.5; }
 .mixer-sidechain-source select { min-width: 0; width: 100%; border: 1px solid #38393e; border-radius: 4px; background: #202125; padding: 5px; color: var(--text); font-size: 10px; }
+@media (max-height: 520px) {
+  .mixer-effect-dialog-heading { padding: 5px 8px; }
+  .mixer-effect-dialog-content { max-height: calc(100dvh - 48px); gap: 3px; padding: 4px 7px; }
+  .mixer-effect-screen canvas { height: 58px; }
+  .mixer-effect-screen.is-equalizer canvas { height: 72px; }
+  .mixer-effect-knob-control { min-height: 58px; }
+  .mixer-effect-dial { width: 34px; height: 34px; }
+  .mixer-effect-dial-indicator { top: 4px; height: 10px; transform-origin: 50% 12px; }
+  .mixer-effect-control { min-height: 30px; padding: 2px 4px; }
+}
 .mixer-control-caption { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mixer-empty { color: #88898d; font-size: 11px; }
 

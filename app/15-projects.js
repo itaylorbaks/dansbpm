@@ -425,6 +425,7 @@
           .map((track) => makeMixerBusTrack("mixer-effects", track));
       }
       if (Number.isFinite(saved.bpm)) state.bpm = Math.max(60, Math.min(180, roundBpm(saved.bpm)));
+      updateMixerTempoEffects();
       state.masterPitch = Number.isFinite(saved.masterPitch)
         ? Math.max(-12, Math.min(12, Math.round(saved.masterPitch)))
         : 0;

@@ -186,6 +186,7 @@
       state.pianoSelectionFromMarquee = false;
       state.pianoBars = bars;
       state.bpm = bpm;
+      updateMixerTempoEffects();
       tempoValue.textContent = String(bpm);
       renderMelOptions();
       renderPianoRoll();

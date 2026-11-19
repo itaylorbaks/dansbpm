@@ -10,3 +10,5 @@ Observed 2026-11-12 at 10:30 (session time), at reference commit `256ee41`:
 - Offline export uses `44.1 kHz`, master gain `0.88`, and the same limiter settings.
 
 This is a user-observed reference point, not a reproducible benchmark. The browser, audio device, actual output sample rate, and project-specific effect settings were not recorded. Visual lag is still present and has not been diagnosed.
+
+The additional mixer effects are opt-in nodes in the existing per-track effect chain. They do not change the default `AudioContext`, master gain or limiter, pitch bypass, or offline-export configuration above. Gross Beat's rhythmic gate and repeat timing follow the current project tempo.

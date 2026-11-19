@@ -1505,6 +1505,7 @@
       state.tracks = snapshot.tracks.map(cloneHistoryTrack);
       state.steps = saved.steps;
       state.bpm = saved.bpm;
+      updateMixerTempoEffects();
       state.swing = saved.swing;
       state.selectedPatternId = saved.selectedPatternId;
       applyPattern(getPattern());
@@ -1536,6 +1537,7 @@
       state.arrangementLoopStartBar = saved.arrangementLoopStartBar;
       state.arrangementLoopEndBar = saved.arrangementLoopEndBar;
       state.bpm = saved.bpm;
+      updateMixerTempoEffects();
       state.swing = saved.swing;
       tempoValue.textContent = String(state.bpm);
       swingSlider.value = String(state.swing);

@@ -265,13 +265,13 @@
 
   const EFFECT_CATEGORIES = [
     { name: "Flanger", effects: [["flanger", "Flanger"], ["chorus", "Chorus"], ["phaser", "Phaser"], ["vibrato", "Vibrato"]] },
-    { name: "Gain", effects: [["gain", "Gain"], ["distortion", "Distortion"], ["saturator", "Saturator"], ["softClipper", "Soft clipper"]] },
-    { name: "Delay", effects: [["delay", "Delay"], ["pingPong", "Ping-pong delay"], ["slapback", "Slapback"], ["tapeDelay", "Tape delay"]] },
+    { name: "Gain", effects: [["gain", "Gain"], ["distortion", "Distortion"], ["guitarDistortion", "Guitar Distortion"], ["bloodOverdrive", "Blood Overdrive"], ["saturator", "Saturator"], ["softClipper", "Soft clipper"]] },
+    { name: "Delay", effects: [["delay", "Delay"], ["delayBank", "Delay Bank"], ["pingPong", "Ping-pong delay"], ["slapback", "Slapback"], ["tapeDelay", "Tape delay"]] },
     { name: "Reverb", effects: [["reverb", "Reverb"], ["room", "Room"], ["hall", "Hall"], ["plate", "Plate"]] },
-    { name: "Controllers", effects: [["autopan", "Auto-pan"], ["tremolo", "Tremolo"], ["autoFilter", "Auto-filter"], ["lfoGain", "LFO gain"]] },
+    { name: "Controllers", effects: [["autopan", "Auto-pan"], ["panOMatic", "PanOMatic"], ["grossBeat", "Gross Beat"], ["tremolo", "Tremolo"], ["autoFilter", "Auto-filter"], ["lfoGain", "LFO gain"]] },
     { name: "Dynamics", effects: [["compressor", "Compressor"], ["multibandCompressor", "Multiband compressor"], ["limiter", "Limiter"], ["noiseGate", "Noise gate"], ["transientShaper", "Transient shaper"], ["sidechain", "Sidechain"], ["crossfadeLimiter", "Crossfade limiter"]] },
     { name: "Miscellaneous", effects: [["bitcrusher", "Bitcrusher"], ["pitchShifter", "Pitch shifter"], ["harmonizer", "Harmonizer"], ["vocoder", "Vocoder"]] },
-    { name: "Stereo tools", effects: [["midSideMonitor", "Mid/side monitor"], ["midSidePanner", "Mid/side panner"], ["midSideFilter", "Mid/side filter"], ["midSideEq", "Mid/side EQ"]] },
+    { name: "Stereo tools", effects: [["stereoEnhancer", "Stereo Enhancer"], ["midSideMonitor", "Mid/side monitor"], ["midSidePanner", "Mid/side panner"], ["midSideFilter", "Mid/side filter"], ["midSideEq", "Mid/side EQ"]] },
     { name: "Vocoder", effects: [["vocoder3Band", "3-band vocoder"]] },
     { name: "Equalization", effects: [["steepEq", "Steep EQ"]] },
   ];
@@ -290,6 +290,36 @@
     vibrato: [["rate", "Rate", 0.1, 10, 0.1, " Hz", 5], ["depth", "Depth", 1, 20, 1, " ms", 5]],
     gain: [["gainDb", "Gain", -24, 24, 0.5, " dB", 6]],
     distortion: [["drive", "Drive", 1, 20, 0.5, "×", 8]],
+    guitarDistortion: [
+      ["drive", "Drive", 1, 30, 0.5, "×", 8],
+      ["tone", "Tone", 200, 12000, 100, " Hz", 4200],
+      ["level", "Level", -24, 6, 0.5, " dB", -6],
+    ],
+    bloodOverdrive: [
+      ["drive", "Drive", 1, 30, 0.5, "×", 10],
+      ["tone", "Tone", 200, 12000, 100, " Hz", 5200],
+      ["bias", "Bias", -0.5, 0.5, 0.01, "", 0.08],
+      ["level", "Level", -24, 6, 0.5, " dB", -8],
+    ],
+    grossBeat: [
+      ["rate", "Rate", 0.5, 4, 0.25, "× beat", 1],
+      ["gate", "Chop", 0, 100, 1, "%", 55],
+      ["feedback", "Repeat", 0, 80, 1, "%", 35],
+    ],
+    stereoEnhancer: [
+      ["width", "Width", 0, 200, 1, "%", 125],
+      ["bassMono", "Bass mono", 40, 500, 10, " Hz", 120],
+    ],
+    delayBank: [
+      ["time", "Time", 0.05, 0.8, 0.01, " s", 0.24],
+      ["feedback", "Feedback", 0, 80, 1, "%", 34],
+      ["spread", "Spread", 0, 100, 1, "%", 65],
+    ],
+    panOMatic: [
+      ["rate", "Rate", 0.05, 8, 0.05, " Hz", 0.35],
+      ["depth", "Depth", 0, 100, 1, "%", 100],
+      ["phase", "Phase", 0, 180, 1, "°", 0],
+    ],
     saturator: [["drive", "Drive", 1, 12, 0.5, "×", 3]],
     softClipper: [["drive", "Drive", 1, 12, 0.5, "×", 2]],
     compressor: [["threshold", "Threshold", -60, 0, 1, " dB", -18], ["ratio", "Ratio", 1, 20, 0.5, ":1", 4], ["attack", "Attack", 1, 100, 1, " ms", 3], ["release", "Release", 10, 1000, 10, " ms", 180]],

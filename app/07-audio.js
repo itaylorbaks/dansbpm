@@ -1104,6 +1104,9 @@
     let sideAnalyser = null;
     let externalInputNode = null;
     let fallbackGain = null;
+    let tempoSyncOscillator = null;
+    let tempoSyncDelay = null;
+    let tempoSyncRate = 1;
     const connectWet = (node) => {
       nodes.push(node);
       input.connect(node);
@@ -1127,13 +1130,21 @@
       nodes.push(midSideAnalyser, sideAnalyser, midSilence, sideSilence);
       const through = context.createGain();
       connectWet(through);
-    } else if (id === "midSidePanner" || id === "midSideFilter" || id === "midSideEq") {
+    } else if (id === "midSidePanner" || id === "midSideFilter" || id === "midSideEq" ||
+      id === "stereoEnhancer") {
       const { midBus, sideBus } = makeMixerMidSideBuses(context, input, nodes);
       let mid = midBus;
       let side = sideBus;
       if (id === "midSidePanner") {
         const sideWidth = context.createGain();
         sideWidth.gain.value = setting("width", 100) / 100;
+        side.connect(sideWidth);
+        side = sideWidth;
+        nodes.push(sideWidth);
+      } else if (id === "stereoEnhancer") {
+        const sideWidth = context.createGain();
+        sideWidth.gain.value = setting("width", 125) / 100;
+        side = addMixerFilterStages(context, side, "highpass", setting("bassMono", 120), 1, nodes);
         side.connect(sideWidth);
         side = sideWidth;
         nodes.push(sideWidth);
@@ -1294,6 +1305,76 @@
       preDelay.connect(convolver);
       nodes.push(preDelay, convolver);
       effectOutput = convolver;
+    } else if (id === "grossBeat") {
+      const delay = context.createDelay(2);
+      const feedbackFilter = context.createBiquadFilter();
+      const feedback = context.createGain();
+      tempoSyncRate = setting("rate", 1);
+      const beatRate = Math.max(0.05, state.bpm / 60 * tempoSyncRate);
+      const gateDepth = setting("gate", 55) / 100 * mix;
+      delay.delayTime.value = Math.max(0.02, Math.min(2, 60 / state.bpm / setting("rate", 1)));
+      tempoSyncDelay = delay;
+      feedbackFilter.type = "lowpass";
+      feedbackFilter.frequency.value = 6500;
+      feedback.gain.value = Math.max(0, Math.min(0.8, setting("feedback", 35) / 100));
+      input.connect(delay);
+      delay.connect(feedbackFilter);
+      feedbackFilter.connect(feedback);
+      feedback.connect(delay);
+      effectOutput = delay;
+      output.gain.value = 1 - gateDepth / 2;
+      if (gateDepth > 0) {
+        const oscillator = context.createOscillator();
+        const gate = context.createWaveShaper();
+        const depth = context.createGain();
+        const curve = new Float32Array(256);
+        curve.forEach((_, index) => {
+          curve[index] = index / (curve.length - 1) < 0.5 ? -1 : 1;
+        });
+        oscillator.frequency.value = beatRate;
+        tempoSyncOscillator = oscillator;
+        gate.curve = curve;
+        depth.gain.value = gateDepth / 2;
+        oscillator.connect(gate);
+        gate.connect(depth);
+        depth.connect(output.gain);
+        oscillator.start();
+        sources.push(oscillator);
+        nodes.push(gate, depth);
+      }
+      nodes.push(delay, feedbackFilter, feedback);
+    } else if (id === "delayBank") {
+      const splitter = context.createChannelSplitter(2);
+      const merger = context.createChannelMerger(2);
+      const baseTime = setting("time", 0.24);
+      const feedbackAmount = Math.max(0, Math.min(0.78, setting("feedback", 34) / 100));
+      const spread = setting("spread", 65) / 100;
+      const tapTimes = [1, 1.5, 2, 3];
+      const tapLevels = [0.48, 0.36, 0.27, 0.2];
+      input.connect(splitter);
+      tapTimes.forEach((tapTime, tapIndex) => {
+        for (let channel = 0; channel < 2; channel += 1) {
+          const delay = context.createDelay(3.1);
+          const tap = context.createGain();
+          const feedback = context.createGain();
+          const damping = context.createBiquadFilter();
+          const sideOffset = channel === 0 ? 1 - spread * 0.25 : 1 + spread * 0.25;
+          delay.delayTime.value = Math.min(3, baseTime * tapTime * sideOffset);
+          tap.gain.value = tapLevels[tapIndex] * (1 - tapIndex * 0.08);
+          feedback.gain.value = feedbackAmount;
+          damping.type = "lowpass";
+          damping.frequency.value = 7000 - tapIndex * 900;
+          splitter.connect(delay, channel);
+          delay.connect(tap);
+          tap.connect(merger, 0, channel);
+          delay.connect(damping);
+          damping.connect(feedback);
+          feedback.connect(delay);
+          nodes.push(delay, tap, feedback, damping);
+        }
+      });
+      nodes.push(splitter, merger);
+      effectOutput = merger;
     } else if (id === "pingPong") {
       const splitter = context.createChannelSplitter(2);
       const merger = context.createChannelMerger(2);
@@ -1365,6 +1446,46 @@
         nodes.push(feedback);
       }
       connectWet(delay);
+    } else if (id === "guitarDistortion" || id === "bloodOverdrive") {
+      const drive = setting("drive", id === "guitarDistortion" ? 8 : 10);
+      const tone = context.createBiquadFilter();
+      tone.type = "lowpass";
+      tone.frequency.value = setting("tone", id === "guitarDistortion" ? 4200 : 5200);
+      const shaper = context.createWaveShaper();
+      const curve = new Float32Array(4096);
+      const bias = id === "bloodOverdrive" ? setting("bias", 0.08) : 0;
+      const normalization = Math.tanh((1 + Math.abs(bias)) * drive);
+      curve.forEach((_, index) => {
+        const sample = index * 2 / (curve.length - 1) - 1;
+        curve[index] = Math.tanh((sample + bias) * drive) / normalization;
+      });
+      shaper.curve = curve;
+      shaper.oversample = "4x";
+      const outputLevel = context.createGain();
+      outputLevel.gain.value = Math.pow(10, setting("level", id === "guitarDistortion" ? -6 : -8) / 20);
+      let processorInput = input;
+      if (id === "guitarDistortion") {
+        const lowCut = context.createBiquadFilter();
+        lowCut.type = "highpass";
+        lowCut.frequency.value = 70;
+        processorInput.connect(lowCut);
+        processorInput = lowCut;
+        nodes.push(lowCut);
+      }
+      processorInput.connect(shaper);
+      shaper.connect(tone);
+      if (id === "bloodOverdrive") {
+        const dcFilter = context.createBiquadFilter();
+        dcFilter.type = "highpass";
+        dcFilter.frequency.value = 24;
+        tone.connect(dcFilter);
+        dcFilter.connect(outputLevel);
+        nodes.push(dcFilter);
+      } else {
+        tone.connect(outputLevel);
+      }
+      nodes.push(shaper, tone, outputLevel);
+      effectOutput = outputLevel;
     } else if (id === "gain") {
       const gain = context.createGain();
       gain.gain.value = Math.pow(10, setting("gainDb", 6) / 20);
@@ -1469,15 +1590,16 @@
       sources.push(oscillator);
       nodes.push(depth);
       connectWet(filter);
-    } else if (id === "autopan") {
+    } else if (id === "autopan" || id === "panOMatic") {
       const panner = context.createStereoPanner();
       const oscillator = context.createOscillator();
       const depth = context.createGain();
-      oscillator.frequency.value = setting("rate", 0.35);
+      const rate = setting("rate", 0.35);
+      oscillator.frequency.value = rate;
       depth.gain.value = setting("depth", 100) / 100 * mix;
       oscillator.connect(depth);
       depth.connect(panner.pan);
-      oscillator.start();
+      oscillator.start(context.currentTime, id === "panOMatic" ? setting("phase", 0) / 360 / rate : 0);
       sources.push(oscillator);
       nodes.push(depth);
       connectWet(panner);
@@ -1518,7 +1640,22 @@
     return {
       input, output, nodes, sources, dry, wet,
       midSideAnalyser, sideAnalyser, externalInputNode, externalSourceNode: null, fallbackGain,
+      tempoSyncOscillator, tempoSyncDelay, tempoSyncRate,
     };
+  }
+
+  function updateMixerTempoEffects() {
+    const now = state.audioContext?.currentTime || 0;
+    getMixerTracks().forEach(({ track }) => {
+      track.fxRuntime?.forEach((module) => {
+        if (module.effectId !== "grossBeat") return;
+        const beatRate = Math.max(0.05, state.bpm / 60 * module.tempoSyncRate);
+        module.tempoSyncOscillator?.frequency.setTargetAtTime(beatRate, now, 0.02);
+        module.tempoSyncDelay?.delayTime.setTargetAtTime(
+          Math.max(0.02, Math.min(2, 60 / state.bpm / module.tempoSyncRate)), now, 0.02,
+        );
+      });
+    });
   }
 
   function snapArrangementBar(bar) {

@@ -6931,13 +6931,13 @@ const DRIVE_SAMPLE_TRACKS = [
 
   const EFFECT_CATEGORIES = [
     { name: "Flanger", effects: [["flanger", "Flanger"], ["chorus", "Chorus"], ["phaser", "Phaser"], ["vibrato", "Vibrato"]] },
-    { name: "Gain", effects: [["gain", "Gain"], ["distortion", "Distortion"], ["saturator", "Saturator"], ["softClipper", "Soft clipper"]] },
-    { name: "Delay", effects: [["delay", "Delay"], ["pingPong", "Ping-pong delay"], ["slapback", "Slapback"], ["tapeDelay", "Tape delay"]] },
+    { name: "Gain", effects: [["gain", "Gain"], ["distortion", "Distortion"], ["guitarDistortion", "Guitar Distortion"], ["bloodOverdrive", "Blood Overdrive"], ["saturator", "Saturator"], ["softClipper", "Soft clipper"]] },
+    { name: "Delay", effects: [["delay", "Delay"], ["delayBank", "Delay Bank"], ["pingPong", "Ping-pong delay"], ["slapback", "Slapback"], ["tapeDelay", "Tape delay"]] },
     { name: "Reverb", effects: [["reverb", "Reverb"], ["room", "Room"], ["hall", "Hall"], ["plate", "Plate"]] },
-    { name: "Controllers", effects: [["autopan", "Auto-pan"], ["tremolo", "Tremolo"], ["autoFilter", "Auto-filter"], ["lfoGain", "LFO gain"]] },
+    { name: "Controllers", effects: [["autopan", "Auto-pan"], ["panOMatic", "PanOMatic"], ["grossBeat", "Gross Beat"], ["tremolo", "Tremolo"], ["autoFilter", "Auto-filter"], ["lfoGain", "LFO gain"]] },
     { name: "Dynamics", effects: [["compressor", "Compressor"], ["multibandCompressor", "Multiband compressor"], ["limiter", "Limiter"], ["noiseGate", "Noise gate"], ["transientShaper", "Transient shaper"], ["sidechain", "Sidechain"], ["crossfadeLimiter", "Crossfade limiter"]] },
     { name: "Miscellaneous", effects: [["bitcrusher", "Bitcrusher"], ["pitchShifter", "Pitch shifter"], ["harmonizer", "Harmonizer"], ["vocoder", "Vocoder"]] },
-    { name: "Stereo tools", effects: [["midSideMonitor", "Mid/side monitor"], ["midSidePanner", "Mid/side panner"], ["midSideFilter", "Mid/side filter"], ["midSideEq", "Mid/side EQ"]] },
+    { name: "Stereo tools", effects: [["stereoEnhancer", "Stereo Enhancer"], ["midSideMonitor", "Mid/side monitor"], ["midSidePanner", "Mid/side panner"], ["midSideFilter", "Mid/side filter"], ["midSideEq", "Mid/side EQ"]] },
     { name: "Vocoder", effects: [["vocoder3Band", "3-band vocoder"]] },
     { name: "Equalization", effects: [["steepEq", "Steep EQ"]] },
   ];
@@ -6956,6 +6956,36 @@ const DRIVE_SAMPLE_TRACKS = [
     vibrato: [["rate", "Rate", 0.1, 10, 0.1, " Hz", 5], ["depth", "Depth", 1, 20, 1, " ms", 5]],
     gain: [["gainDb", "Gain", -24, 24, 0.5, " dB", 6]],
     distortion: [["drive", "Drive", 1, 20, 0.5, "×", 8]],
+    guitarDistortion: [
+      ["drive", "Drive", 1, 30, 0.5, "×", 8],
+      ["tone", "Tone", 200, 12000, 100, " Hz", 4200],
+      ["level", "Level", -24, 6, 0.5, " dB", -6],
+    ],
+    bloodOverdrive: [
+      ["drive", "Drive", 1, 30, 0.5, "×", 10],
+      ["tone", "Tone", 200, 12000, 100, " Hz", 5200],
+      ["bias", "Bias", -0.5, 0.5, 0.01, "", 0.08],
+      ["level", "Level", -24, 6, 0.5, " dB", -8],
+    ],
+    grossBeat: [
+      ["rate", "Rate", 0.5, 4, 0.25, "× beat", 1],
+      ["gate", "Chop", 0, 100, 1, "%", 55],
+      ["feedback", "Repeat", 0, 80, 1, "%", 35],
+    ],
+    stereoEnhancer: [
+      ["width", "Width", 0, 200, 1, "%", 125],
+      ["bassMono", "Bass mono", 40, 500, 10, " Hz", 120],
+    ],
+    delayBank: [
+      ["time", "Time", 0.05, 0.8, 0.01, " s", 0.24],
+      ["feedback", "Feedback", 0, 80, 1, "%", 34],
+      ["spread", "Spread", 0, 100, 1, "%", 65],
+    ],
+    panOMatic: [
+      ["rate", "Rate", 0.05, 8, 0.05, " Hz", 0.35],
+      ["depth", "Depth", 0, 100, 1, "%", 100],
+      ["phase", "Phase", 0, 180, 1, "°", 0],
+    ],
     saturator: [["drive", "Drive", 1, 12, 0.5, "×", 3]],
     softClipper: [["drive", "Drive", 1, 12, 0.5, "×", 2]],
     compressor: [["threshold", "Threshold", -60, 0, 1, " dB", -18], ["ratio", "Ratio", 1, 20, 0.5, ":1", 4], ["attack", "Attack", 1, 100, 1, " ms", 3], ["release", "Release", 10, 1000, 10, " ms", 180]],
@@ -10769,7 +10799,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=66e06a663d68");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=7fb39501e4cd");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -13187,6 +13217,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   function loadPreset(preset) {
     state.selectedPreset = preset.id;
     state.bpm = preset.bpm;
+    updateMixerTempoEffects();
     tempoValue.textContent = String(state.bpm);
     const includedTrackIds = new Set(getPatternTrackIds(getPattern()));
     const slotsPerBar = getStepsPerBar();
@@ -18324,6 +18355,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     let sideAnalyser = null;
     let externalInputNode = null;
     let fallbackGain = null;
+    let tempoSyncOscillator = null;
+    let tempoSyncDelay = null;
+    let tempoSyncRate = 1;
     const connectWet = (node) => {
       nodes.push(node);
       input.connect(node);
@@ -18347,13 +18381,21 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       nodes.push(midSideAnalyser, sideAnalyser, midSilence, sideSilence);
       const through = context.createGain();
       connectWet(through);
-    } else if (id === "midSidePanner" || id === "midSideFilter" || id === "midSideEq") {
+    } else if (id === "midSidePanner" || id === "midSideFilter" || id === "midSideEq" ||
+      id === "stereoEnhancer") {
       const { midBus, sideBus } = makeMixerMidSideBuses(context, input, nodes);
       let mid = midBus;
       let side = sideBus;
       if (id === "midSidePanner") {
         const sideWidth = context.createGain();
         sideWidth.gain.value = setting("width", 100) / 100;
+        side.connect(sideWidth);
+        side = sideWidth;
+        nodes.push(sideWidth);
+      } else if (id === "stereoEnhancer") {
+        const sideWidth = context.createGain();
+        sideWidth.gain.value = setting("width", 125) / 100;
+        side = addMixerFilterStages(context, side, "highpass", setting("bassMono", 120), 1, nodes);
         side.connect(sideWidth);
         side = sideWidth;
         nodes.push(sideWidth);
@@ -18514,6 +18556,76 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       preDelay.connect(convolver);
       nodes.push(preDelay, convolver);
       effectOutput = convolver;
+    } else if (id === "grossBeat") {
+      const delay = context.createDelay(2);
+      const feedbackFilter = context.createBiquadFilter();
+      const feedback = context.createGain();
+      tempoSyncRate = setting("rate", 1);
+      const beatRate = Math.max(0.05, state.bpm / 60 * tempoSyncRate);
+      const gateDepth = setting("gate", 55) / 100 * mix;
+      delay.delayTime.value = Math.max(0.02, Math.min(2, 60 / state.bpm / setting("rate", 1)));
+      tempoSyncDelay = delay;
+      feedbackFilter.type = "lowpass";
+      feedbackFilter.frequency.value = 6500;
+      feedback.gain.value = Math.max(0, Math.min(0.8, setting("feedback", 35) / 100));
+      input.connect(delay);
+      delay.connect(feedbackFilter);
+      feedbackFilter.connect(feedback);
+      feedback.connect(delay);
+      effectOutput = delay;
+      output.gain.value = 1 - gateDepth / 2;
+      if (gateDepth > 0) {
+        const oscillator = context.createOscillator();
+        const gate = context.createWaveShaper();
+        const depth = context.createGain();
+        const curve = new Float32Array(256);
+        curve.forEach((_, index) => {
+          curve[index] = index / (curve.length - 1) < 0.5 ? -1 : 1;
+        });
+        oscillator.frequency.value = beatRate;
+        tempoSyncOscillator = oscillator;
+        gate.curve = curve;
+        depth.gain.value = gateDepth / 2;
+        oscillator.connect(gate);
+        gate.connect(depth);
+        depth.connect(output.gain);
+        oscillator.start();
+        sources.push(oscillator);
+        nodes.push(gate, depth);
+      }
+      nodes.push(delay, feedbackFilter, feedback);
+    } else if (id === "delayBank") {
+      const splitter = context.createChannelSplitter(2);
+      const merger = context.createChannelMerger(2);
+      const baseTime = setting("time", 0.24);
+      const feedbackAmount = Math.max(0, Math.min(0.78, setting("feedback", 34) / 100));
+      const spread = setting("spread", 65) / 100;
+      const tapTimes = [1, 1.5, 2, 3];
+      const tapLevels = [0.48, 0.36, 0.27, 0.2];
+      input.connect(splitter);
+      tapTimes.forEach((tapTime, tapIndex) => {
+        for (let channel = 0; channel < 2; channel += 1) {
+          const delay = context.createDelay(3.1);
+          const tap = context.createGain();
+          const feedback = context.createGain();
+          const damping = context.createBiquadFilter();
+          const sideOffset = channel === 0 ? 1 - spread * 0.25 : 1 + spread * 0.25;
+          delay.delayTime.value = Math.min(3, baseTime * tapTime * sideOffset);
+          tap.gain.value = tapLevels[tapIndex] * (1 - tapIndex * 0.08);
+          feedback.gain.value = feedbackAmount;
+          damping.type = "lowpass";
+          damping.frequency.value = 7000 - tapIndex * 900;
+          splitter.connect(delay, channel);
+          delay.connect(tap);
+          tap.connect(merger, 0, channel);
+          delay.connect(damping);
+          damping.connect(feedback);
+          feedback.connect(delay);
+          nodes.push(delay, tap, feedback, damping);
+        }
+      });
+      nodes.push(splitter, merger);
+      effectOutput = merger;
     } else if (id === "pingPong") {
       const splitter = context.createChannelSplitter(2);
       const merger = context.createChannelMerger(2);
@@ -18585,6 +18697,46 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         nodes.push(feedback);
       }
       connectWet(delay);
+    } else if (id === "guitarDistortion" || id === "bloodOverdrive") {
+      const drive = setting("drive", id === "guitarDistortion" ? 8 : 10);
+      const tone = context.createBiquadFilter();
+      tone.type = "lowpass";
+      tone.frequency.value = setting("tone", id === "guitarDistortion" ? 4200 : 5200);
+      const shaper = context.createWaveShaper();
+      const curve = new Float32Array(4096);
+      const bias = id === "bloodOverdrive" ? setting("bias", 0.08) : 0;
+      const normalization = Math.tanh((1 + Math.abs(bias)) * drive);
+      curve.forEach((_, index) => {
+        const sample = index * 2 / (curve.length - 1) - 1;
+        curve[index] = Math.tanh((sample + bias) * drive) / normalization;
+      });
+      shaper.curve = curve;
+      shaper.oversample = "4x";
+      const outputLevel = context.createGain();
+      outputLevel.gain.value = Math.pow(10, setting("level", id === "guitarDistortion" ? -6 : -8) / 20);
+      let processorInput = input;
+      if (id === "guitarDistortion") {
+        const lowCut = context.createBiquadFilter();
+        lowCut.type = "highpass";
+        lowCut.frequency.value = 70;
+        processorInput.connect(lowCut);
+        processorInput = lowCut;
+        nodes.push(lowCut);
+      }
+      processorInput.connect(shaper);
+      shaper.connect(tone);
+      if (id === "bloodOverdrive") {
+        const dcFilter = context.createBiquadFilter();
+        dcFilter.type = "highpass";
+        dcFilter.frequency.value = 24;
+        tone.connect(dcFilter);
+        dcFilter.connect(outputLevel);
+        nodes.push(dcFilter);
+      } else {
+        tone.connect(outputLevel);
+      }
+      nodes.push(shaper, tone, outputLevel);
+      effectOutput = outputLevel;
     } else if (id === "gain") {
       const gain = context.createGain();
       gain.gain.value = Math.pow(10, setting("gainDb", 6) / 20);
@@ -18689,15 +18841,16 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       sources.push(oscillator);
       nodes.push(depth);
       connectWet(filter);
-    } else if (id === "autopan") {
+    } else if (id === "autopan" || id === "panOMatic") {
       const panner = context.createStereoPanner();
       const oscillator = context.createOscillator();
       const depth = context.createGain();
-      oscillator.frequency.value = setting("rate", 0.35);
+      const rate = setting("rate", 0.35);
+      oscillator.frequency.value = rate;
       depth.gain.value = setting("depth", 100) / 100 * mix;
       oscillator.connect(depth);
       depth.connect(panner.pan);
-      oscillator.start();
+      oscillator.start(context.currentTime, id === "panOMatic" ? setting("phase", 0) / 360 / rate : 0);
       sources.push(oscillator);
       nodes.push(depth);
       connectWet(panner);
@@ -18738,7 +18891,22 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     return {
       input, output, nodes, sources, dry, wet,
       midSideAnalyser, sideAnalyser, externalInputNode, externalSourceNode: null, fallbackGain,
+      tempoSyncOscillator, tempoSyncDelay, tempoSyncRate,
     };
+  }
+
+  function updateMixerTempoEffects() {
+    const now = state.audioContext?.currentTime || 0;
+    getMixerTracks().forEach(({ track }) => {
+      track.fxRuntime?.forEach((module) => {
+        if (module.effectId !== "grossBeat") return;
+        const beatRate = Math.max(0.05, state.bpm / 60 * module.tempoSyncRate);
+        module.tempoSyncOscillator?.frequency.setTargetAtTime(beatRate, now, 0.02);
+        module.tempoSyncDelay?.delayTime.setTargetAtTime(
+          Math.max(0.02, Math.min(2, 60 / state.bpm / module.tempoSyncRate)), now, 0.02,
+        );
+      });
+    });
   }
 
   function snapArrangementBar(bar) {
@@ -20387,9 +20555,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     dial.append(indicator);
     const output = document.createElement("output");
     const span = max - min;
+    const precision = String(step).split(".")[1]?.length || 0;
     const setValue = (candidate, notify = true) => {
       const clamped = Math.max(min, Math.min(max, candidate));
-      const next = min + Math.round((clamped - min) / step) * step;
+      const next = Number((min + Math.round((clamped - min) / step) * step).toFixed(precision));
       const percent = span ? (next - min) / span * 100 : 0;
       dial.style.setProperty("--dial-angle", `${-135 + percent * 2.7}deg`);
       dial.style.setProperty("--dial-fill", `${percent * 0.75}%`);
@@ -20483,6 +20652,37 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     return { screen, canvas };
   }
 
+  function makeMixerEffectDialogDraggable(dialog) {
+    if (dialog.dataset.dragBound === "true") return;
+    const heading = dialog.querySelector(".mixer-effect-dialog-heading");
+    heading.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || !(event.target instanceof Element) || event.target.closest("button")) return;
+      event.preventDefault();
+      const bounds = dialog.getBoundingClientRect();
+      const offsetX = event.clientX - bounds.left;
+      const offsetY = event.clientY - bounds.top;
+      dialog.style.left = `${bounds.left}px`;
+      dialog.style.top = `${bounds.top}px`;
+      dialog.style.transform = "none";
+      heading.setPointerCapture(event.pointerId);
+      const move = (moveEvent) => {
+        const left = Math.max(8, Math.min(window.innerWidth - bounds.width - 8, moveEvent.clientX - offsetX));
+        const top = Math.max(8, Math.min(window.innerHeight - bounds.height - 8, moveEvent.clientY - offsetY));
+        dialog.style.left = `${left}px`;
+        dialog.style.top = `${top}px`;
+      };
+      const finish = () => {
+        heading.removeEventListener("pointermove", move);
+        heading.removeEventListener("pointerup", finish);
+        heading.removeEventListener("pointercancel", finish);
+      };
+      heading.addEventListener("pointermove", move);
+      heading.addEventListener("pointerup", finish);
+      heading.addEventListener("pointercancel", finish);
+    });
+    dialog.dataset.dragBound = "true";
+  }
+
   function openMixerEffectDialog(track, effectId) {
     ensureTrackMixerState(track);
     if (state.audioContext) ensureTrackAudio(track);
@@ -20492,11 +20692,15 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     if (dialog.open) dialog.close();
     state.mixerEffectDialogTrackId = track.id;
     dialog.dataset.effectId = effectId;
+    dialog.style.left = "50%";
+    dialog.style.top = "50%";
+    dialog.style.transform = "translate(-50%, -50%)";
     dialog.style.setProperty("--effect-hue", getMixerEffectHue(effectId));
     $("#mixer-effect-track-name").textContent = track.name;
     const title = effectId === "eq" ? "EQ" : EFFECT_NAMES.find(([id]) => id === effectId)?.[1] || effectId;
     $("#mixer-effect-title").textContent = title;
     const content = $("#mixer-effect-dialog-content");
+    content.className = `mixer-effect-dialog-content mixer-layout-${effectId}`;
     content.replaceChildren();
     let eqCanvas = null;
     let eqBands = [];
@@ -20579,7 +20783,16 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
           : "Drag the peak node to set frequency and gain; use sliders for width and order.";
         content.append(graphHelp);
       } else {
-        const screen = makeMixerEffectScreen(track, effectId);
+        const screenVariants = {
+          bloodOverdrive: "is-blood-overdrive",
+          chorus: "is-chorus",
+          delayBank: "is-delay-bank",
+          guitarDistortion: "is-guitar-distortion",
+          grossBeat: "is-gross-beat",
+          panOMatic: "is-pan-o-matic",
+          stereoEnhancer: "is-stereo-enhancer",
+        };
+        const screen = makeMixerEffectScreen(track, effectId, screenVariants[effectId] || "");
         effectCanvas = screen.canvas;
         content.append(screen.screen);
       }
@@ -20613,15 +20826,22 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         sourceLabel.append(sourceCaption, sourceSelect);
         controls.append(sourceLabel);
       }
+      controls.classList.add(`mixer-effect-controls-${effectId}`);
       controls.append(makeMixerSettingKnob(effectId === "sidechain" ? "Depth" : "Mix", track.effects[effectId], 0, 100, 1, "%", (value) => {
         track.effects[effectId] = value;
         refreshMixerEffectTrack(track);
       }));
+      const knobEffects = new Set([
+        "bloodOverdrive", "chorus", "delayBank", "grossBeat", "guitarDistortion", "panOMatic", "stereoEnhancer",
+      ]);
       (EFFECT_PARAMETERS[effectId] || []).forEach(([id, label, min, max, step, unit]) => {
-        controls.append(makeMixerSettingRange(label, track.effectSettings[effectId][id], min, max, step, unit, (value) => {
+        const onInput = (value) => {
           track.effectSettings[effectId][id] = value;
           refreshMixerEffectTrack(track);
-        }, id));
+        };
+        controls.append(knobEffects.has(effectId)
+          ? makeMixerSettingKnob(label, track.effectSettings[effectId][id], min, max, step, unit, onInput)
+          : makeMixerSettingRange(label, track.effectSettings[effectId][id], min, max, step, unit, onInput, id));
       });
       content.append(controls);
       content.append(makeMixerEffectResetButton(track, effectId));
@@ -20632,7 +20852,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       remove.addEventListener("click", () => removeMixerEffect(track, effectId));
       content.append(remove);
     }
-    dialog.showModal();
+    makeMixerEffectDialogDraggable(dialog);
+    dialog.show();
     if (eqCanvas) drawMixerEq(track, eqCanvas, effectId, eqBands, () => eqBus);
     if (midSideCanvas) drawMixerMidSide(track, midSideCanvas);
     if (effectCanvas) drawMixerEffectVisualizer(track, effectId, effectCanvas);
@@ -20903,17 +21124,24 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   function drawMixerEffectVisualizer(track, effectId, canvas) {
     const context = canvas.getContext("2d");
     if (!context) return;
-    const modulationEffects = new Set(["autopan", "chorus", "flanger", "phaser", "vibrato", "tremolo", "autoFilter", "lfoGain"]);
+    const modulationEffects = new Set(["autopan", "flanger", "phaser", "vibrato", "tremolo", "autoFilter", "lfoGain"]);
     const timeEffects = new Set(["delay", "pingPong", "slapback", "tapeDelay", "reverb", "room", "hall", "plate"]);
     const dynamicsEffects = new Set(["compressor", "multibandCompressor", "limiter", "noiseGate", "sidechain", "crossfadeLimiter", "transientShaper"]);
     const stereoEffects = new Set(["midSidePanner", "midSideFilter"]);
     const waveEffects = new Set(["distortion", "saturator", "softClipper", "bitcrusher", "gain"]);
-    const visualKind = modulationEffects.has(effectId) ? "modulation"
-      : timeEffects.has(effectId) ? "time"
-        : dynamicsEffects.has(effectId) ? "dynamics"
-          : stereoEffects.has(effectId) ? "stereo"
-            : waveEffects.has(effectId) ? "wave"
-              : ["vocoder", "vocoder3Band", "harmonizer", "pitchShifter"].includes(effectId) ? "spectrum" : "filter";
+    const visualKind = effectId === "guitarDistortion" ? "guitar-distortion"
+      : effectId === "bloodOverdrive" ? "blood-overdrive"
+        : effectId === "grossBeat" ? "gross-beat"
+          : effectId === "stereoEnhancer" ? "stereo-enhancer"
+            : effectId === "delayBank" ? "delay-bank"
+              : effectId === "panOMatic" ? "pan-o-matic"
+                : effectId === "chorus" ? "chorus"
+                  : modulationEffects.has(effectId) ? "modulation"
+                    : timeEffects.has(effectId) ? "time"
+                      : dynamicsEffects.has(effectId) ? "dynamics"
+                        : stereoEffects.has(effectId) ? "stereo"
+                          : waveEffects.has(effectId) ? "wave"
+                            : ["vocoder", "vocoder3Band", "harmonizer", "pitchShifter"].includes(effectId) ? "spectrum" : "filter";
     let samples = new Uint8Array(0);
     const draw = (timestamp) => {
       if (!canvas.isConnected || !$("#mixer-effect-dialog").open ||
@@ -20973,7 +21201,125 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
           context.fillRect(x, height - 18 - barHeight, barWidth, barHeight);
         }
       };
-      if (visualKind === "modulation") {
+      if (visualKind === "guitar-distortion" || visualKind === "blood-overdrive") {
+        const drive = track.effectSettings[effectId]?.drive || 8;
+        const bias = visualKind === "blood-overdrive" ? track.effectSettings[effectId]?.bias || 0 : 0;
+        context.beginPath();
+        context.moveTo(12, height / 2);
+        context.lineTo(width - 12, height / 2);
+        context.strokeStyle = "rgba(190,205,220,.2)";
+        context.lineWidth = 1;
+        context.stroke();
+        context.beginPath();
+        for (let index = 0; index <= 180; index += 1) {
+          const input = index / 90 - 1;
+          const normalized = Math.tanh((input + bias) * drive) / Math.tanh((1 + Math.abs(bias)) * drive);
+          const x = 12 + index / 180 * (width - 24);
+          const y = height / 2 - normalized * (height * 0.39);
+          if (!index) context.moveTo(x, y);
+          else context.lineTo(x, y);
+        }
+        context.strokeStyle = accent;
+        context.lineWidth = 2.5;
+        context.shadowColor = accent;
+        context.shadowBlur = visualKind === "blood-overdrive" ? 11 : 6;
+        context.stroke();
+        context.shadowBlur = 0;
+        if (visualKind === "blood-overdrive") {
+          context.fillStyle = `hsla(${hue},85%,67%,.12)`;
+          context.fillRect(12, height / 2, width - 24, height * 0.34);
+        }
+      } else if (visualKind === "gross-beat") {
+        const gate = (track.effectSettings.grossBeat?.gate || 0) / 100;
+        const rate = track.effectSettings.grossBeat?.rate || 1;
+        const currentStep = Math.floor(time * state.bpm / 60 * rate * 4) % 16;
+        const stepWidth = (width - 24) / 16;
+        for (let index = 0; index < 16; index += 1) {
+          const open = ((index * 7 + 3) % 16) / 16 > gate;
+          const x = 12 + index * stepWidth;
+          const barHeight = open ? height * (0.25 + ((index * 5) % 7) / 14) : height * 0.08;
+          context.fillStyle = index === currentStep ? "#f5f4e8"
+            : open ? `hsla(${hue},85%,67%,.78)` : "rgba(180,195,212,.18)";
+          context.fillRect(x + 2, height - 8 - barHeight, Math.max(2, stepWidth - 4), barHeight);
+        }
+        context.strokeStyle = `hsla(${hue},85%,67%,.28)`;
+        context.beginPath();
+        context.moveTo(12, height - 7);
+        context.lineTo(width - 12, height - 7);
+        context.stroke();
+      } else if (visualKind === "stereo-enhancer") {
+        const widthFactor = (track.effectSettings.stereoEnhancer?.width || 125) / 100;
+        context.beginPath();
+        for (let index = 0; index <= 240; index += 1) {
+          const phase = index / 240 * Math.PI * 2;
+          const x = width / 2 + Math.sin(phase + time * 0.55) * Math.min(0.46, 0.28 * widthFactor) * width;
+          const y = height / 2 + Math.sin(phase * 2 + time * 0.7) * height * 0.32;
+          if (!index) context.moveTo(x, y);
+          else context.lineTo(x, y);
+        }
+        context.closePath();
+        context.strokeStyle = accent;
+        context.lineWidth = 2;
+        context.shadowColor = accent;
+        context.shadowBlur = 9;
+        context.stroke();
+        context.shadowBlur = 0;
+        context.fillStyle = `hsla(${hue},85%,67%,.08)`;
+        context.fill();
+      } else if (visualKind === "delay-bank") {
+        const tapTime = track.effectSettings.delayBank?.time || 0.24;
+        const feedback = track.effectSettings.delayBank?.feedback || 0;
+        for (let tap = 0; tap < 4; tap += 1) {
+          const y = 16 + tap * ((height - 30) / 4);
+          const phase = (time / Math.max(0.12, tapTime * (tap + 1)) + 1) % 1;
+          const x = 12 + phase * (width - 24);
+          const opacity = 0.3 + Math.max(0, 0.7 - tap * 0.13) * (1 - feedback / 160);
+          context.strokeStyle = `hsla(${(Number(hue) + tap * 18) % 360},85%,67%,${opacity})`;
+          context.lineWidth = 2 + (3 - tap) * 0.35;
+          context.beginPath();
+          context.moveTo(12, y);
+          context.lineTo(width - 12, y);
+          context.stroke();
+          context.fillStyle = accent;
+          context.beginPath();
+          context.arc(x, y, 3 + (3 - tap) * 0.55, 0, Math.PI * 2);
+          context.fill();
+        }
+      } else if (visualKind === "pan-o-matic") {
+        const rate = track.effectSettings.panOMatic?.rate || 0.35;
+        const phaseOffset = (track.effectSettings.panOMatic?.phase || 0) * Math.PI / 180;
+        [0, 1].forEach((channel) => {
+          context.beginPath();
+          for (let x = 12; x < width - 12; x += 2) {
+            const phase = x / width * Math.PI * 4 + time * rate * 1.4 + phaseOffset + channel * Math.PI;
+            const y = height / 2 + Math.sin(phase) * height * (channel ? 0.33 : 0.23);
+            if (x === 12) context.moveTo(x, y);
+            else context.lineTo(x, y);
+          }
+          context.strokeStyle = `hsla(${(Number(hue) + channel * 34) % 360},85%,67%,${channel ? 0.55 : 0.95})`;
+          context.lineWidth = channel ? 1.5 : 2.5;
+          context.stroke();
+        });
+        context.fillStyle = "#dff9bd";
+        const panX = width / 2 + Math.sin(time * rate * Math.PI * 2 + phaseOffset) * width * 0.34;
+        context.beginPath();
+        context.arc(panX, height - 11, 3, 0, Math.PI * 2);
+        context.fill();
+      } else if (visualKind === "chorus") {
+        const rate = track.effectSettings.chorus?.rate || 0.28;
+        [0, 1, 2, 3].forEach((layer) => {
+          context.beginPath();
+          for (let x = 12; x < width - 12; x += 2) {
+            const phase = x / width * Math.PI * 4 + time * rate * (layer + 1) + layer * 0.7;
+            const y = height / 2 + Math.sin(phase) * height * (0.16 + layer * 0.055);
+            if (x === 12) context.moveTo(x, y);
+            else context.lineTo(x, y);
+          }
+          context.strokeStyle = `hsla(${(Number(hue) + layer * 16) % 360},85%,67%,${0.9 - layer * 0.16})`;
+          context.lineWidth = layer === 0 ? 2 : 1;
+          context.stroke();
+        });
+      } else if (visualKind === "modulation") {
         const rate = track.effectSettings[effectId]?.rate || 0.5;
         [0, 1, 2].forEach((layer) => {
           context.beginPath();
@@ -29200,6 +29546,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       state.tracks = snapshot.tracks.map(cloneHistoryTrack);
       state.steps = saved.steps;
       state.bpm = saved.bpm;
+      updateMixerTempoEffects();
       state.swing = saved.swing;
       state.selectedPatternId = saved.selectedPatternId;
       applyPattern(getPattern());
@@ -29231,6 +29578,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       state.arrangementLoopStartBar = saved.arrangementLoopStartBar;
       state.arrangementLoopEndBar = saved.arrangementLoopEndBar;
       state.bpm = saved.bpm;
+      updateMixerTempoEffects();
       state.swing = saved.swing;
       tempoValue.textContent = String(state.bpm);
       swingSlider.value = String(state.swing);
@@ -29989,6 +30337,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
           .map((track) => makeMixerBusTrack("mixer-effects", track));
       }
       if (Number.isFinite(saved.bpm)) state.bpm = Math.max(60, Math.min(180, roundBpm(saved.bpm)));
+      updateMixerTempoEffects();
       state.masterPitch = Number.isFinite(saved.masterPitch)
         ? Math.max(-12, Math.min(12, Math.round(saved.masterPitch)))
         : 0;
@@ -32973,6 +33322,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     });
 
     state.bpm = bpm;
+    updateMixerTempoEffects();
     tempoValue.textContent = String(state.bpm);
     updateArrangementLength();
     if (isSongWorkspace()) renderArrangement();
@@ -33810,6 +34160,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       state.workspaceHidden = false;
       state.trackViewHidden = false;
       state.bpm = 124;
+      updateMixerTempoEffects();
       state.swing = 0;
       state.selectedPreset = "warehouse";
       state.view = "arrangement";
@@ -34288,6 +34639,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       state.pianoSelectionFromMarquee = false;
       state.pianoBars = bars;
       state.bpm = bpm;
+      updateMixerTempoEffects();
       tempoValue.textContent = String(bpm);
       renderMelOptions();
       renderPianoRoll();

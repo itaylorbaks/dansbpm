@@ -1187,9 +1187,10 @@
     dial.append(indicator);
     const output = document.createElement("output");
     const span = max - min;
+    const precision = String(step).split(".")[1]?.length || 0;
     const setValue = (candidate, notify = true) => {
       const clamped = Math.max(min, Math.min(max, candidate));
-      const next = min + Math.round((clamped - min) / step) * step;
+      const next = Number((min + Math.round((clamped - min) / step) * step).toFixed(precision));
       const percent = span ? (next - min) / span * 100 : 0;
       dial.style.setProperty("--dial-angle", `${-135 + percent * 2.7}deg`);
       dial.style.setProperty("--dial-fill", `${percent * 0.75}%`);
@@ -1283,6 +1284,37 @@
     return { screen, canvas };
   }
 
+  function makeMixerEffectDialogDraggable(dialog) {
+    if (dialog.dataset.dragBound === "true") return;
+    const heading = dialog.querySelector(".mixer-effect-dialog-heading");
+    heading.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || !(event.target instanceof Element) || event.target.closest("button")) return;
+      event.preventDefault();
+      const bounds = dialog.getBoundingClientRect();
+      const offsetX = event.clientX - bounds.left;
+      const offsetY = event.clientY - bounds.top;
+      dialog.style.left = `${bounds.left}px`;
+      dialog.style.top = `${bounds.top}px`;
+      dialog.style.transform = "none";
+      heading.setPointerCapture(event.pointerId);
+      const move = (moveEvent) => {
+        const left = Math.max(8, Math.min(window.innerWidth - bounds.width - 8, moveEvent.clientX - offsetX));
+        const top = Math.max(8, Math.min(window.innerHeight - bounds.height - 8, moveEvent.clientY - offsetY));
+        dialog.style.left = `${left}px`;
+        dialog.style.top = `${top}px`;
+      };
+      const finish = () => {
+        heading.removeEventListener("pointermove", move);
+        heading.removeEventListener("pointerup", finish);
+        heading.removeEventListener("pointercancel", finish);
+      };
+      heading.addEventListener("pointermove", move);
+      heading.addEventListener("pointerup", finish);
+      heading.addEventListener("pointercancel", finish);
+    });
+    dialog.dataset.dragBound = "true";
+  }
+
   function openMixerEffectDialog(track, effectId) {
     ensureTrackMixerState(track);
     if (state.audioContext) ensureTrackAudio(track);
@@ -1292,11 +1324,15 @@
     if (dialog.open) dialog.close();
     state.mixerEffectDialogTrackId = track.id;
     dialog.dataset.effectId = effectId;
+    dialog.style.left = "50%";
+    dialog.style.top = "50%";
+    dialog.style.transform = "translate(-50%, -50%)";
     dialog.style.setProperty("--effect-hue", getMixerEffectHue(effectId));
     $("#mixer-effect-track-name").textContent = track.name;
     const title = effectId === "eq" ? "EQ" : EFFECT_NAMES.find(([id]) => id === effectId)?.[1] || effectId;
     $("#mixer-effect-title").textContent = title;
     const content = $("#mixer-effect-dialog-content");
+    content.className = `mixer-effect-dialog-content mixer-layout-${effectId}`;
     content.replaceChildren();
     let eqCanvas = null;
     let eqBands = [];
@@ -1379,7 +1415,16 @@
           : "Drag the peak node to set frequency and gain; use sliders for width and order.";
         content.append(graphHelp);
       } else {
-        const screen = makeMixerEffectScreen(track, effectId);
+        const screenVariants = {
+          bloodOverdrive: "is-blood-overdrive",
+          chorus: "is-chorus",
+          delayBank: "is-delay-bank",
+          guitarDistortion: "is-guitar-distortion",
+          grossBeat: "is-gross-beat",
+          panOMatic: "is-pan-o-matic",
+          stereoEnhancer: "is-stereo-enhancer",
+        };
+        const screen = makeMixerEffectScreen(track, effectId, screenVariants[effectId] || "");
         effectCanvas = screen.canvas;
         content.append(screen.screen);
       }
@@ -1413,15 +1458,22 @@
         sourceLabel.append(sourceCaption, sourceSelect);
         controls.append(sourceLabel);
       }
+      controls.classList.add(`mixer-effect-controls-${effectId}`);
       controls.append(makeMixerSettingKnob(effectId === "sidechain" ? "Depth" : "Mix", track.effects[effectId], 0, 100, 1, "%", (value) => {
         track.effects[effectId] = value;
         refreshMixerEffectTrack(track);
       }));
+      const knobEffects = new Set([
+        "bloodOverdrive", "chorus", "delayBank", "grossBeat", "guitarDistortion", "panOMatic", "stereoEnhancer",
+      ]);
       (EFFECT_PARAMETERS[effectId] || []).forEach(([id, label, min, max, step, unit]) => {
-        controls.append(makeMixerSettingRange(label, track.effectSettings[effectId][id], min, max, step, unit, (value) => {
+        const onInput = (value) => {
           track.effectSettings[effectId][id] = value;
           refreshMixerEffectTrack(track);
-        }, id));
+        };
+        controls.append(knobEffects.has(effectId)
+          ? makeMixerSettingKnob(label, track.effectSettings[effectId][id], min, max, step, unit, onInput)
+          : makeMixerSettingRange(label, track.effectSettings[effectId][id], min, max, step, unit, onInput, id));
       });
       content.append(controls);
       content.append(makeMixerEffectResetButton(track, effectId));
@@ -1432,7 +1484,8 @@
       remove.addEventListener("click", () => removeMixerEffect(track, effectId));
       content.append(remove);
     }
-    dialog.showModal();
+    makeMixerEffectDialogDraggable(dialog);
+    dialog.show();
     if (eqCanvas) drawMixerEq(track, eqCanvas, effectId, eqBands, () => eqBus);
     if (midSideCanvas) drawMixerMidSide(track, midSideCanvas);
     if (effectCanvas) drawMixerEffectVisualizer(track, effectId, effectCanvas);
@@ -1703,17 +1756,24 @@
   function drawMixerEffectVisualizer(track, effectId, canvas) {
     const context = canvas.getContext("2d");
     if (!context) return;
-    const modulationEffects = new Set(["autopan", "chorus", "flanger", "phaser", "vibrato", "tremolo", "autoFilter", "lfoGain"]);
+    const modulationEffects = new Set(["autopan", "flanger", "phaser", "vibrato", "tremolo", "autoFilter", "lfoGain"]);
     const timeEffects = new Set(["delay", "pingPong", "slapback", "tapeDelay", "reverb", "room", "hall", "plate"]);
     const dynamicsEffects = new Set(["compressor", "multibandCompressor", "limiter", "noiseGate", "sidechain", "crossfadeLimiter", "transientShaper"]);
     const stereoEffects = new Set(["midSidePanner", "midSideFilter"]);
     const waveEffects = new Set(["distortion", "saturator", "softClipper", "bitcrusher", "gain"]);
-    const visualKind = modulationEffects.has(effectId) ? "modulation"
-      : timeEffects.has(effectId) ? "time"
-        : dynamicsEffects.has(effectId) ? "dynamics"
-          : stereoEffects.has(effectId) ? "stereo"
-            : waveEffects.has(effectId) ? "wave"
-              : ["vocoder", "vocoder3Band", "harmonizer", "pitchShifter"].includes(effectId) ? "spectrum" : "filter";
+    const visualKind = effectId === "guitarDistortion" ? "guitar-distortion"
+      : effectId === "bloodOverdrive" ? "blood-overdrive"
+        : effectId === "grossBeat" ? "gross-beat"
+          : effectId === "stereoEnhancer" ? "stereo-enhancer"
+            : effectId === "delayBank" ? "delay-bank"
+              : effectId === "panOMatic" ? "pan-o-matic"
+                : effectId === "chorus" ? "chorus"
+                  : modulationEffects.has(effectId) ? "modulation"
+                    : timeEffects.has(effectId) ? "time"
+                      : dynamicsEffects.has(effectId) ? "dynamics"
+                        : stereoEffects.has(effectId) ? "stereo"
+                          : waveEffects.has(effectId) ? "wave"
+                            : ["vocoder", "vocoder3Band", "harmonizer", "pitchShifter"].includes(effectId) ? "spectrum" : "filter";
     let samples = new Uint8Array(0);
     const draw = (timestamp) => {
       if (!canvas.isConnected || !$("#mixer-effect-dialog").open ||
@@ -1773,7 +1833,125 @@
           context.fillRect(x, height - 18 - barHeight, barWidth, barHeight);
         }
       };
-      if (visualKind === "modulation") {
+      if (visualKind === "guitar-distortion" || visualKind === "blood-overdrive") {
+        const drive = track.effectSettings[effectId]?.drive || 8;
+        const bias = visualKind === "blood-overdrive" ? track.effectSettings[effectId]?.bias || 0 : 0;
+        context.beginPath();
+        context.moveTo(12, height / 2);
+        context.lineTo(width - 12, height / 2);
+        context.strokeStyle = "rgba(190,205,220,.2)";
+        context.lineWidth = 1;
+        context.stroke();
+        context.beginPath();
+        for (let index = 0; index <= 180; index += 1) {
+          const input = index / 90 - 1;
+          const normalized = Math.tanh((input + bias) * drive) / Math.tanh((1 + Math.abs(bias)) * drive);
+          const x = 12 + index / 180 * (width - 24);
+          const y = height / 2 - normalized * (height * 0.39);
+          if (!index) context.moveTo(x, y);
+          else context.lineTo(x, y);
+        }
+        context.strokeStyle = accent;
+        context.lineWidth = 2.5;
+        context.shadowColor = accent;
+        context.shadowBlur = visualKind === "blood-overdrive" ? 11 : 6;
+        context.stroke();
+        context.shadowBlur = 0;
+        if (visualKind === "blood-overdrive") {
+          context.fillStyle = `hsla(${hue},85%,67%,.12)`;
+          context.fillRect(12, height / 2, width - 24, height * 0.34);
+        }
+      } else if (visualKind === "gross-beat") {
+        const gate = (track.effectSettings.grossBeat?.gate || 0) / 100;
+        const rate = track.effectSettings.grossBeat?.rate || 1;
+        const currentStep = Math.floor(time * state.bpm / 60 * rate * 4) % 16;
+        const stepWidth = (width - 24) / 16;
+        for (let index = 0; index < 16; index += 1) {
+          const open = ((index * 7 + 3) % 16) / 16 > gate;
+          const x = 12 + index * stepWidth;
+          const barHeight = open ? height * (0.25 + ((index * 5) % 7) / 14) : height * 0.08;
+          context.fillStyle = index === currentStep ? "#f5f4e8"
+            : open ? `hsla(${hue},85%,67%,.78)` : "rgba(180,195,212,.18)";
+          context.fillRect(x + 2, height - 8 - barHeight, Math.max(2, stepWidth - 4), barHeight);
+        }
+        context.strokeStyle = `hsla(${hue},85%,67%,.28)`;
+        context.beginPath();
+        context.moveTo(12, height - 7);
+        context.lineTo(width - 12, height - 7);
+        context.stroke();
+      } else if (visualKind === "stereo-enhancer") {
+        const widthFactor = (track.effectSettings.stereoEnhancer?.width || 125) / 100;
+        context.beginPath();
+        for (let index = 0; index <= 240; index += 1) {
+          const phase = index / 240 * Math.PI * 2;
+          const x = width / 2 + Math.sin(phase + time * 0.55) * Math.min(0.46, 0.28 * widthFactor) * width;
+          const y = height / 2 + Math.sin(phase * 2 + time * 0.7) * height * 0.32;
+          if (!index) context.moveTo(x, y);
+          else context.lineTo(x, y);
+        }
+        context.closePath();
+        context.strokeStyle = accent;
+        context.lineWidth = 2;
+        context.shadowColor = accent;
+        context.shadowBlur = 9;
+        context.stroke();
+        context.shadowBlur = 0;
+        context.fillStyle = `hsla(${hue},85%,67%,.08)`;
+        context.fill();
+      } else if (visualKind === "delay-bank") {
+        const tapTime = track.effectSettings.delayBank?.time || 0.24;
+        const feedback = track.effectSettings.delayBank?.feedback || 0;
+        for (let tap = 0; tap < 4; tap += 1) {
+          const y = 16 + tap * ((height - 30) / 4);
+          const phase = (time / Math.max(0.12, tapTime * (tap + 1)) + 1) % 1;
+          const x = 12 + phase * (width - 24);
+          const opacity = 0.3 + Math.max(0, 0.7 - tap * 0.13) * (1 - feedback / 160);
+          context.strokeStyle = `hsla(${(Number(hue) + tap * 18) % 360},85%,67%,${opacity})`;
+          context.lineWidth = 2 + (3 - tap) * 0.35;
+          context.beginPath();
+          context.moveTo(12, y);
+          context.lineTo(width - 12, y);
+          context.stroke();
+          context.fillStyle = accent;
+          context.beginPath();
+          context.arc(x, y, 3 + (3 - tap) * 0.55, 0, Math.PI * 2);
+          context.fill();
+        }
+      } else if (visualKind === "pan-o-matic") {
+        const rate = track.effectSettings.panOMatic?.rate || 0.35;
+        const phaseOffset = (track.effectSettings.panOMatic?.phase || 0) * Math.PI / 180;
+        [0, 1].forEach((channel) => {
+          context.beginPath();
+          for (let x = 12; x < width - 12; x += 2) {
+            const phase = x / width * Math.PI * 4 + time * rate * 1.4 + phaseOffset + channel * Math.PI;
+            const y = height / 2 + Math.sin(phase) * height * (channel ? 0.33 : 0.23);
+            if (x === 12) context.moveTo(x, y);
+            else context.lineTo(x, y);
+          }
+          context.strokeStyle = `hsla(${(Number(hue) + channel * 34) % 360},85%,67%,${channel ? 0.55 : 0.95})`;
+          context.lineWidth = channel ? 1.5 : 2.5;
+          context.stroke();
+        });
+        context.fillStyle = "#dff9bd";
+        const panX = width / 2 + Math.sin(time * rate * Math.PI * 2 + phaseOffset) * width * 0.34;
+        context.beginPath();
+        context.arc(panX, height - 11, 3, 0, Math.PI * 2);
+        context.fill();
+      } else if (visualKind === "chorus") {
+        const rate = track.effectSettings.chorus?.rate || 0.28;
+        [0, 1, 2, 3].forEach((layer) => {
+          context.beginPath();
+          for (let x = 12; x < width - 12; x += 2) {
+            const phase = x / width * Math.PI * 4 + time * rate * (layer + 1) + layer * 0.7;
+            const y = height / 2 + Math.sin(phase) * height * (0.16 + layer * 0.055);
+            if (x === 12) context.moveTo(x, y);
+            else context.lineTo(x, y);
+          }
+          context.strokeStyle = `hsla(${(Number(hue) + layer * 16) % 360},85%,67%,${0.9 - layer * 0.16})`;
+          context.lineWidth = layer === 0 ? 2 : 1;
+          context.stroke();
+        });
+      } else if (visualKind === "modulation") {
         const rate = track.effectSettings[effectId]?.rate || 0.5;
         [0, 1, 2].forEach((layer) => {
           context.beginPath();
