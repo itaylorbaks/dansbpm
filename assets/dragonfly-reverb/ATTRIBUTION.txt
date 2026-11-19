@@ -1,0 +1,4 @@
+Dragonfly Reverb official interface screenshots
+Source: https://github.com/michaelwillis/dragonfly-reverb
+Copyright: Michael Willis and contributors
+License: GNU General Public License v3.0

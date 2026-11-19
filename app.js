@@ -6933,7 +6933,7 @@ const DRIVE_SAMPLE_TRACKS = [
     { name: "Flanger", effects: [["flanger", "Flanger"], ["chorus", "Chorus"], ["phaser", "Phaser"], ["vibrato", "Vibrato"]] },
     { name: "Gain", effects: [["gain", "Gain"], ["distortion", "Distortion"], ["guitarDistortion", "Guitar Distortion"], ["bloodOverdrive", "Blood Overdrive"], ["saturator", "Saturator"], ["softClipper", "Soft clipper"]] },
     { name: "Delay", effects: [["delay", "Delay"], ["delayBank", "Delay Bank"], ["pingPong", "Ping-pong delay"], ["slapback", "Slapback"], ["tapeDelay", "Tape delay"], ["time12", "TIME-12"]] },
-    { name: "Reverb", effects: [["reverb", "Reverb"], ["room", "Room"], ["hall", "Hall"], ["plate", "Plate"]] },
+    { name: "Reverb", effects: [["reverb", "Reverb"], ["room", "Room"], ["hall", "Hall"], ["plate", "Plate"], ["dragonflyHall", "Dragonfly Hall"], ["dragonflyRoom", "Dragonfly Room"], ["dragonflyPlate", "Dragonfly Plate"], ["dragonflyEarly", "Dragonfly Early Reflections"]] },
     { name: "Controllers", effects: [["autopan", "Auto-pan"], ["panOMatic", "PanOMatic"], ["grossBeat", "Gross Beat"], ["tremolo", "Tremolo"], ["autoFilter", "Auto-filter"], ["lfoGain", "LFO gain"]] },
     { name: "Dynamics", effects: [["compressor", "Compressor"], ["multibandCompressor", "Multiband compressor"], ["limiter", "Limiter"], ["noiseGate", "Noise gate"], ["transientShaper", "Transient shaper"], ["sidechain", "Sidechain"], ["crossfadeLimiter", "Crossfade limiter"]] },
     { name: "Miscellaneous", effects: [["bitcrusher", "Bitcrusher"], ["pitchShifter", "Pitch shifter"], ["harmonizer", "Harmonizer"], ["vocoder", "Vocoder"]] },
@@ -6946,6 +6946,68 @@ const DRIVE_SAMPLE_TRACKS = [
     reverb: [["decay", "Decay", 0.2, 6, 0.1, " s", 1.8], ["preDelay", "Pre-delay", 0, 100, 1, " ms", 20]],
     room: [["decay", "Decay", 0.1, 2.5, 0.1, " s", 0.7], ["preDelay", "Pre-delay", 0, 60, 1, " ms", 8]],
     hall: [["decay", "Decay", 1, 8, 0.1, " s", 3.2], ["preDelay", "Pre-delay", 0, 120, 1, " ms", 35]],
+    dragonflyHall: [
+      ["dry", "Dry Level", 0, 100, 1, "%", 80],
+      ["early", "Early Level", 0, 100, 1, "%", 10],
+      ["earlySend", "Early Send", 0, 100, 1, "%", 20],
+      ["late", "Late Level", 0, 100, 1, "%", 20],
+      ["size", "Size", 10, 60, 1, " m", 24],
+      ["width", "Width", 50, 150, 1, "%", 100],
+      ["predelay", "Predelay", 0, 100, 1, " ms", 4],
+      ["diffuse", "Diffuse", 0, 100, 1, "%", 90],
+      ["decay", "Decay", 0.1, 10, 0.1, " s", 1.3],
+      ["spin", "Spin", 0, 10, 0.1, " Hz", 3.3],
+      ["wander", "Wander", 0, 40, 0.1, " ms", 15],
+      ["lowCut", "Low Cut", 0, 200, 1, " Hz", 4],
+      ["lowXover", "Low Cross", 200, 1200, 10, " Hz", 500],
+      ["lowMult", "Low Mult", 0.5, 2.5, 0.05, "×", 1.3],
+      ["highCut", "High Cut", 1000, 16000, 100, " Hz", 7600],
+      ["highXover", "High Cross", 1000, 16000, 100, " Hz", 5500],
+      ["highMult", "High Mult", 0.2, 1.2, 0.05, "×", 0.5],
+      ["modulation", "Modulation", 0, 100, 1, "%", 15],
+      ["preset", "Preset", 0, 24, 1, "", 11],
+    ],
+    dragonflyRoom: [
+      ["dry", "Dry Level", 0, 100, 1, "%", 80],
+      ["early", "Early Level", 0, 100, 1, "%", 10],
+      ["earlySend", "Early Send", 0, 100, 1, "%", 20],
+      ["late", "Late Level", 0, 100, 1, "%", 100],
+      ["size", "Size", 8, 32, 1, " m", 12],
+      ["width", "Width", 50, 150, 1, "%", 100],
+      ["predelay", "Predelay", 0, 100, 1, " ms", 8],
+      ["decay", "Decay", 0.1, 10, 0.1, " s", 0.4],
+      ["diffuse", "Diffuse", 0, 100, 1, "%", 70],
+      ["spin", "Spin", 0, 5, 0.1, " Hz", 0.8],
+      ["wander", "Wander", 0, 100, 1, "%", 40],
+      ["lowCut", "Low Cut", 0, 200, 1, " Hz", 4],
+      ["boost", "Low Boost", 0, 100, 1, "%", 50],
+      ["boostFreq", "Boost Freq", 50, 1050, 10, " Hz", 600],
+      ["earlyDamp", "Early Damp", 1000, 16000, 100, " Hz", 10000],
+      ["lateDamp", "Late Damp", 1000, 16000, 100, " Hz", 9400],
+      ["highCut", "High Cut", 1000, 16000, 100, " Hz", 16000],
+      ["preset", "Preset", 0, 24, 1, "", 6],
+    ],
+    dragonflyPlate: [
+      ["dry", "Dry Level", 0, 100, 1, "%", 80],
+      ["wet", "Wet Level", 0, 100, 1, "%", 20],
+      ["algorithm", "Reverb Type", 0, 2, 1, "", 1],
+      ["width", "Width", 50, 150, 1, "%", 100],
+      ["predelay", "Predelay", 0, 100, 1, " ms", 0],
+      ["decay", "Decay", 0.1, 10, 0.1, " s", 0.4],
+      ["lowCut", "Low Cut", 0, 200, 1, " Hz", 200],
+      ["highCut", "High Cut", 1000, 16000, 100, " Hz", 16000],
+      ["damp", "Dampen", 1000, 16000, 100, " Hz", 13000],
+      ["preset", "Preset", 0, 7, 1, "", 1],
+    ],
+    dragonflyEarly: [
+      ["dry", "Dry Level", 0, 100, 1, "%", 80],
+      ["wet", "Wet Level", 0, 100, 1, "%", 20],
+      ["program", "Reflection Type", 0, 7, 1, "", 2],
+      ["size", "Size", 10, 60, 1, " m", 20],
+      ["width", "Width", 50, 150, 1, "%", 100],
+      ["lowCut", "Low Cut", 0, 200, 1, " Hz", 50],
+      ["highCut", "High Cut", 1000, 16000, 100, " Hz", 10000],
+    ],
     plate: [["decay", "Decay", 0.3, 5, 0.1, " s", 2.2], ["preDelay", "Pre-delay", 0, 100, 1, " ms", 15]],
     delay: [["time", "Time", 0.05, 1, 0.01, " s", 0.28], ["feedback", "Feedback", 0, 90, 1, "%", 42]],
     pingPong: [["time", "Time", 0.05, 1, 0.01, " s", 0.32], ["feedback", "Feedback", 0, 90, 1, "%", 45]],
@@ -10845,7 +10907,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=cae9464f86ab");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=b9a9fa357c05");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -18602,6 +18664,51 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       preDelay.connect(convolver);
       nodes.push(preDelay, convolver);
       effectOutput = convolver;
+    } else if (["dragonflyHall", "dragonflyRoom", "dragonflyPlate", "dragonflyEarly"].includes(id)) {
+      const convolver = context.createConvolver();
+      const preDelay = context.createDelay(0.12);
+      const lowPass = context.createBiquadFilter();
+      const highPass = context.createBiquadFilter();
+      const presetIndex = setting("preset", id === "dragonflyPlate" ? 1 : id === "dragonflyRoom" ? 6 : 11);
+      const decay = id === "dragonflyEarly"
+        ? 0.15
+        : setting("decay", id === "dragonflyPlate" ? 0.4 : id === "dragonflyRoom" ? 0.4 : 1.3);
+      const predelay = id === "dragonflyEarly"
+        ? 0.003
+        : setting("predelay", 0) / 1000;
+      const size = setting("size", id === "dragonflyEarly" ? 20 : 24);
+      const width = setting("width", 100) / 100;
+      const lowCut = setting("lowCut", 4);
+      const highCut = id === "dragonflyEarly"
+        ? setting("highCut", 10000)
+        : setting("highCut", id === "dragonflyPlate" ? 16000 : 7600);
+      const impulseLength = Math.max(2048, Math.floor(context.sampleRate * Math.max(0.12, decay * (id === "dragonflyEarly" ? 1 : 1.8))));
+      const impulse = context.createBuffer(2, impulseLength, context.sampleRate);
+      const random = createSeededRandom(0x44524659 + presetIndex * 101 + impulseLength);
+      for (let channel = 0; channel < 2; channel += 1) {
+        const samples = impulse.getChannelData(channel);
+        for (let index = 0; index < samples.length; index += 1) {
+          const age = index / context.sampleRate;
+          const earlyWindow = Math.exp(-age * (id === "dragonflyEarly" ? 16 : 4));
+          const lateWindow = Math.exp(-age / Math.max(0.08, decay * (0.8 + size / 60)));
+          const density = 0.45 + width * 0.55;
+          const diffuse = (random() * 2 - 1) * lateWindow * density +
+            (id === "dragonflyEarly" ? random() * earlyWindow * 0.5 : 0);
+          samples[index] = diffuse * earlyWindow;
+        }
+      }
+      convolver.buffer = impulse;
+      preDelay.delayTime.value = predelay;
+      lowPass.type = "lowpass";
+      lowPass.frequency.value = highCut;
+      highPass.type = "highpass";
+      highPass.frequency.value = Math.max(20, lowCut);
+      input.connect(preDelay);
+      preDelay.connect(highPass);
+      highPass.connect(lowPass);
+      lowPass.connect(convolver);
+      nodes.push(convolver, preDelay, lowPass, highPass);
+      effectOutput = convolver;
     } else if (id === "time12") {
       const delay = context.createDelay(2);
       const oscillator = context.createOscillator();
@@ -20851,6 +20958,115 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       });
       content.append(controls);
       content.append(makeMixerEffectResetButton(track, effectId));
+    } else if (["dragonflyHall", "dragonflyRoom", "dragonflyPlate", "dragonflyEarly"].includes(effectId)) {
+      const settings = track.effectSettings[effectId];
+      const board = document.createElement("div");
+      board.className = `dragonfly-board dragonfly-${effectId}`;
+      board.style.backgroundImage = `url("./assets/dragonfly-reverb/${effectId === "dragonflyHall" ? "hall" : effectId === "dragonflyRoom" ? "room" : effectId === "dragonflyPlate" ? "plate" : "early"}.png")`;
+      content.className = "mixer-effect-dialog-content dragonfly-dialog-content";
+
+      const presetNames = effectId === "dragonflyHall"
+        ? ["Bright Room", "Clear Room", "Dark Room", "Small Chamber", "Large Chamber", "Acoustic Studio", "Electric Studio", "Percussion Studio", "Piano Studio", "Vocal Studio", "Small Bright Hall", "Small Clear Hall", "Small Dark Hall", "Small Percussion Hall", "Small Vocal Hall", "Medium Bright Hall", "Medium Clear Hall", "Medium Dark Hall", "Medium Percussion Hall", "Medium Vocal Hall", "Large Bright Hall", "Large Clear Hall", "Large Dark Hall", "Large Vocal Hall", "Great Hall"]
+        : effectId === "dragonflyRoom"
+          ? ["Small Bright Room", "Small Clear Room", "Small Dark Room", "Small Drum Room", "Small Vocal Room", "Medium Bright Room", "Medium Clear Room", "Medium Dark Room", "Medium Drum Room", "Medium Vocal Room", "Large Bright Room", "Large Clear Room", "Large Dark Room", "Large Drum Room", "Large Vocal Room", "Bright Hall", "Clear Hall", "Dark Hall", "Percussion Hall", "Vocal Hall", "Bright Plate", "Dark Plate", "Brick Wall", "Echo Chamber", "Long Tunnel"]
+          : effectId === "dragonflyPlate"
+            ? ["Abrupt Plate", "Bright Plate", "Clear Plate", "Dark Plate", "Foil Tray", "Metal Roof", "Narrow Tank", "Phat Tank"]
+            : ["Abrupt Echo", "Backstage Pass", "Concert Venue", "Damaged Goods", "Elevator Pitch", "Floor Thirteen", "Garage Band", "Home Studio"];
+
+      const presetSelect = document.createElement("select");
+      presetSelect.className = "dragonfly-preset";
+      presetNames.forEach((name, index) => {
+        const option = document.createElement("option");
+        option.value = String(index);
+        option.textContent = name;
+        presetSelect.append(option);
+      });
+      presetSelect.value = String(settings.preset ?? (effectId === "dragonflyPlate" ? 1 : effectId === "dragonflyRoom" ? 6 : 11));
+      presetSelect.addEventListener("change", () => {
+        settings.preset = Number(presetSelect.value);
+        if (effectId === "dragonflyEarly") settings.program = settings.preset;
+        refreshMixerEffectTrack(track);
+        openMixerEffectDialog(track, effectId);
+      });
+      board.append(presetSelect);
+
+      if (effectId === "dragonflyPlate") {
+        const algorithmSelect = document.createElement("select");
+        algorithmSelect.className = "dragonfly-preset dragonfly-algorithm";
+        ["Simple", "Nested", "Tank"].forEach((name, index) => {
+          const option = document.createElement("option");
+          option.value = String(index);
+          option.textContent = name;
+          algorithmSelect.append(option);
+        });
+        algorithmSelect.value = String(settings.algorithm ?? 1);
+        algorithmSelect.addEventListener("change", () => {
+          settings.algorithm = Number(algorithmSelect.value);
+          refreshMixerEffectTrack(track);
+        });
+        board.append(algorithmSelect);
+      }
+
+      const sliderIds = effectId === "dragonflyPlate"
+        ? [["dry", 0], ["wet", 1]]
+        : ["dry", "early", "earlySend", "late"].map((id, index) => [id, index]);
+      sliderIds.forEach(([id, index]) => {
+        const definition = EFFECT_PARAMETERS[effectId].find(([parameterId]) => parameterId === id);
+        if (!definition) return;
+        const [, , min, max, step, unit] = definition;
+        const input = document.createElement("input");
+        input.type = "range";
+        input.className = "dragonfly-fader";
+        input.min = String(min);
+        input.max = String(max);
+        input.step = String(step);
+        input.value = String(settings[id]);
+        input.setAttribute("aria-label", definition[1]);
+        input.style.setProperty("--fader-index", String(index));
+        input.addEventListener("input", () => {
+          settings[id] = Number(input.value);
+          refreshMixerEffectTrack(track);
+        });
+        board.append(input);
+      });
+
+      const knobIds = effectId === "dragonflyHall"
+        ? ["size", "width", "diffuse", "modulation", "spin", "wander", "predelay", "decay", "highCut", "highXover", "highMult", "lowCut", "lowXover", "lowMult"]
+        : effectId === "dragonflyRoom"
+          ? ["size", "width", "diffuse", "spin", "wander", "predelay", "decay", "highCut", "earlyDamp", "lateDamp", "lowCut", "boost", "boostFreq"]
+          : effectId === "dragonflyPlate"
+            ? ["width", "predelay", "decay", "lowCut", "highCut", "damp"]
+            : ["size", "width", "lowCut", "highCut"];
+      const positions = effectId === "dragonflyHall"
+        ? [[185,130],[260,130],[605,15],[680,15],[755,15],[830,15],[185,245],[260,245],[680,130],[755,130],[830,130],[680,245],[755,245],[830,245]]
+        : effectId === "dragonflyRoom"
+          ? [[185,130],[260,130],[605,15],[680,15],[755,15],[185,245],[260,245],[680,130],[755,130],[830,130],[680,245],[755,245],[830,245]]
+          : effectId === "dragonflyPlate"
+            ? [[480,115],[555,115],[625,115],[485,235],[555,235],[625,235]]
+            : [[125,115],[200,115],[125,235],[200,235]];
+
+      knobIds.forEach((id, index) => {
+        const definition = EFFECT_PARAMETERS[effectId].find(([parameterId]) => parameterId === id);
+        if (!definition) return;
+        const [, label, min, max, step, unit] = definition;
+        const control = makeMixerSettingKnob(label, settings[id], min, max, step, unit, (value) => {
+          settings[id] = value;
+          refreshMixerEffectTrack(track);
+        });
+        control.classList.add("dragonfly-knob");
+        const [left, top] = positions[index];
+        control.style.left = `${left}px`;
+        control.style.top = `${top}px`;
+        board.append(control);
+      });
+
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "dragonfly-remove";
+      remove.textContent = "Remove";
+      remove.addEventListener("click", () => removeMixerEffect(track, effectId));
+      board.append(remove);
+      content.append(board);
     } else if (effectId === "time12") {
       content.className = "mixer-effect-dialog-content mixer-layout-time12 time12-layout";
       const settings = track.effectSettings.time12;

@@ -1087,6 +1087,30 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .mixer-effect-dialog[data-effect-id="bloodOverdrive"] .mixer-effect-knob-control { background: repeating-linear-gradient(0deg, #2b1d1b 0 3px, #211817 3px 6px); }
 .mixer-effect-dialog[data-effect-id="grossBeat"] .mixer-effect-knob-control { background: linear-gradient(145deg, #202b3a, #151b26); }
 .mixer-effect-dialog[data-effect-id="time12"] .mixer-effect-knob-control { background: linear-gradient(145deg, #1d2a35, #11171f); }
+.mixer-effect-dialog[data-effect-id="dragonflyHall"] { width: 920px; }
+.mixer-effect-dialog[data-effect-id="dragonflyRoom"] { width: 920px; }
+.mixer-effect-dialog[data-effect-id="dragonflyPlate"] { width: 675px; }
+.mixer-effect-dialog[data-effect-id="dragonflyEarly"] { width: 450px; }
+.dragonfly-dialog-content { display: block !important; padding: 0 !important; max-height: none !important; height: auto !important; }
+.dragonfly-board { position: relative; width: 920px; height: 345px; overflow: hidden; background-position: center; background-repeat: no-repeat; background-size: 920px 345px; }
+.dragonfly-board.dragonfly-dragonflyRoom { background-size: 920px 345px; }
+.dragonfly-board.dragonfly-dragonflyPlate { width: 675px; background-size: 675px 345px; }
+.dragonfly-board.dragonfly-dragonflyEarly { width: 450px; height: 340px; background-size: 450px 340px; }
+.dragonfly-preset { position: absolute; z-index: 4; border: 1px solid #9dbee0; border-radius: 5px; background: rgba(33,51,79,.92); color: #f2f5f6; font-size: 11px; }
+.dragonfly-dragonflyHall .dragonfly-preset,
+.dragonfly-dragonflyRoom .dragonfly-preset { left: 405px; top: 6px; width: 185px; height: 25px; }
+.dragonfly-dragonflyPlate .dragonfly-preset { left: 380px; top: 6px; width: 150px; height: 25px; }
+.dragonfly-dragonflyEarly .dragonfly-preset { left: 105px; top: 115px; width: 125px; height: 24px; }
+.dragonfly-board.dragonfly-dragonflyPlate .dragonfly-algorithm { left: 548px; top: 5px; width: 112px; }
+.dragonfly-fader { position: absolute; z-index: 5; left: calc(17px + var(--fader-index) * 40px); bottom: 15px; width: 26px; height: 160px; margin: 0; writing-mode: vertical-lr; direction: rtl; appearance: slider-vertical; opacity: .88; }
+.dragonfly-dragonflyPlate .dragonfly-fader { bottom: 70px; }
+.dragonfly-dragonflyEarly .dragonfly-fader { bottom: 8px; }
+.dragonfly-knob { position: absolute; z-index: 6; width: 75px; height: 82px; min-height: 82px; margin: 0; border: 0; background: transparent; }
+.dragonfly-knob .mixer-control-caption { color: transparent; font-size: 0; }
+.dragonfly-knob .mixer-effect-dial { width: 62px; height: 62px; background: radial-gradient(circle at 50% 45%, #91ad99 0 38%, #385a42 39% 55%, #202d27 56% 62%, transparent 63%); box-shadow: none; opacity: .18; }
+.dragonfly-knob output { color: transparent; }
+.dragonfly-remove { position: absolute; z-index: 8; right: 8px; bottom: 4px; border: 0; background: transparent; color: #c9ced3; font-size: 9px; cursor: pointer; opacity: 0; }
+.dragonfly-board:hover .dragonfly-remove { opacity: 1; }
 .mixer-effect-dialog[data-effect-id="time12"] { width: min(640px, calc(100vw - 20px)); height: min(640px, calc(100dvh - 16px)); }
 .mixer-effect-dialog-content.time12-layout { display: block; height: calc(100% - 38px); max-height: none; overflow: hidden; padding: 0; background: #181818; }
 .time12-shell { height: 100%; display: grid; grid-template-rows: 35px 35px 35px minmax(0, 1fr) 70px; box-sizing: border-box; color: #e5e7e5; background: #181818; font-family: var(--mono); }

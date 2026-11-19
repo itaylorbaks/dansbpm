@@ -49,6 +49,7 @@ function makeAudioContext() {
     ["createWaveShaper", "waveshaper"],
     ["createDelay", "delay"],
     ["createOscillator", "oscillator"],
+    ["createConvolver", "convolver"],
     ["createStereoPanner", "stereo-panner"],
     ["createChannelSplitter", "splitter"],
     ["createChannelMerger", "merger"],
@@ -59,11 +60,27 @@ function makeAudioContext() {
       return node;
     };
   });
+  context.createBuffer = (channels, length, sampleRate) => ({
+    numberOfChannels: channels,
+    length,
+    sampleRate,
+    getChannelData: () => new Float32Array(length),
+  });
   return { context, created };
 }
 
 const state = { bpm: 120, audioContext: { currentTime: 3 } };
 const createTrackEffect = new Function("state", `
+  const createSeededRandom = (seed) => {
+    let value = seed >>> 0;
+    return () => {
+      value = (value + 0x6d2b79f5) >>> 0;
+      let mixed = value;
+      mixed = Math.imul(mixed ^ (mixed >>> 15), mixed | 1);
+      mixed ^= mixed + Math.imul(mixed ^ (mixed >>> 7), mixed | 61);
+      return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
+    };
+  };
   ${extractFunction("makeMixerMidSideBuses", "makeMixerMidSideOutput")}
   ${extractFunction("makeMixerMidSideOutput", "addMixerFilterStages")}
   ${extractFunction("addMixerFilterStages", "createTrackEffect")}
@@ -92,6 +109,24 @@ test("guitar distortion and Blood Overdrive build bounded oversampled curves", (
       assert.ok(created.some((node) => node.kind === "biquad" && node.type === "highpass" && node.frequency.value === 24));
     }
     assert.equal(module.wet.connections[0][0], module.output);
+  }
+});
+
+test("Dragonfly Reverb variants build convolver DSP graphs", () => {
+  for (const effectId of ["dragonflyHall", "dragonflyRoom", "dragonflyPlate", "dragonflyEarly"]) {
+    const { context, created } = makeAudioContext();
+    const module = createTrackEffect(context, effectId, 50, {
+      preset: 1,
+      decay: 0.8,
+      predelay: 12,
+      size: 24,
+      width: 100,
+      lowCut: 50,
+      highCut: 16000,
+    });
+    assert.equal(created.filter((node) => node.kind === "convolver").length, 1);
+    assert.equal(created.filter((node) => node.kind === "biquad").length, 2);
+    assert.ok(module.wet.connections[0][0] === module.output);
   }
 });
 

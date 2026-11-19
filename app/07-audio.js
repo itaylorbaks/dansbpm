@@ -1305,6 +1305,51 @@
       preDelay.connect(convolver);
       nodes.push(preDelay, convolver);
       effectOutput = convolver;
+    } else if (["dragonflyHall", "dragonflyRoom", "dragonflyPlate", "dragonflyEarly"].includes(id)) {
+      const convolver = context.createConvolver();
+      const preDelay = context.createDelay(0.12);
+      const lowPass = context.createBiquadFilter();
+      const highPass = context.createBiquadFilter();
+      const presetIndex = setting("preset", id === "dragonflyPlate" ? 1 : id === "dragonflyRoom" ? 6 : 11);
+      const decay = id === "dragonflyEarly"
+        ? 0.15
+        : setting("decay", id === "dragonflyPlate" ? 0.4 : id === "dragonflyRoom" ? 0.4 : 1.3);
+      const predelay = id === "dragonflyEarly"
+        ? 0.003
+        : setting("predelay", 0) / 1000;
+      const size = setting("size", id === "dragonflyEarly" ? 20 : 24);
+      const width = setting("width", 100) / 100;
+      const lowCut = setting("lowCut", 4);
+      const highCut = id === "dragonflyEarly"
+        ? setting("highCut", 10000)
+        : setting("highCut", id === "dragonflyPlate" ? 16000 : 7600);
+      const impulseLength = Math.max(2048, Math.floor(context.sampleRate * Math.max(0.12, decay * (id === "dragonflyEarly" ? 1 : 1.8))));
+      const impulse = context.createBuffer(2, impulseLength, context.sampleRate);
+      const random = createSeededRandom(0x44524659 + presetIndex * 101 + impulseLength);
+      for (let channel = 0; channel < 2; channel += 1) {
+        const samples = impulse.getChannelData(channel);
+        for (let index = 0; index < samples.length; index += 1) {
+          const age = index / context.sampleRate;
+          const earlyWindow = Math.exp(-age * (id === "dragonflyEarly" ? 16 : 4));
+          const lateWindow = Math.exp(-age / Math.max(0.08, decay * (0.8 + size / 60)));
+          const density = 0.45 + width * 0.55;
+          const diffuse = (random() * 2 - 1) * lateWindow * density +
+            (id === "dragonflyEarly" ? random() * earlyWindow * 0.5 : 0);
+          samples[index] = diffuse * earlyWindow;
+        }
+      }
+      convolver.buffer = impulse;
+      preDelay.delayTime.value = predelay;
+      lowPass.type = "lowpass";
+      lowPass.frequency.value = highCut;
+      highPass.type = "highpass";
+      highPass.frequency.value = Math.max(20, lowCut);
+      input.connect(preDelay);
+      preDelay.connect(highPass);
+      highPass.connect(lowPass);
+      lowPass.connect(convolver);
+      nodes.push(convolver, preDelay, lowPass, highPass);
+      effectOutput = convolver;
     } else if (id === "time12") {
       const delay = context.createDelay(2);
       const oscillator = context.createOscillator();
