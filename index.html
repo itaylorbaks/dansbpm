@@ -807,7 +807,7 @@
             <div class="recording-browser" id="recording-browser"></div>
             <button class="source-add-button" id="side-add-recording" type="button">＋ Import audio</button>
             <div class="source-section-label instrument-section-label">SOUND LIBRARY <span id="drum-sound-count">138</span></div>
-            <button class="source-add-button" id="import-drum-sounds-button" type="button">＋ Import drum sounds</button>
+            <button class="source-add-button" id="import-drum-sounds-button" type="button">＋ Add sounds</button>
             <div class="instrument-browser" id="instrument-browser"></div>
             <p class="sound-library-attribution">Live recordings: <a href="https://wiki.laptop.org/go/Sound_samples" target="_blank" rel="noreferrer">OLPC Berklee Sound Library</a> (CC BY 3.0) and acoustic hi-hats from <a href="https://github.com/Gradigang-Solutions/kringel-samples" target="_blank" rel="noreferrer">kringel-samples</a> (<a href="https://creativecommons.org/publicdomain/zero/1.0/" target="_blank" rel="noreferrer">CC0 1.0</a>).</p>
           </aside>
@@ -838,6 +838,7 @@
           </div>
           <div class="step-instrument-library" id="step-instrument-library"></div>
           <div class="step-instrument-actions">
+            <button class="quiet-button" id="step-instrument-upload-button" type="button">Upload sounds</button>
             <button class="quiet-button step-instrument-select-button" id="step-instrument-select" type="button" disabled>Select</button>
           </div>
           <p class="sound-library-attribution">Live recordings: <a href="https://wiki.laptop.org/go/Sound_samples" target="_blank" rel="noreferrer">OLPC Berklee Sound Library</a>, licensed under <a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noreferrer">CC BY 3.0</a>.</p>
@@ -880,7 +881,9 @@
       </main>
       <input id="sample-input" type="file" accept="audio/*" hidden />
       <input id="drum-samples-input" type="file" accept="audio/*" multiple hidden />
+      <input id="step-instrument-upload-input" type="file" accept="audio/*" multiple hidden />
       <input id="recording-input" type="file" accept="audio/*" multiple hidden />
+      <input id="audio-assets-input" type="file" accept="audio/*" multiple hidden />
       <input id="project-import-input" type="file" accept=".bpm,application/json" hidden />
       <input id="midi-import-input" type="file" accept=".mid,.midi,audio/midi,audio/x-midi" hidden />
       <input id="piano-audio-import-input" type="file" accept="audio/*,.wav,.wave,.mp3,.m4a,.aac,.flac,.ogg,.opus,.webm,.aiff,.aif" hidden />
@@ -1313,6 +1316,6 @@
       <button class="continue-as-guest" id="continue-as-guest" type="button">Continue as Guest</button>
     </section>
     <script src="assets/vendor/lame.min.js"></script>
-    <script src="app.js?v=208fe5aa57a7"></script>
+    <script src="app.js?v=4c29ad11da61"></script>
   </body>
 </html>

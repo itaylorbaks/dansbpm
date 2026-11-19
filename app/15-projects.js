@@ -487,10 +487,14 @@
               cells: savedTrack.cells,
               effects: savedTrack.effects,
               audioMetadata: savedTrack.audioMetadata,
+              libraryOnly: savedTrack.libraryOnly === true,
             });
             state.tracks.push(track);
           }
           if (!track) return;
+          if (typeof savedTrack.libraryOnly === "boolean") {
+            track.libraryOnly = savedTrack.libraryOnly;
+          }
           if (Array.isArray(savedTrack.cells)) {
             track.cells = Array.from({ length: STEP_COUNT }, (_, index) => savedTrack.cells[index] === true);
           }

@@ -537,6 +537,7 @@
         volume: track.volume,
         muted: track.muted,
         solo: track.solo,
+        libraryOnly: track.libraryOnly === true,
         pitch: track.pitch || 0,
         swing: Number.isFinite(track.swing) ? track.swing : null,
         cells: track.cells,
@@ -631,6 +632,7 @@
               volume: record.volume,
               muted: record.muted,
               solo: record.solo,
+              libraryOnly: record.libraryOnly === true,
               pitch: record.pitch,
               swing: record.swing,
               cells: record.cells,
@@ -639,7 +641,7 @@
             });
             state.tracks.push(track);
             const pattern = getPattern();
-            if (pattern) {
+            if (pattern && !track.libraryOnly) {
               pattern.trackIds = [...getPatternTrackIds(pattern), track.id];
               pattern.cells[track.id] = Array.from({ length: STEP_COUNT }, (_, index) => record.cells?.[index] === true);
             }
@@ -648,7 +650,7 @@
             track.audioMetadata = record.audioMetadata
               ? normalizeAudioMetadata(record.audioMetadata)
               : detectAudioMetadata(buffer);
-            ensureSequencerTrackAudio(track);
+            if (!track.libraryOnly) ensureSequencerTrackAudio(track);
             if (track.kind === "sample") track.subtitle = "Imported drum sample";
           }
         } catch {
@@ -775,6 +777,7 @@
           showToast(`Could not restore ${record.name}.`);
         }
       }
+      state.arrangementTracks.flatMap((track) => track.clips).forEach(ensureFullAudioAsset);
       if (sampleRecords.length) renderTracks();
       updateArrangementLength();
       renderArrangement();

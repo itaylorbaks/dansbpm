@@ -1428,6 +1428,7 @@
       tracks: state.tracks.map((track) => ({
         id: track.id,
         sourceId: track.sourceId || null,
+        libraryOnly: track.libraryOnly === true,
         name: track.name,
         kind: track.kind,
         color: track.color,

@@ -237,6 +237,7 @@
   const swingSlider = $("#swing-slider");
   const sampleInput = $("#sample-input");
   const drumSamplesInput = $("#drum-samples-input");
+  const stepInstrumentUploadInput = $("#step-instrument-upload-input");
   const toast = $("#toast");
   let stepInstrumentTargetTrackId = null;
   let stepInstrumentPickerMode = "step";

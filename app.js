@@ -6856,6 +6856,7 @@ const DRIVE_SAMPLE_TRACKS = [
   const swingSlider = $("#swing-slider");
   const sampleInput = $("#sample-input");
   const drumSamplesInput = $("#drum-samples-input");
+  const stepInstrumentUploadInput = $("#step-instrument-upload-input");
   const toast = $("#toast");
   let stepInstrumentTargetTrackId = null;
   let stepInstrumentPickerMode = "step";
@@ -9869,7 +9870,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=208fe5aa57a7");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=4c29ad11da61");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -16822,6 +16823,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       id: options.id || makeId(),
       name,
       kind: "sample",
+      libraryOnly: options.libraryOnly === true,
       color: /^#[\da-f]{6}$/i.test(options.color || "") ? options.color : TRACK_COLORS[state.tracks.length % TRACK_COLORS.length],
       subtitle: "Imported drum sample",
       volume: Number.isFinite(options.volume) ? Math.max(0, Math.min(1, options.volume)) : 0.72,
@@ -16836,7 +16838,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       gainNode: null,
       effects: makeDefaultEffects(options.effects),
     };
-    ensureSequencerTrackAudio(track);
+    if (!track.libraryOnly) ensureSequencerTrackAudio(track);
     return track;
   }
 
@@ -16864,13 +16866,12 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     return layer;
   }
 
-  async function importDrumSamples(files) {
+  async function importDrumSamples(files, { selectFirst = false, input = drumSamplesInput } = {}) {
     if (!files.length) return;
     const imported = [];
     const failures = [];
     try {
       await ensureAudio();
-      captureCurrentPattern();
       for (const file of files) {
         if (!isAudioFile(file)) {
           failures.push(file.name);
@@ -16881,15 +16882,11 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
           const track = makeDrumSampleTrack({
             name: file.name.replace(/\.[^.]+$/, "") || file.name,
             fileName: file.name,
+            libraryOnly: true,
             buffer,
             audioMetadata: detectAudioMetadata(buffer),
           });
           state.tracks.push(track);
-          const pattern = getPattern();
-          if (pattern) {
-            pattern.trackIds = [...getPatternTrackIds(pattern), track.id];
-            pattern.cells[track.id] = Array(STEP_COUNT).fill(false);
-          }
           imported.push({ track, file });
         } catch {
           failures.push(file.name);
@@ -16897,12 +16894,23 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       }
 
       if (imported.length) {
-        renderTracks();
-        if (isSongWorkspace()) renderArrangement();
+        renderInstrumentBrowser("", true);
+        if (selectFirst && $("#step-instrument-dialog").open) {
+          const searchInput = $("#sound-library-search-input");
+          searchInput.value = "User Samples";
+          stepInstrumentPendingId = imported[0].track.id;
+          renderSoundSearchSuggestions(searchInput.value);
+          renderStepInstrumentLibrary(searchInput.value);
+          loadLibrarySample(imported[0].track).then(() => {
+            if (stepInstrumentPendingId === imported[0].track.id && $("#step-instrument-dialog").open) {
+              $("#step-instrument-select").disabled = false;
+            }
+          }).catch((error) => showToast(error.message || `Could not load ${imported[0].track.name}.`));
+        }
         saveState();
         const saves = await Promise.allSettled(imported.map(({ track, file }) => persistDrumSample(track, file)));
         const storageFailed = saves.some((result) => result.status === "rejected");
-        const summary = `${imported.length} drum sound${imported.length === 1 ? "" : "s"} imported`;
+        const summary = `${imported.length} sound${imported.length === 1 ? "" : "s"} added to the library`;
         showToast(`${summary}${failures.length ? `; ${failures.length} could not be decoded` : ""}${storageFailed ? "; some couldn't be saved" : ""}.`);
       } else {
         showToast(failures.length ? `Could not import ${failures.join(", ")}.` : "Choose one or more audio files.");
@@ -16910,7 +16918,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     } catch (error) {
       showToast(`Could not import drum sounds: ${error.message || "audio is unavailable"}`);
     } finally {
-      drumSamplesInput.value = "";
+      input.value = "";
     }
   }
 
@@ -22345,21 +22353,29 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     dialog.showModal();
   }
 
-  function askAudioTempoChoice(filename, detectedBpm, projectBpm = state.bpm) {
+  function askAudioTempoChoice(filename, detectedBpm, projectBpm = state.bpm, batchSize = 1) {
     const dialog = $("#audio-tempo-dialog");
     const mainOptions = $("#audio-tempo-main-options");
     const interpretations = $("#audio-tempo-interpretations");
     const adjustAudioButton = $("#audio-tempo-audio-to-project");
     const interpretationDescription = $("#audio-tempo-interpretation-description");
     const projectTempoBpm = roundBpm(projectBpm);
+    const isBatch = batchSize > 1;
     const doubleBpm = roundBpm(projectTempoBpm * 2);
     const halfBpm = roundBpm(projectTempoBpm / 2);
     const canStretchTo = (targetBpm) => detectedBpm !== null &&
       targetBpm / detectedBpm >= 1 / 6 && targetBpm / detectedBpm <= 6;
+    $("#audio-tempo-title").textContent = isBatch
+      ? "Match the tempo for all imported audio?"
+      : "Match the project tempo?";
     $("#audio-tempo-file").textContent = filename;
     $("#audio-tempo-detection").textContent = detectedBpm === null
-      ? "Tempo could not be confidently detected. You can leave both tempos unchanged."
-      : `Detected audio tempo: ${detectedBpm} BPM · Project tempo: ${projectTempoBpm} BPM.`;
+      ? isBatch
+        ? `One tempo choice will be applied to all ${batchSize} files. No confident tempo was detected for the first file.`
+        : "Tempo could not be confidently detected. You can leave both tempos unchanged."
+      : isBatch
+        ? `One tempo choice will be applied to all ${batchSize} files. First detected audio tempo: ${detectedBpm} BPM · Project tempo: ${projectTempoBpm} BPM.`
+        : `Detected audio tempo: ${detectedBpm} BPM · Project tempo: ${projectTempoBpm} BPM.`;
     adjustAudioButton.disabled = detectedBpm === null;
     $("#audio-tempo-project-to-audio").disabled = detectedBpm === null;
     $("#audio-tempo-actual").textContent = `Use project tempo (${projectTempoBpm} BPM)`;
@@ -23141,6 +23157,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         const keep = !has("audio", clip.id);
         if (!keep) {
           deleted = true;
+          ensureFullAudioAsset(clip);
           deletePersistedClip(clip.id);
         }
         return keep;
@@ -23343,11 +23360,13 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
 
   function ensureFullAudioAsset(clip) {
     const sourceAssetId = clip.sourceAssetId || clip.assetId || clip.id;
-    if (state.audioAssets.some((asset) =>
-      asset.isSourceAudioAsset && asset.sourceAssetId === sourceAssetId)) return;
+    const existing = state.audioAssets.find((asset) =>
+      asset.isSourceAudioAsset && asset.sourceAssetId === sourceAssetId);
+    if (existing?.blob) return existing;
     const asset = {
+      ...(existing || {}),
       ...clip,
-      id: makeId(),
+      id: existing?.id || makeId(),
       assetId: sourceAssetId,
       sourceAssetId,
       sourceClipOffsetSeconds: clip.sourceOffsetSeconds || 0,
@@ -23363,9 +23382,11 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       reversed: false,
       isSourceAudioAsset: true,
     };
-    state.audioAssets.push(asset);
+    if (existing) Object.assign(existing, asset);
+    else state.audioAssets.push(asset);
     if (asset.blob) persistAudioAsset(asset).catch((error) =>
-      showToast(`Source audio was split, but could not be saved to the library: ${error.message || "storage unavailable"}`));
+      showToast(`Audio was added, but could not be saved to the library: ${error.message || "storage unavailable"}`));
+    return asset;
   }
 
   function createAudioSegmentAsset(clip, sourceAssetId) {
@@ -23609,6 +23630,101 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     input.click();
   }
 
+  function requestAudioAssetImport() {
+    const input = $("#audio-assets-input");
+    input.value = "";
+    input.click();
+  }
+
+  async function importAudioAssets(files, input = $("#audio-assets-input")) {
+    if (!files.length) return;
+    const decoded = [];
+    const failures = [];
+    try {
+      await ensureAudio();
+      for (const file of files) {
+        if (!isAudioFile(file)) {
+          failures.push(file.name);
+          continue;
+        }
+        try {
+          const buffer = await state.audioContext.decodeAudioData(await file.arrayBuffer());
+          const audioMetadata = detectAudioMetadata(buffer);
+          decoded.push({ file, buffer, audioMetadata, detectedMetadata: normalizeAudioMetadata(audioMetadata) });
+        } catch {
+          failures.push(file.name);
+        }
+      }
+      if (!decoded.length) {
+        showToast(failures.length ? `Could not import ${failures.join(", ")}.` : "Choose one or more audio files.");
+        return;
+      }
+
+      const reference = decoded.find(({ detectedMetadata }) => detectedMetadata.bpm !== null) || decoded[0];
+      const tempoChoice = await askAudioTempoChoice(
+        decoded.length > 1 ? `${reference.file.name} (tempo reference)` : reference.file.name,
+        reference.detectedMetadata.bpm,
+        state.bpm,
+        decoded.length,
+      );
+      let projectTempoChanged = false;
+      if (tempoChoice.action === "project-to-audio" && reference.detectedMetadata.bpm !== null) {
+        const targetBpm = Math.max(60, Math.min(180, roundBpm(reference.detectedMetadata.bpm)));
+        projectTempoChanged = targetBpm === state.bpm
+          ? true
+          : await openProjectTempoChangeDialog(targetBpm);
+      }
+      const targetBpm = tempoChoice.action === "audio-to-project"
+        ? tempoChoice.targetBpm
+        : tempoChoice.action === "project-to-audio" && projectTempoChanged
+          ? state.bpm
+          : null;
+      const assets = decoded.map(({ file, buffer, audioMetadata, detectedMetadata }) => {
+        const id = makeId();
+        const audioAdjustment = getAudioClipProjectAdjustment(audioMetadata, targetBpm);
+        const asset = {
+          id,
+          assetId: id,
+          sourceAssetId: id,
+          sourceClipOffsetSeconds: Number.isFinite(detectedMetadata.beatOffsetSeconds)
+            ? Math.max(0, Math.min(buffer.duration - 0.01, detectedMetadata.beatOffsetSeconds))
+            : 0,
+          name: file.name,
+          buffer,
+          blob: file,
+          audioStemGroupId: makeId(),
+          durationSeconds: buffer.duration,
+          sourceOffsetSeconds: 0,
+          repeatCount: 1,
+          repeatStartSeconds: 0,
+          repeatLengthSeconds: buffer.duration,
+          clipGain: 1,
+          fadeInSeconds: 0,
+          fadeOutSeconds: 0,
+          reversed: false,
+          audioMetadata,
+          ...(audioAdjustment ? { audioAdjustment } : {}),
+          ...(tempoChoice.action === "audio-to-project" && audioAdjustment
+            ? { tempoRatioOverride: audioAdjustment.tempoRatio } : {}),
+          isSourceAudioAsset: true,
+        };
+        state.audioAssets.push(asset);
+        return asset;
+      });
+      renderRecordingBrowser();
+      saveState();
+      const saves = await Promise.allSettled(assets.map((asset) => persistAudioAsset(asset)));
+      const storageFailed = saves.some((result) => result.status === "rejected");
+      const tempoNotice = projectTempoChanged ? ` Project set to ${state.bpm} BPM.` : "";
+      const summary = `${assets.length} audio item${assets.length === 1 ? "" : "s"} added to the library`;
+      showToast(`${summary}${failures.length ? `; ${failures.length} could not be decoded` : ""}${storageFailed ? "; some couldn't be saved" : ""}.${tempoNotice}`);
+    } catch (error) {
+      showToast(`Could not import audio to the library: ${error.message || "audio is unavailable"}`);
+    } finally {
+      input.value = "";
+    }
+  }
+
   async function importRecording(file, trackId = null, startBar = state.arrangementCursor, snapStart = true, requirePersistence = false) {
     if (!isAudioFile(file)) {
       showToast(`"${file.name}" is not an audio file.`);
@@ -23657,6 +23773,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         : Math.max(0, Math.min(MAX_ARRANGEMENT_BARS - getArrangementClipDuration("audio", clip), startBar));
       track.clips.push(clip);
       track.clips.sort((left, right) => left.startBar - right.startBar);
+      ensureFullAudioAsset(clip);
       updateArrangementLength();
       renderArrangement();
       updateProjectKeyIndicator();
@@ -24433,6 +24550,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         volume: track.volume,
         muted: track.muted,
         solo: track.solo,
+        libraryOnly: track.libraryOnly === true,
         pitch: track.pitch || 0,
         swing: Number.isFinite(track.swing) ? track.swing : null,
         cells: track.cells,
@@ -24527,6 +24645,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
               volume: record.volume,
               muted: record.muted,
               solo: record.solo,
+              libraryOnly: record.libraryOnly === true,
               pitch: record.pitch,
               swing: record.swing,
               cells: record.cells,
@@ -24535,7 +24654,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
             });
             state.tracks.push(track);
             const pattern = getPattern();
-            if (pattern) {
+            if (pattern && !track.libraryOnly) {
               pattern.trackIds = [...getPatternTrackIds(pattern), track.id];
               pattern.cells[track.id] = Array.from({ length: STEP_COUNT }, (_, index) => record.cells?.[index] === true);
             }
@@ -24544,7 +24663,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
             track.audioMetadata = record.audioMetadata
               ? normalizeAudioMetadata(record.audioMetadata)
               : detectAudioMetadata(buffer);
-            ensureSequencerTrackAudio(track);
+            if (!track.libraryOnly) ensureSequencerTrackAudio(track);
             if (track.kind === "sample") track.subtitle = "Imported drum sample";
           }
         } catch {
@@ -24671,6 +24790,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
           showToast(`Could not restore ${record.name}.`);
         }
       }
+      state.arrangementTracks.flatMap((track) => track.clips).forEach(ensureFullAudioAsset);
       if (sampleRecords.length) renderTracks();
       updateArrangementLength();
       renderArrangement();
@@ -26140,6 +26260,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       tracks: state.tracks.map((track) => ({
         id: track.id,
         sourceId: track.sourceId || null,
+        libraryOnly: track.libraryOnly === true,
         name: track.name,
         kind: track.kind,
         color: track.color,
@@ -28618,10 +28739,14 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
               cells: savedTrack.cells,
               effects: savedTrack.effects,
               audioMetadata: savedTrack.audioMetadata,
+              libraryOnly: savedTrack.libraryOnly === true,
             });
             state.tracks.push(track);
           }
           if (!track) return;
+          if (typeof savedTrack.libraryOnly === "boolean") {
+            track.libraryOnly = savedTrack.libraryOnly;
+          }
           if (Array.isArray(savedTrack.cells)) {
             track.cells = Array.from({ length: STEP_COUNT }, (_, index) => savedTrack.cells[index] === true);
           }
@@ -32116,6 +32241,13 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     }, true);
     $("#step-instrument-close").addEventListener("click", () => $("#step-instrument-dialog").close());
     $("#step-instrument-select").addEventListener("click", applyStepInstrumentSelection);
+    $("#step-instrument-upload-button").addEventListener("click", () => stepInstrumentUploadInput.click());
+    stepInstrumentUploadInput.addEventListener("change", () => {
+      void importDrumSamples(Array.from(stepInstrumentUploadInput.files || []), {
+        selectFirst: true,
+        input: stepInstrumentUploadInput,
+      });
+    });
     $("#step-instrument-dialog").addEventListener("close", () => {
       closeSoundDurationMenu();
       stepInstrumentTargetTrackId = null;
@@ -32167,7 +32299,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       restoreAssetLibraryDialogPosition();
     });
     $("#empty-import-button").addEventListener("click", () => requestRecordingImport());
-    $("#side-add-recording").addEventListener("click", () => requestRecordingImport());
+    $("#side-add-recording").addEventListener("click", requestAudioAssetImport);
+    $("#audio-assets-input").addEventListener("change", (event) => {
+      void importAudioAssets(Array.from(event.target.files || []), event.target);
+    });
     $("#recording-input").addEventListener("change", async (event) => {
       const files = Array.from(event.target.files || []);
       for (const file of files) await importRecording(file, state.pendingImportTrackId);

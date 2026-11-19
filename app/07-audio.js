@@ -611,6 +611,7 @@
       id: options.id || makeId(),
       name,
       kind: "sample",
+      libraryOnly: options.libraryOnly === true,
       color: /^#[\da-f]{6}$/i.test(options.color || "") ? options.color : TRACK_COLORS[state.tracks.length % TRACK_COLORS.length],
       subtitle: "Imported drum sample",
       volume: Number.isFinite(options.volume) ? Math.max(0, Math.min(1, options.volume)) : 0.72,
@@ -625,7 +626,7 @@
       gainNode: null,
       effects: makeDefaultEffects(options.effects),
     };
-    ensureSequencerTrackAudio(track);
+    if (!track.libraryOnly) ensureSequencerTrackAudio(track);
     return track;
   }
 
@@ -653,13 +654,12 @@
     return layer;
   }
 
-  async function importDrumSamples(files) {
+  async function importDrumSamples(files, { selectFirst = false, input = drumSamplesInput } = {}) {
     if (!files.length) return;
     const imported = [];
     const failures = [];
     try {
       await ensureAudio();
-      captureCurrentPattern();
       for (const file of files) {
         if (!isAudioFile(file)) {
           failures.push(file.name);
@@ -670,15 +670,11 @@
           const track = makeDrumSampleTrack({
             name: file.name.replace(/\.[^.]+$/, "") || file.name,
             fileName: file.name,
+            libraryOnly: true,
             buffer,
             audioMetadata: detectAudioMetadata(buffer),
           });
           state.tracks.push(track);
-          const pattern = getPattern();
-          if (pattern) {
-            pattern.trackIds = [...getPatternTrackIds(pattern), track.id];
-            pattern.cells[track.id] = Array(STEP_COUNT).fill(false);
-          }
           imported.push({ track, file });
         } catch {
           failures.push(file.name);
@@ -686,12 +682,23 @@
       }
 
       if (imported.length) {
-        renderTracks();
-        if (isSongWorkspace()) renderArrangement();
+        renderInstrumentBrowser("", true);
+        if (selectFirst && $("#step-instrument-dialog").open) {
+          const searchInput = $("#sound-library-search-input");
+          searchInput.value = "User Samples";
+          stepInstrumentPendingId = imported[0].track.id;
+          renderSoundSearchSuggestions(searchInput.value);
+          renderStepInstrumentLibrary(searchInput.value);
+          loadLibrarySample(imported[0].track).then(() => {
+            if (stepInstrumentPendingId === imported[0].track.id && $("#step-instrument-dialog").open) {
+              $("#step-instrument-select").disabled = false;
+            }
+          }).catch((error) => showToast(error.message || `Could not load ${imported[0].track.name}.`));
+        }
         saveState();
         const saves = await Promise.allSettled(imported.map(({ track, file }) => persistDrumSample(track, file)));
         const storageFailed = saves.some((result) => result.status === "rejected");
-        const summary = `${imported.length} drum sound${imported.length === 1 ? "" : "s"} imported`;
+        const summary = `${imported.length} sound${imported.length === 1 ? "" : "s"} added to the library`;
         showToast(`${summary}${failures.length ? `; ${failures.length} could not be decoded` : ""}${storageFailed ? "; some couldn't be saved" : ""}.`);
       } else {
         showToast(failures.length ? `Could not import ${failures.join(", ")}.` : "Choose one or more audio files.");
@@ -699,7 +706,7 @@
     } catch (error) {
       showToast(`Could not import drum sounds: ${error.message || "audio is unavailable"}`);
     } finally {
-      drumSamplesInput.value = "";
+      input.value = "";
     }
   }
 

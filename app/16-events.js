@@ -666,6 +666,13 @@
     }, true);
     $("#step-instrument-close").addEventListener("click", () => $("#step-instrument-dialog").close());
     $("#step-instrument-select").addEventListener("click", applyStepInstrumentSelection);
+    $("#step-instrument-upload-button").addEventListener("click", () => stepInstrumentUploadInput.click());
+    stepInstrumentUploadInput.addEventListener("change", () => {
+      void importDrumSamples(Array.from(stepInstrumentUploadInput.files || []), {
+        selectFirst: true,
+        input: stepInstrumentUploadInput,
+      });
+    });
     $("#step-instrument-dialog").addEventListener("close", () => {
       closeSoundDurationMenu();
       stepInstrumentTargetTrackId = null;
@@ -717,7 +724,10 @@
       restoreAssetLibraryDialogPosition();
     });
     $("#empty-import-button").addEventListener("click", () => requestRecordingImport());
-    $("#side-add-recording").addEventListener("click", () => requestRecordingImport());
+    $("#side-add-recording").addEventListener("click", requestAudioAssetImport);
+    $("#audio-assets-input").addEventListener("change", (event) => {
+      void importAudioAssets(Array.from(event.target.files || []), event.target);
+    });
     $("#recording-input").addEventListener("change", async (event) => {
       const files = Array.from(event.target.files || []);
       for (const file of files) await importRecording(file, state.pendingImportTrackId);

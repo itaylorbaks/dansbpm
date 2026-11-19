@@ -362,21 +362,29 @@
     dialog.showModal();
   }
 
-  function askAudioTempoChoice(filename, detectedBpm, projectBpm = state.bpm) {
+  function askAudioTempoChoice(filename, detectedBpm, projectBpm = state.bpm, batchSize = 1) {
     const dialog = $("#audio-tempo-dialog");
     const mainOptions = $("#audio-tempo-main-options");
     const interpretations = $("#audio-tempo-interpretations");
     const adjustAudioButton = $("#audio-tempo-audio-to-project");
     const interpretationDescription = $("#audio-tempo-interpretation-description");
     const projectTempoBpm = roundBpm(projectBpm);
+    const isBatch = batchSize > 1;
     const doubleBpm = roundBpm(projectTempoBpm * 2);
     const halfBpm = roundBpm(projectTempoBpm / 2);
     const canStretchTo = (targetBpm) => detectedBpm !== null &&
       targetBpm / detectedBpm >= 1 / 6 && targetBpm / detectedBpm <= 6;
+    $("#audio-tempo-title").textContent = isBatch
+      ? "Match the tempo for all imported audio?"
+      : "Match the project tempo?";
     $("#audio-tempo-file").textContent = filename;
     $("#audio-tempo-detection").textContent = detectedBpm === null
-      ? "Tempo could not be confidently detected. You can leave both tempos unchanged."
-      : `Detected audio tempo: ${detectedBpm} BPM · Project tempo: ${projectTempoBpm} BPM.`;
+      ? isBatch
+        ? `One tempo choice will be applied to all ${batchSize} files. No confident tempo was detected for the first file.`
+        : "Tempo could not be confidently detected. You can leave both tempos unchanged."
+      : isBatch
+        ? `One tempo choice will be applied to all ${batchSize} files. First detected audio tempo: ${detectedBpm} BPM · Project tempo: ${projectTempoBpm} BPM.`
+        : `Detected audio tempo: ${detectedBpm} BPM · Project tempo: ${projectTempoBpm} BPM.`;
     adjustAudioButton.disabled = detectedBpm === null;
     $("#audio-tempo-project-to-audio").disabled = detectedBpm === null;
     $("#audio-tempo-actual").textContent = `Use project tempo (${projectTempoBpm} BPM)`;
@@ -1158,6 +1166,7 @@
         const keep = !has("audio", clip.id);
         if (!keep) {
           deleted = true;
+          ensureFullAudioAsset(clip);
           deletePersistedClip(clip.id);
         }
         return keep;
@@ -1360,11 +1369,13 @@
 
   function ensureFullAudioAsset(clip) {
     const sourceAssetId = clip.sourceAssetId || clip.assetId || clip.id;
-    if (state.audioAssets.some((asset) =>
-      asset.isSourceAudioAsset && asset.sourceAssetId === sourceAssetId)) return;
+    const existing = state.audioAssets.find((asset) =>
+      asset.isSourceAudioAsset && asset.sourceAssetId === sourceAssetId);
+    if (existing?.blob) return existing;
     const asset = {
+      ...(existing || {}),
       ...clip,
-      id: makeId(),
+      id: existing?.id || makeId(),
       assetId: sourceAssetId,
       sourceAssetId,
       sourceClipOffsetSeconds: clip.sourceOffsetSeconds || 0,
@@ -1380,9 +1391,11 @@
       reversed: false,
       isSourceAudioAsset: true,
     };
-    state.audioAssets.push(asset);
+    if (existing) Object.assign(existing, asset);
+    else state.audioAssets.push(asset);
     if (asset.blob) persistAudioAsset(asset).catch((error) =>
-      showToast(`Source audio was split, but could not be saved to the library: ${error.message || "storage unavailable"}`));
+      showToast(`Audio was added, but could not be saved to the library: ${error.message || "storage unavailable"}`));
+    return asset;
   }
 
   function createAudioSegmentAsset(clip, sourceAssetId) {
@@ -1626,6 +1639,101 @@
     input.click();
   }
 
+  function requestAudioAssetImport() {
+    const input = $("#audio-assets-input");
+    input.value = "";
+    input.click();
+  }
+
+  async function importAudioAssets(files, input = $("#audio-assets-input")) {
+    if (!files.length) return;
+    const decoded = [];
+    const failures = [];
+    try {
+      await ensureAudio();
+      for (const file of files) {
+        if (!isAudioFile(file)) {
+          failures.push(file.name);
+          continue;
+        }
+        try {
+          const buffer = await state.audioContext.decodeAudioData(await file.arrayBuffer());
+          const audioMetadata = detectAudioMetadata(buffer);
+          decoded.push({ file, buffer, audioMetadata, detectedMetadata: normalizeAudioMetadata(audioMetadata) });
+        } catch {
+          failures.push(file.name);
+        }
+      }
+      if (!decoded.length) {
+        showToast(failures.length ? `Could not import ${failures.join(", ")}.` : "Choose one or more audio files.");
+        return;
+      }
+
+      const reference = decoded.find(({ detectedMetadata }) => detectedMetadata.bpm !== null) || decoded[0];
+      const tempoChoice = await askAudioTempoChoice(
+        decoded.length > 1 ? `${reference.file.name} (tempo reference)` : reference.file.name,
+        reference.detectedMetadata.bpm,
+        state.bpm,
+        decoded.length,
+      );
+      let projectTempoChanged = false;
+      if (tempoChoice.action === "project-to-audio" && reference.detectedMetadata.bpm !== null) {
+        const targetBpm = Math.max(60, Math.min(180, roundBpm(reference.detectedMetadata.bpm)));
+        projectTempoChanged = targetBpm === state.bpm
+          ? true
+          : await openProjectTempoChangeDialog(targetBpm);
+      }
+      const targetBpm = tempoChoice.action === "audio-to-project"
+        ? tempoChoice.targetBpm
+        : tempoChoice.action === "project-to-audio" && projectTempoChanged
+          ? state.bpm
+          : null;
+      const assets = decoded.map(({ file, buffer, audioMetadata, detectedMetadata }) => {
+        const id = makeId();
+        const audioAdjustment = getAudioClipProjectAdjustment(audioMetadata, targetBpm);
+        const asset = {
+          id,
+          assetId: id,
+          sourceAssetId: id,
+          sourceClipOffsetSeconds: Number.isFinite(detectedMetadata.beatOffsetSeconds)
+            ? Math.max(0, Math.min(buffer.duration - 0.01, detectedMetadata.beatOffsetSeconds))
+            : 0,
+          name: file.name,
+          buffer,
+          blob: file,
+          audioStemGroupId: makeId(),
+          durationSeconds: buffer.duration,
+          sourceOffsetSeconds: 0,
+          repeatCount: 1,
+          repeatStartSeconds: 0,
+          repeatLengthSeconds: buffer.duration,
+          clipGain: 1,
+          fadeInSeconds: 0,
+          fadeOutSeconds: 0,
+          reversed: false,
+          audioMetadata,
+          ...(audioAdjustment ? { audioAdjustment } : {}),
+          ...(tempoChoice.action === "audio-to-project" && audioAdjustment
+            ? { tempoRatioOverride: audioAdjustment.tempoRatio } : {}),
+          isSourceAudioAsset: true,
+        };
+        state.audioAssets.push(asset);
+        return asset;
+      });
+      renderRecordingBrowser();
+      saveState();
+      const saves = await Promise.allSettled(assets.map((asset) => persistAudioAsset(asset)));
+      const storageFailed = saves.some((result) => result.status === "rejected");
+      const tempoNotice = projectTempoChanged ? ` Project set to ${state.bpm} BPM.` : "";
+      const summary = `${assets.length} audio item${assets.length === 1 ? "" : "s"} added to the library`;
+      showToast(`${summary}${failures.length ? `; ${failures.length} could not be decoded` : ""}${storageFailed ? "; some couldn't be saved" : ""}.${tempoNotice}`);
+    } catch (error) {
+      showToast(`Could not import audio to the library: ${error.message || "audio is unavailable"}`);
+    } finally {
+      input.value = "";
+    }
+  }
+
   async function importRecording(file, trackId = null, startBar = state.arrangementCursor, snapStart = true, requirePersistence = false) {
     if (!isAudioFile(file)) {
       showToast(`"${file.name}" is not an audio file.`);
@@ -1674,6 +1782,7 @@
         : Math.max(0, Math.min(MAX_ARRANGEMENT_BARS - getArrangementClipDuration("audio", clip), startBar));
       track.clips.push(clip);
       track.clips.sort((left, right) => left.startBar - right.startBar);
+      ensureFullAudioAsset(clip);
       updateArrangementLength();
       renderArrangement();
       updateProjectKeyIndicator();
