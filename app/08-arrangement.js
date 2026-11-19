@@ -1315,7 +1315,77 @@
     dialog.dataset.dragBound = "true";
   }
 
+  let mixerEffectPreview = null;
+
+  function setMixerEffectPreviewButtonPlaying(playing) {
+    const button = $("#mixer-effect-preview");
+    if (!button) return;
+    button.classList.toggle("is-playing", playing);
+    button.setAttribute("aria-pressed", String(playing));
+    button.setAttribute("aria-label", playing ? "Stop lane preview" : "Play applied lane");
+    button.title = playing ? "Stop lane preview" : "Play applied lane";
+  }
+
+  function stopMixerEffectPreview() {
+    if (!mixerEffectPreview) {
+      setMixerEffectPreviewButtonPlaying(false);
+      return;
+    }
+    if (state.isPlaying || state.isStartingPlayback) stopPlayback(false, true);
+    mixerEffectPreview.gainSnapshots.forEach(({ node, value }) => {
+      if (!node) return;
+      node.gain.cancelScheduledValues(state.audioContext?.currentTime || 0);
+      node.gain.value = value;
+    });
+    mixerEffectPreview.soloSnapshots.forEach((track) => {
+      track.solo = mixerEffectPreview.soloValues.get(track);
+    });
+    mixerEffectPreview = null;
+    updateTrackGains();
+    setMixerEffectPreviewButtonPlaying(false);
+  }
+
+  async function toggleMixerEffectPreview() {
+    const trackId = state.mixerEffectDialogTrackId;
+    if (!trackId) return;
+    if (mixerEffectPreview) {
+      stopMixerEffectPreview();
+      return;
+    }
+    const track = getMixerTracks().find(({ track: item }) => item.id === trackId)?.track ||
+      state.masterTrack;
+    if (!track) return;
+    if (state.isPlaying || state.isStartingPlayback) stopPlayback(false, true);
+
+    ensureTrackMixerState(track);
+    if (state.audioContext) ensureTrackAudio(track);
+    const allTracks = [
+      ...state.tracks, ...state.arrangementTracks, ...state.melTracks, ...state.patterns,
+      ...state.effectTracks, state.masterTrack,
+    ].filter(Boolean);
+    const gainSnapshots = allTracks.map((item) => ({
+      node: item.gainNode,
+      value: item.gainNode?.gain.value ?? item.volume ?? 1,
+    }));
+    const soloSnapshots = allTracks.filter((item) => "solo" in item);
+    const soloValues = new Map(soloSnapshots.map((item) => [item, item.solo]));
+    mixerEffectPreview = { track, gainSnapshots, soloSnapshots, soloValues };
+
+    soloSnapshots.forEach((item) => { item.solo = item === track; });
+    await startPlayback("arrangement");
+    if (!mixerEffectPreview) return;
+    allTracks.forEach((item) => {
+      if (!item.gainNode) return;
+      const shouldPlay = item === track ||
+        (item === state.masterTrack && track !== state.masterTrack);
+      item.gainNode.gain.cancelScheduledValues(state.audioContext?.currentTime || 0);
+      item.gainNode.gain.value = shouldPlay ? (item.volume ?? 1) : 0;
+    });
+    setMixerEffectPreviewButtonPlaying(true);
+  }
+
   function openMixerEffectDialog(track, effectId) {
+    if (mixerEffectPreview) stopMixerEffectPreview();
     ensureTrackMixerState(track);
     if (state.audioContext) ensureTrackAudio(track);
     const dialog = $("#mixer-effect-dialog");

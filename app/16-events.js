@@ -137,6 +137,7 @@
     document.addEventListener("pointercancel", finishStepSelectionDrag);
     playButton.addEventListener("click", () => {
       if (state.keyboardRecordingCountdown) cancelKeyboardRecordingCountdown();
+      if (mixerEffectPreview) stopMixerEffectPreview();
       if (state.isStartingPlayback || state.isPlaying && state.playbackMode === "arrangement") stopPlayback(false, true);
       else {
         if (state.isPlaying) stopPlayback();
@@ -146,7 +147,10 @@
     Object.entries(WORKSPACE_PLAY_BUTTONS).forEach(([workspace, buttonId]) => {
       $(`#${buttonId}`).addEventListener("click", () => toggleWorkspacePlayback(workspace));
     });
-    $("#stop-button").addEventListener("click", stopPlayback);
+    $("#stop-button").addEventListener("click", () => {
+      stopMixerEffectPreview();
+      stopPlayback();
+    });
     $("#arrangement-snap-button").addEventListener("click", () => {
       state.arrangementSnap = !state.arrangementSnap;
       if (state.arrangementSnap) setArrangementCursor(state.arrangementCursor);
@@ -716,9 +720,11 @@
     $("#step-track-mix-dialog").addEventListener("click", (event) => {
       if (event.target === $("#step-track-mix-dialog")) $("#step-track-mix-dialog").close();
     });
+    $("#mixer-effect-preview").addEventListener("click", () => toggleMixerEffectPreview());
     $("#mixer-effect-close").addEventListener("click", () => $("#mixer-effect-dialog").close());
     $("#mixer-effect-dialog").addEventListener("close", () => {
       if ($("#mixer-effect-dialog").open) return;
+      stopMixerEffectPreview();
       if (state.mixerEffectAnimation !== null) cancelAnimationFrame(state.mixerEffectAnimation);
       state.mixerEffectAnimation = null;
       state.mixerEffectDialogTrackId = null;

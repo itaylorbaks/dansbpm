@@ -10907,7 +10907,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=b9a9fa357c05");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=4b974c02c7aa");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -20892,7 +20892,77 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     dialog.dataset.dragBound = "true";
   }
 
+  let mixerEffectPreview = null;
+
+  function setMixerEffectPreviewButtonPlaying(playing) {
+    const button = $("#mixer-effect-preview");
+    if (!button) return;
+    button.classList.toggle("is-playing", playing);
+    button.setAttribute("aria-pressed", String(playing));
+    button.setAttribute("aria-label", playing ? "Stop lane preview" : "Play applied lane");
+    button.title = playing ? "Stop lane preview" : "Play applied lane";
+  }
+
+  function stopMixerEffectPreview() {
+    if (!mixerEffectPreview) {
+      setMixerEffectPreviewButtonPlaying(false);
+      return;
+    }
+    if (state.isPlaying || state.isStartingPlayback) stopPlayback(false, true);
+    mixerEffectPreview.gainSnapshots.forEach(({ node, value }) => {
+      if (!node) return;
+      node.gain.cancelScheduledValues(state.audioContext?.currentTime || 0);
+      node.gain.value = value;
+    });
+    mixerEffectPreview.soloSnapshots.forEach((track) => {
+      track.solo = mixerEffectPreview.soloValues.get(track);
+    });
+    mixerEffectPreview = null;
+    updateTrackGains();
+    setMixerEffectPreviewButtonPlaying(false);
+  }
+
+  async function toggleMixerEffectPreview() {
+    const trackId = state.mixerEffectDialogTrackId;
+    if (!trackId) return;
+    if (mixerEffectPreview) {
+      stopMixerEffectPreview();
+      return;
+    }
+    const track = getMixerTracks().find(({ track: item }) => item.id === trackId)?.track ||
+      state.masterTrack;
+    if (!track) return;
+    if (state.isPlaying || state.isStartingPlayback) stopPlayback(false, true);
+
+    ensureTrackMixerState(track);
+    if (state.audioContext) ensureTrackAudio(track);
+    const allTracks = [
+      ...state.tracks, ...state.arrangementTracks, ...state.melTracks, ...state.patterns,
+      ...state.effectTracks, state.masterTrack,
+    ].filter(Boolean);
+    const gainSnapshots = allTracks.map((item) => ({
+      node: item.gainNode,
+      value: item.gainNode?.gain.value ?? item.volume ?? 1,
+    }));
+    const soloSnapshots = allTracks.filter((item) => "solo" in item);
+    const soloValues = new Map(soloSnapshots.map((item) => [item, item.solo]));
+    mixerEffectPreview = { track, gainSnapshots, soloSnapshots, soloValues };
+
+    soloSnapshots.forEach((item) => { item.solo = item === track; });
+    await startPlayback("arrangement");
+    if (!mixerEffectPreview) return;
+    allTracks.forEach((item) => {
+      if (!item.gainNode) return;
+      const shouldPlay = item === track ||
+        (item === state.masterTrack && track !== state.masterTrack);
+      item.gainNode.gain.cancelScheduledValues(state.audioContext?.currentTime || 0);
+      item.gainNode.gain.value = shouldPlay ? (item.volume ?? 1) : 0;
+    });
+    setMixerEffectPreviewButtonPlaying(true);
+  }
+
   function openMixerEffectDialog(track, effectId) {
+    if (mixerEffectPreview) stopMixerEffectPreview();
     ensureTrackMixerState(track);
     if (state.audioContext) ensureTrackAudio(track);
     const dialog = $("#mixer-effect-dialog");
@@ -34051,6 +34121,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     document.addEventListener("pointercancel", finishStepSelectionDrag);
     playButton.addEventListener("click", () => {
       if (state.keyboardRecordingCountdown) cancelKeyboardRecordingCountdown();
+      if (mixerEffectPreview) stopMixerEffectPreview();
       if (state.isStartingPlayback || state.isPlaying && state.playbackMode === "arrangement") stopPlayback(false, true);
       else {
         if (state.isPlaying) stopPlayback();
@@ -34060,7 +34131,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     Object.entries(WORKSPACE_PLAY_BUTTONS).forEach(([workspace, buttonId]) => {
       $(`#${buttonId}`).addEventListener("click", () => toggleWorkspacePlayback(workspace));
     });
-    $("#stop-button").addEventListener("click", stopPlayback);
+    $("#stop-button").addEventListener("click", () => {
+      stopMixerEffectPreview();
+      stopPlayback();
+    });
     $("#arrangement-snap-button").addEventListener("click", () => {
       state.arrangementSnap = !state.arrangementSnap;
       if (state.arrangementSnap) setArrangementCursor(state.arrangementCursor);
@@ -34630,9 +34704,11 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     $("#step-track-mix-dialog").addEventListener("click", (event) => {
       if (event.target === $("#step-track-mix-dialog")) $("#step-track-mix-dialog").close();
     });
+    $("#mixer-effect-preview").addEventListener("click", () => toggleMixerEffectPreview());
     $("#mixer-effect-close").addEventListener("click", () => $("#mixer-effect-dialog").close());
     $("#mixer-effect-dialog").addEventListener("close", () => {
       if ($("#mixer-effect-dialog").open) return;
+      stopMixerEffectPreview();
       if (state.mixerEffectAnimation !== null) cancelAnimationFrame(state.mixerEffectAnimation);
       state.mixerEffectAnimation = null;
       state.mixerEffectDialogTrackId = null;

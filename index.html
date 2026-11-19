@@ -861,7 +861,13 @@
               <div class="eyebrow" id="mixer-effect-track-name">TRACK EFFECT</div>
               <h2 id="mixer-effect-title">Effect</h2>
             </div>
-            <button class="dialog-close" id="mixer-effect-close" type="button" aria-label="Close effect settings">×</button>
+            <div class="mixer-effect-dialog-actions">
+              <button class="mixer-effect-preview-button" id="mixer-effect-preview" type="button"
+                aria-label="Play applied lane" title="Play applied lane" aria-pressed="false">
+                <span aria-hidden="true"></span>
+              </button>
+              <button class="dialog-close" id="mixer-effect-close" type="button" aria-label="Close effect settings">×</button>
+            </div>
           </div>
           <div class="mixer-effect-dialog-content" id="mixer-effect-dialog-content"></div>
         </dialog>
@@ -1318,6 +1324,6 @@
       <button class="continue-as-guest" id="continue-as-guest" type="button">Continue as Guest</button>
     </section>
     <script src="assets/vendor/lame.min.js"></script>
-    <script src="app.js?v=b9a9fa357c05"></script>
+    <script src="app.js?v=4b974c02c7aa"></script>
   </body>
 </html>

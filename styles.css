@@ -1063,6 +1063,11 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .mixer-effect-dialog::backdrop { background: #0009; backdrop-filter: blur(3px); }
 .mixer-effect-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid color-mix(in srgb, var(--effect-accent), #303136 72%); padding: 7px 10px; cursor: grab; touch-action: none; user-select: none; }
 .mixer-effect-dialog-heading:active { cursor: grabbing; }
+.mixer-effect-dialog-actions { display: flex; align-items: center; gap: 5px; }
+.mixer-effect-preview-button { display: grid; width: 22px; height: 22px; place-items: center; border: 1px solid #55585d; border-radius: 50%; background: #777a7e; color: #18191c; cursor: pointer; }
+.mixer-effect-preview-button span { width: 0; height: 0; margin-left: 2px; border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-left: 8px solid #25272a; }
+.mixer-effect-preview-button.is-playing { background: #9a9da1; border-color: #aeb1b5; }
+.mixer-effect-preview-button.is-playing span { width: 8px; height: 8px; margin: 0; border: 0; background: #25272a; }
 .mixer-effect-dialog-heading h2 { margin: 2px 0 0; color: var(--effect-accent); font-size: 13px; letter-spacing: .02em; text-shadow: 0 0 16px color-mix(in srgb, var(--effect-accent), transparent 55%); }
 .mixer-effect-dialog-content { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 5px; max-height: calc(100dvh - 62px); overflow: hidden; padding: 7px 9px 8px; }
 .mixer-effect-screen { position: relative; min-width: 0; overflow: hidden; border: 1px solid color-mix(in srgb, var(--effect-accent), #353942 62%); border-radius: 8px; background: linear-gradient(145deg, #1d222b, #101318 72%); box-shadow: inset 0 0 25px #0008, 0 5px 18px #0005; }
