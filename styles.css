@@ -940,23 +940,40 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .mixer-effect-presets .mixer-track-action:disabled { cursor: default; opacity: .55; }
 .synth-edit-button { align-self: center; }
 .synth-edit-button[hidden] { display: none; }
-.dansbpm-synth-dialog { width: min(820px, calc(100vw - 28px)); max-height: min(86vh, 760px); overflow: auto; border: 1px solid #3a3b40; border-radius: 10px; background: #1b1c1f; padding: 18px; color: var(--text); box-shadow: 0 20px 60px #0009; }
+.dansbpm-synth-dialog { width: min(1040px, calc(100vw - 28px)); max-height: min(92vh, 900px); overflow: auto; border: 1px solid #3c5555; border-radius: 8px; background: linear-gradient(145deg, #202528, #15191c 55%); padding: 18px; color: var(--text); box-shadow: 0 20px 60px #000b, inset 0 1px rgba(255,255,255,.035); }
 .dansbpm-synth-dialog::backdrop { background: #0009; backdrop-filter: blur(3px); }
-.dansbpm-synth-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.dansbpm-synth-heading h2 { margin: 3px 0 5px; font-size: 18px; }
+.dansbpm-synth-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; border-bottom: 1px solid #344044; padding-bottom: 12px; }
+.dansbpm-synth-heading h2 { margin: 3px 0 5px; color: #b6f4e3; font-size: 18px; letter-spacing: .3px; }
 .dansbpm-synth-heading p { margin: 0; color: var(--muted); font-size: 10px; }
-.dansbpm-synth-preview { display: grid; gap: 8px; margin-top: 16px; }
+.dansbpm-synth-preview { display: grid; gap: 8px; margin-top: 12px; }
 .dansbpm-synth-preview-heading { display: flex; align-items: center; gap: 10px; }
 .dansbpm-synth-preview-heading > span { color: var(--muted); font-family: var(--mono); font-size: 9px; }
-.dansbpm-synth-preview canvas { display: block; width: 100%; height: 74px; border: 1px solid #303136; border-radius: 5px; background: #141518; }
+.dansbpm-synth-preview canvas { display: block; width: 100%; height: 58px; border: 1px solid #354449; border-radius: 3px; background: repeating-linear-gradient(0deg, #101619 0 13px, #121a1e 13px 14px); }
 .dansbpm-synth-sections { display: grid; gap: 12px; margin: 16px 0; }
-.dansbpm-synth-section { border: 1px solid #303136; border-radius: 6px; background: #191a1d; padding: 10px; }
-.dansbpm-synth-section h3 { margin: 0 0 9px; color: #93e2bd; font-family: var(--mono); font-size: 9px; letter-spacing: .8px; }
-.dansbpm-synth-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.dansbpm-synth-control { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 8px; border: 1px solid #303136; border-radius: 5px; background: #202125; padding: 8px; color: #b7bab1; font-size: 9px; }
-.dansbpm-synth-control input[type="range"] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
-.dansbpm-synth-control select { min-width: 0; grid-column: 1 / -1; border: 1px solid #38393e; border-radius: 4px; background: #17181b; padding: 5px; color: var(--text); font: inherit; }
-.dansbpm-synth-control output { color: #d7d8d4; font-family: var(--mono); font-size: 8px; }
+.dansbpm-synth-section { border: 1px solid #354246; border-radius: 4px; background: linear-gradient(160deg, #1d2427, #181d20); padding: 11px; box-shadow: inset 0 1px rgba(255,255,255,.025); }
+.dansbpm-synth-section h3 { margin: 0 0 9px; border-bottom: 1px solid #344044; padding-bottom: 7px; color: #8de4d0; font-family: var(--mono); font-size: 9px; letter-spacing: 1px; }
+.dansbpm-synth-controls { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.dansbpm-synth-control { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 8px; border: 1px solid #303b3f; border-radius: 3px; background: linear-gradient(180deg, #22292c, #1b2023); padding: 8px; color: #b7c1bd; font-size: 9px; }
+.dansbpm-synth-control input[type="range"] { grid-column: 1 / -1; width: 100%; height: 14px; margin: 0; appearance: none; background: transparent; cursor: ew-resize; }
+.dansbpm-synth-control input[type="range"]::-webkit-slider-runnable-track { height: 4px; border: 1px solid #161b1e; border-radius: 4px; background: linear-gradient(90deg, #7be1c8 0 var(--range-progress, 0%), #3e4a4e var(--range-progress, 0%) 100%); box-shadow: inset 0 1px 2px #0009; }
+.dansbpm-synth-control input[type="range"]::-moz-range-track { height: 4px; border: 1px solid #161b1e; border-radius: 4px; background: #3e4a4e; box-shadow: inset 0 1px 2px #0009; }
+.dansbpm-synth-control input[type="range"]::-moz-range-progress { height: 4px; border-radius: 4px; background: #7be1c8; }
+.dansbpm-synth-control input[type="range"]::-webkit-slider-thumb { width: 12px; height: 12px; appearance: none; border: 1px solid #d6fff5; border-radius: 50%; margin-top: -5px; background: radial-gradient(circle at 35% 30%, #eafffa, #6bb9aa 58%, #31534f); box-shadow: 0 0 6px #7be1c855; }
+.dansbpm-synth-control input[type="range"]::-moz-range-thumb { width: 10px; height: 10px; border: 1px solid #d6fff5; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #eafffa, #6bb9aa 58%, #31534f); box-shadow: 0 0 6px #7be1c855; }
+.dansbpm-synth-control select { min-width: 0; grid-column: 1 / -1; border: 1px solid #3b484c; border-radius: 3px; background: #141a1d; padding: 6px; color: #d5e0dc; font: inherit; }
+.dansbpm-synth-control output { color: #a7e8d8; font-family: var(--mono); font-size: 8px; }
+.dansbpm-synth-control.is-knob-control { grid-template-columns: 1fr; justify-items: center; gap: 5px; padding: 8px 5px 6px; text-align: center; }
+.dansbpm-synth-control.is-knob-control > span:first-child { min-height: 20px; display: flex; align-items: center; justify-content: center; color: #b6c1bd; }
+.dansbpm-synth-knob { position: relative; width: 48px; height: 48px; display: block; border-radius: 50%; background: conic-gradient(from 135deg, #70d7c2 0deg, #70d7c2 var(--knob-fill, 0deg), #3e4b4f var(--knob-fill, 0deg) 270deg, transparent 270deg 360deg); filter: drop-shadow(0 2px 3px #0009); }
+.dansbpm-synth-knob-face { position: absolute; inset: 4px; overflow: hidden; border: 1px solid #58666a; border-radius: 50%; background: radial-gradient(circle at 34% 27%, #646e71 0, #3e474a 28%, #242b2e 63%, #151a1d 100%), repeating-conic-gradient(from 0deg, rgba(255,255,255,.1) 0deg 1deg, transparent 1deg 9deg); box-shadow: inset 0 2px 4px #ffffff20, inset 0 -4px 7px #000b, 0 1px 2px #000; }
+.dansbpm-synth-knob-face::after { position: absolute; top: 5px; left: calc(50% - 1px); width: 2px; height: 11px; border-radius: 2px; background: #ddfff6; box-shadow: 0 0 5px #8af0dc; content: ""; transform: rotate(var(--knob-angle, -135deg)); transform-origin: 50% 18px; }
+.dansbpm-synth-knob-input { position: absolute; inset: -2px; z-index: 1; width: calc(100% + 4px) !important; height: calc(100% + 4px) !important; opacity: 0; cursor: ew-resize !important; }
+.dansbpm-synth-knob-input:focus-visible { outline: 2px solid #a8fff0; outline-offset: 3px; border-radius: 50%; }
+.dansbpm-synth-oscillator-visualizers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0 0 9px; }
+.dansbpm-synth-oscillator-visualizer { min-width: 0; overflow: hidden; border: 1px solid #365154; border-radius: 3px; background: #0b1115; }
+.dansbpm-synth-oscillator-visualizer > span { display: block; border-bottom: 1px solid #263a3f; padding: 5px 7px; color: #7faaa5; font: 7px var(--mono); letter-spacing: .75px; }
+.dansbpm-synth-oscillator-visualizer canvas { display: block; width: 100%; height: 84px; background: #0b1115; }
+.dansbpm-synth-control output { justify-self: end; }
 .mixer-effects-library { min-height: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #303136; border-radius: 7px; background: #1c1d20; padding: 12px; }
 .mixer-effects-library h2 { margin: 0; color: #e0e1dc; font-size: 13px; }
 .mixer-effects-library p { margin: 5px 0 10px; color: #85868c; font-size: 9px; }
@@ -1137,6 +1154,8 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 
 @media (max-width: 420px) {
   .dansbpm-synth-controls { grid-template-columns: minmax(0, 1fr); }
+  .dansbpm-synth-oscillator-visualizers { grid-template-columns: minmax(0, 1fr); }
+  .dansbpm-synth-dialog { padding: 12px; }
 }
 
 @media (max-width: 560px) {

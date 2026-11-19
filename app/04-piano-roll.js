@@ -577,6 +577,138 @@
     }
   }
 
+  function updateDansBpmSynthControlVisual(input) {
+    if (input.tagName !== "INPUT" || input.type !== "range") return;
+    const min = Number(input.min);
+    const max = Number(input.max);
+    const value = Number(input.value);
+    const range = max - min;
+    const position = range > 0 ? Math.max(0, Math.min(1, (value - min) / range)) : 0;
+    input.style.setProperty("--range-progress", `${position * 100}%`);
+    const knob = input.closest(".dansbpm-synth-knob");
+    knob?.style.setProperty("--knob-angle", `${-135 + position * 270}deg`);
+    knob?.style.setProperty("--knob-fill", `${position * 270}deg`);
+    input.setAttribute("aria-valuetext", formatDansBpmSynthValue(input.dataset.patchKey, value));
+  }
+
+  function drawDansBpmSynthOscillatorVisualizers(dialog, patch) {
+    const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
+    ["wave", "osc2Wave"].forEach((waveKey, index) => {
+      const canvas = dialog.querySelector(`#dansbpm-osc${index + 1}-waveform`);
+      if (!canvas) return;
+      const bounds = canvas.getBoundingClientRect();
+      const width = Math.max(1, bounds.width);
+      const height = Math.max(1, bounds.height);
+      const pixelWidth = Math.round(width * pixelRatio);
+      const pixelHeight = Math.round(height * pixelRatio);
+      if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+        canvas.width = pixelWidth;
+        canvas.height = pixelHeight;
+      }
+      const context = canvas.getContext("2d");
+      if (!context) return;
+      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      context.fillStyle = "#0b1115";
+      context.fillRect(0, 0, width, height);
+      const waveformHeight = height * 0.62;
+      const center = waveformHeight / 2;
+      context.strokeStyle = "rgba(91, 156, 169, .16)";
+      context.lineWidth = 1;
+      for (let column = 0; column <= 8; column += 1) {
+        const x = column / 8 * width;
+        context.beginPath();
+        context.moveTo(x, 0);
+        context.lineTo(x, waveformHeight);
+        context.stroke();
+      }
+      for (let row = 0; row <= 4; row += 1) {
+        const y = row / 4 * waveformHeight;
+        context.beginPath();
+        context.moveTo(0, y);
+        context.lineTo(width, y);
+        context.stroke();
+      }
+
+      const shape = patch[waveKey] || "sawtooth";
+      const morph = Math.max(0, Math.min(100, Number(patch.wavetablePosition) || 0)) / 100;
+      const phases = 192;
+      const samples = [];
+      let peak = 0;
+      for (let sample = 0; sample <= phases; sample += 1) {
+        const phase = sample / phases * Math.PI * 2;
+        let value;
+        if (morph === 0) {
+          const sine = Math.sin(phase);
+          if (shape === "square") value = sine >= 0 ? 1 : -1;
+          else if (shape === "triangle") value = Math.asin(sine) * 2 / Math.PI;
+          else if (shape === "sawtooth") value = sample / phases * 2 - 1;
+          else value = sine;
+        } else {
+          value = 0;
+          const partialCount = 24;
+          for (let partial = 1; partial <= partialCount; partial += 1) {
+            let amplitude = 0;
+            if (shape === "sawtooth") amplitude = (partial % 2 ? 1 : -1) / partial;
+            else if (shape === "square" && partial % 2) amplitude = 1 / partial;
+            else if (shape === "triangle" && partial % 2) {
+              amplitude = (partial % 4 === 1 ? 1 : -1) / (partial * partial);
+            } else if (shape === "sine" && partial === 1) amplitude = 1;
+            if (!amplitude) continue;
+            const brightness = 1 + morph * 2.5 * (partial - 1) / (partialCount - 1);
+            const phaseOffset = morph * Math.PI * 0.45 * (partial - 1) / (partialCount - 1);
+            const harmonic = amplitude * brightness;
+            value += harmonic * Math.sin(phase * partial + phaseOffset);
+          }
+        }
+        samples.push(value);
+        peak = Math.max(peak, Math.abs(value));
+      }
+      const normalization = peak || 1;
+      context.beginPath();
+      samples.forEach((value, sample) => {
+        const x = sample / phases * width;
+        const y = center - value / normalization * (waveformHeight * 0.38);
+        if (sample === 0) context.moveTo(x, y);
+        else context.lineTo(x, y);
+      });
+      context.strokeStyle = "#70e0cf";
+      context.lineWidth = 1.5;
+      context.shadowColor = "rgba(112, 224, 207, .7)";
+      context.shadowBlur = 7;
+      context.stroke();
+      context.shadowBlur = 0;
+      context.fillStyle = "#a9f6e8";
+      for (let sample = 0; sample < phases; sample += 8) {
+        const x = sample / phases * width;
+        const y = center - samples[sample] / normalization * (waveformHeight * 0.38);
+        context.fillRect(Math.round(x) - 1, Math.round(y) - 1, 2, 2);
+      }
+
+      const spectrumTop = waveformHeight + 4;
+      const spectrumHeight = Math.max(2, height - spectrumTop - 3);
+      const barGap = 2;
+      const barWidth = Math.max(1, (width - barGap * 23) / 24);
+      let maxAmplitude = 0;
+      const amplitudes = Array.from({ length: 24 }, (_, i) => {
+        const partial = i + 1;
+        let amplitude = 0;
+        if (shape === "sawtooth") amplitude = 1 / partial;
+        else if (shape === "square" && partial % 2) amplitude = 1 / partial;
+        else if (shape === "triangle" && partial % 2) amplitude = 1 / (partial * partial);
+        else if (shape === "sine" && partial === 1) amplitude = 1;
+        amplitude *= 1 + morph * 2.5 * (partial - 1) / 23;
+        maxAmplitude = Math.max(maxAmplitude, amplitude);
+        return amplitude;
+      });
+      amplitudes.forEach((amplitude, i) => {
+        const barHeight = maxAmplitude ? amplitude / maxAmplitude * spectrumHeight : 0;
+        const x = i * (barWidth + barGap);
+        context.fillStyle = i === 0 ? "#d3f36b" : "rgba(112, 224, 207, .7)";
+        context.fillRect(x, height - 2 - barHeight, barWidth, barHeight);
+      });
+    });
+  }
+
   function createDansBpmSynthEditor() {
     const dialog = document.createElement("dialog");
     dialog.id = "dansbpm-synth-dialog";
@@ -625,13 +757,13 @@
         title: "OSCILLATORS",
         definitions: [
           { key: "wave", label: "Oscillator 1", options: ["sine", "triangle", "sawtooth", "square"] },
-          { key: "wavetablePosition", label: "Wavetable position", min: 0, max: 100, step: 1 },
+          { key: "wavetablePosition", label: "Wavetable position", min: 0, max: 100, step: 1, control: "knob" },
           { key: "unison", label: "Unison voices", min: 1, max: 7, step: 1 },
-          { key: "unisonSpread", label: "Unison spread", min: 0, max: 60, step: 1 },
+          { key: "unisonSpread", label: "Unison spread", min: 0, max: 60, step: 1, control: "knob" },
           { key: "osc2Wave", label: "Oscillator 2", options: ["sine", "triangle", "sawtooth", "square"] },
-          { key: "osc2Detune", label: "Oscillator 2 detune", min: -30, max: 30, step: 0.1 },
+          { key: "osc2Detune", label: "Oscillator 2 detune", min: -30, max: 30, step: 0.1, control: "knob" },
           { key: "osc2Level", label: "Oscillator 2 level", min: 0, max: 0.7, step: 0.01 },
-          { key: "fmAmount", label: "FM amount", min: 0, max: 100, step: 1 },
+          { key: "fmAmount", label: "FM amount", min: 0, max: 100, step: 1, control: "knob" },
           { key: "subLevel", label: "Sub level", min: 0, max: 0.7, step: 0.01 },
           { key: "noiseLevel", label: "Noise level", min: 0, max: 0.7, step: 0.01 },
         ],
@@ -640,31 +772,31 @@
         title: "FILTER",
         definitions: [
           { key: "filterType", label: "Filter type", options: ["lowpass", "highpass", "bandpass", "notch"] },
-          { key: "cutoff", label: "Cutoff", min: 80, max: 18000, step: 10 },
-          { key: "resonance", label: "Resonance", min: 0.1, max: 0.95, step: 0.01 },
-          { key: "filterEnvOctaves", label: "Envelope amount", min: 0, max: 5, step: 0.1 },
+          { key: "cutoff", label: "Cutoff", min: 80, max: 18000, step: 10, control: "knob" },
+          { key: "resonance", label: "Resonance", min: 0.1, max: 0.95, step: 0.01, control: "knob" },
+          { key: "filterEnvOctaves", label: "Envelope amount", min: 0, max: 5, step: 0.1, control: "knob" },
         ],
       },
       {
         title: "ENVELOPES",
         definitions: [
-          { key: "attack", label: "Amp attack", min: 0.001, max: 3, step: 0.001 },
-          { key: "decay", label: "Amp decay", min: 0.01, max: 4, step: 0.01 },
-          { key: "sustain", label: "Amp sustain", min: 0, max: 1, step: 0.01 },
-          { key: "release", label: "Amp release", min: 0.005, max: 5, step: 0.01 },
-          { key: "filterAttack", label: "Filter attack", min: 0.001, max: 3, step: 0.001 },
-          { key: "filterDecay", label: "Filter decay", min: 0.01, max: 4, step: 0.01 },
-          { key: "filterSustain", label: "Filter sustain", min: 0, max: 1, step: 0.01 },
+          { key: "attack", label: "Amp attack", min: 0.001, max: 3, step: 0.001, control: "knob" },
+          { key: "decay", label: "Amp decay", min: 0.01, max: 4, step: 0.01, control: "knob" },
+          { key: "sustain", label: "Amp sustain", min: 0, max: 1, step: 0.01, control: "knob" },
+          { key: "release", label: "Amp release", min: 0.005, max: 5, step: 0.01, control: "knob" },
+          { key: "filterAttack", label: "Filter attack", min: 0.001, max: 3, step: 0.001, control: "knob" },
+          { key: "filterDecay", label: "Filter decay", min: 0.01, max: 4, step: 0.01, control: "knob" },
+          { key: "filterSustain", label: "Filter sustain", min: 0, max: 1, step: 0.01, control: "knob" },
         ],
       },
       {
         title: "MODULATION & EFFECTS",
         definitions: [
-          { key: "lfoRate", label: "LFO rate", min: 0, max: 12, step: 0.01 },
-          { key: "lfoDepth", label: "LFO depth", min: 0, max: 100, step: 1 },
+          { key: "lfoRate", label: "LFO rate", min: 0, max: 12, step: 0.01, control: "knob" },
+          { key: "lfoDepth", label: "LFO depth", min: 0, max: 100, step: 1, control: "knob" },
           { key: "lfoTarget", label: "LFO destination", options: ["pitch", "filter", "amp"] },
-          { key: "drive", label: "Drive", min: 0, max: 100, step: 1 },
-          { key: "delayMix", label: "Delay mix", min: 0, max: 100, step: 1 },
+          { key: "drive", label: "Drive", min: 0, max: 100, step: 1, control: "knob" },
+          { key: "delayMix", label: "Delay mix", min: 0, max: 100, step: 1, control: "knob" },
           { key: "output", label: "Output", min: 0, max: 1, step: 0.01 },
         ],
       },
@@ -676,6 +808,25 @@
       sectionHeading.textContent = section.title;
       const sectionControls = document.createElement("div");
       sectionControls.className = "dansbpm-synth-controls";
+      if (section.title === "OSCILLATORS") {
+        const visualizers = document.createElement("div");
+        visualizers.className = "dansbpm-synth-oscillator-visualizers";
+        [
+          { key: "wave", title: "OSC 1 · DIGITAL WAVE" },
+          { key: "osc2Wave", title: "OSC 2 · DIGITAL WAVE" },
+        ].forEach((item, index) => {
+          const visualizer = document.createElement("div");
+          visualizer.className = "dansbpm-synth-oscillator-visualizer";
+          const visualizerTitle = document.createElement("span");
+          visualizerTitle.textContent = item.title;
+          const canvas = document.createElement("canvas");
+          canvas.id = `dansbpm-osc${index + 1}-waveform`;
+          canvas.setAttribute("aria-label", `${item.title.toLowerCase()} and harmonic spectrum`);
+          visualizer.append(visualizerTitle, canvas);
+          visualizers.append(visualizer);
+        });
+        sectionElement.append(visualizers);
+      }
       section.definitions.forEach((definition) => {
         const control = document.createElement("label");
         control.className = "dansbpm-synth-control";
@@ -698,14 +849,31 @@
           input.step = String(definition.step);
         }
         const output = document.createElement("output");
-        if (!definition.options) control.append(caption, input, output);
+        if (!definition.options && definition.control === "knob") {
+          control.classList.add("is-knob-control");
+          const knob = document.createElement("span");
+          knob.className = "dansbpm-synth-knob";
+          knob.setAttribute("aria-hidden", "true");
+          const face = document.createElement("span");
+          face.className = "dansbpm-synth-knob-face";
+          input.className = "dansbpm-synth-knob-input";
+          knob.append(face, input);
+          control.append(caption, knob, output);
+        } else if (!definition.options) control.append(caption, input, output);
         else control.append(caption, input);
+        updateDansBpmSynthControlVisual(input);
         const updatePatch = () => {
           const track = getDansBpmSynthTrack(dialog.dataset.trackId);
           if (!track) return;
           const value = input.tagName === "SELECT" ? input.value : Number(input.value);
           track.patch = normalizeDansBpmSynthPatch({ ...track.patch, [definition.key]: value }, track.patch);
-          if (input.tagName !== "SELECT") output.textContent = formatDansBpmSynthValue(definition.key, value);
+          if (input.tagName !== "SELECT") {
+            output.textContent = formatDansBpmSynthValue(definition.key, value);
+            updateDansBpmSynthControlVisual(input);
+          }
+          if (["wave", "osc2Wave", "wavetablePosition"].includes(definition.key)) {
+            drawDansBpmSynthOscillatorVisualizers(dialog, track.patch);
+          }
           saveDansBpmSynthPatch(track);
         };
         input.addEventListener(input.tagName === "SELECT" ? "change" : "input", updatePatch);
@@ -725,6 +893,7 @@
       if (!track || !factory) return;
       track.patch = normalizeDansBpmSynthPatch(factory.patch);
       syncDansBpmSynthEditor(dialog, track);
+      drawDansBpmSynthOscillatorVisualizers(dialog, track.patch);
       saveDansBpmSynthPatch(track);
     });
     dialog.append(heading, preview, controls, reset);
@@ -746,6 +915,7 @@
     dialog.querySelectorAll("[data-patch-key]").forEach((input) => {
       const key = input.dataset.patchKey;
       input.value = String(track.patch[key]);
+      updateDansBpmSynthControlVisual(input);
       const output = input.parentElement.querySelector("output");
       if (output && input.tagName !== "SELECT") output.textContent = formatDansBpmSynthValue(key, Number(input.value));
     });
@@ -759,6 +929,7 @@
       getVstSourceTrack(track)?.name || "DansBPM Wavetable";
     syncDansBpmSynthEditor(dialog, track);
     dialog.showModal();
+    drawDansBpmSynthOscillatorVisualizers(dialog, track.patch);
     if (dansBpmSynthPreview.animationFrame === null) drawDansBpmSynthVisualizer(dialog);
   }
 
