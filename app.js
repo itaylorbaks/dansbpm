@@ -6932,7 +6932,7 @@ const DRIVE_SAMPLE_TRACKS = [
   const EFFECT_CATEGORIES = [
     { name: "Flanger", effects: [["flanger", "Flanger"], ["chorus", "Chorus"], ["phaser", "Phaser"], ["vibrato", "Vibrato"]] },
     { name: "Gain", effects: [["gain", "Gain"], ["distortion", "Distortion"], ["guitarDistortion", "Guitar Distortion"], ["bloodOverdrive", "Blood Overdrive"], ["saturator", "Saturator"], ["softClipper", "Soft clipper"]] },
-    { name: "Delay", effects: [["delay", "Delay"], ["delayBank", "Delay Bank"], ["pingPong", "Ping-pong delay"], ["slapback", "Slapback"], ["tapeDelay", "Tape delay"]] },
+    { name: "Delay", effects: [["delay", "Delay"], ["delayBank", "Delay Bank"], ["pingPong", "Ping-pong delay"], ["slapback", "Slapback"], ["tapeDelay", "Tape delay"], ["time12", "TIME-12"]] },
     { name: "Reverb", effects: [["reverb", "Reverb"], ["room", "Room"], ["hall", "Hall"], ["plate", "Plate"]] },
     { name: "Controllers", effects: [["autopan", "Auto-pan"], ["panOMatic", "PanOMatic"], ["grossBeat", "Gross Beat"], ["tremolo", "Tremolo"], ["autoFilter", "Auto-filter"], ["lfoGain", "LFO gain"]] },
     { name: "Dynamics", effects: [["compressor", "Compressor"], ["multibandCompressor", "Multiband compressor"], ["limiter", "Limiter"], ["noiseGate", "Noise gate"], ["transientShaper", "Transient shaper"], ["sidechain", "Sidechain"], ["crossfadeLimiter", "Crossfade limiter"]] },
@@ -6971,6 +6971,11 @@ const DRIVE_SAMPLE_TRACKS = [
       ["rate", "Rate", 0.5, 4, 0.25, "× beat", 1],
       ["gate", "Chop", 0, 100, 1, "%", 55],
       ["feedback", "Repeat", 0, 80, 1, "%", 35],
+    ],
+    time12: [
+      ["rate", "Rate", 0.25, 4, 0.25, "× beat", 1],
+      ["depth", "Depth", 0, 100, 1, "%", 75],
+      ["smooth", "Smooth", 0, 100, 1, "%", 35],
     ],
     stereoEnhancer: [
       ["width", "Width", 0, 200, 1, "%", 125],
@@ -7198,6 +7203,47 @@ const DRIVE_SAMPLE_TRACKS = [
       ? settings.crossfadeLimiter.sourceTrackId : "";
     defaults.vocoder3Band.modulatorTrackId = typeof settings?.vocoder3Band?.modulatorTrackId === "string"
       ? settings.vocoder3Band.modulatorTrackId : "";
+    const time12Pattern = Array.isArray(settings?.time12?.pattern)
+      ? settings.time12.pattern.filter((point) => Number.isFinite(point?.x) && Number.isFinite(point?.y))
+        .map((point) => ({
+          x: Math.max(0, Math.min(1, point.x)),
+          y: Math.max(0, Math.min(1, point.y)),
+        })).slice(0, 12)
+      : [{ x: 0, y: 0.2 }, { x: 0.25, y: 0.9 }, { x: 0.5, y: 0.15 }, { x: 0.75, y: 0.65 }, { x: 1, y: 0.2 }];
+    defaults.time12.pattern = time12Pattern;
+    defaults.time12.patterns = Array.from({ length: 12 }, (_, index) => {
+      const savedPattern = settings?.time12?.patterns?.[index];
+      if (!Array.isArray(savedPattern)) return index === 0 ? time12Pattern.map((point) => ({ ...point })) : [{ x: 0, y: 0.5 }];
+      return savedPattern.filter((point) => Number.isFinite(point?.x) && Number.isFinite(point?.y))
+        .map((point) => ({
+          x: Math.max(0, Math.min(1, point.x)),
+          y: Math.max(0, Math.min(1, point.y)),
+        })).slice(0, 12);
+    });
+    defaults.time12.patternIndex = Number.isInteger(settings?.time12?.patternIndex)
+      ? Math.max(0, Math.min(11, settings.time12.patternIndex))
+      : 0;
+    const time12Defaults = {
+      sync: "1 Bar",
+      trigger: "Sync",
+      patSync: "Off",
+      pointMode: "Hold",
+      grid: 16,
+      snap: false,
+      mode: "Normal",
+    };
+    Object.entries(time12Defaults).forEach(([key, fallback]) => {
+      if (key === "grid") {
+        defaults.time12[key] = [4, 8, 16, 32].includes(settings?.time12?.[key])
+          ? settings.time12[key] : fallback;
+      } else if (key === "snap") {
+        defaults.time12[key] = settings?.time12?.[key] === true;
+      } else if (typeof settings?.time12?.[key] === "string") {
+        defaults.time12[key] = settings.time12[key];
+      } else {
+        defaults.time12[key] = fallback;
+      }
+    });
     return defaults;
   }
 
@@ -10799,7 +10845,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=7fb39501e4cd");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=cae9464f86ab");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -18556,6 +18602,61 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       preDelay.connect(convolver);
       nodes.push(preDelay, convolver);
       effectOutput = convolver;
+    } else if (id === "time12") {
+      const delay = context.createDelay(2);
+      const oscillator = context.createOscillator();
+      const shaper = context.createWaveShaper();
+      const depth = context.createGain();
+      const feedbackFilter = context.createBiquadFilter();
+      const feedback = context.createGain();
+      const time12TempoRate = setting("rate", 1);
+      const pattern = Array.isArray(settings.pattern) && settings.pattern.length
+        ? settings.pattern
+        : [{ x: 0, y: 0.2 }, { x: 0.25, y: 0.9 }, { x: 0.5, y: 0.15 }, { x: 0.75, y: 0.65 }, { x: 1, y: 0.2 }];
+      const points = [...pattern].sort((a, b) => a.x - b.x);
+      const smooth = setting("smooth", 35) / 100;
+      const curve = new Float32Array(4096);
+      for (let index = 0; index < curve.length; index += 1) {
+        const x = index / (curve.length - 1);
+        let left = points[0];
+        let right = points.at(-1);
+        for (let pointIndex = 0; pointIndex < points.length - 1; pointIndex += 1) {
+          if (x >= points[pointIndex].x && x <= points[pointIndex + 1].x) {
+            left = points[pointIndex];
+            right = points[pointIndex + 1];
+            break;
+          }
+        }
+        const span = Math.max(0.000001, right.x - left.x);
+        const raw = (x - left.x) / span;
+        const eased = smooth > 0
+          ? raw * raw * (3 - 2 * raw) * smooth + raw * (1 - smooth)
+          : raw;
+        curve[index] = left.y + (right.y - left.y) * eased;
+      }
+      shaper.curve = curve;
+      shaper.oversample = "2x";
+      oscillator.type = "sine";
+      oscillator.frequency.value = Math.max(0.05, state.bpm / 60 * time12TempoRate);
+      delay.delayTime.value = 0.02;
+      depth.gain.value = setting("depth", 75) / 100 * 1.48;
+      feedbackFilter.type = "lowpass";
+      feedbackFilter.frequency.value = 8000;
+      feedback.gain.value = 0.18;
+      oscillator.connect(shaper);
+      shaper.connect(depth);
+      depth.connect(delay.delayTime);
+      input.connect(delay);
+      delay.connect(feedbackFilter);
+      feedbackFilter.connect(feedback);
+      feedback.connect(delay);
+      effectOutput = delay;
+      nodes.push(delay, shaper, depth, feedbackFilter, feedback);
+      sources.push(oscillator);
+      tempoSyncOscillator = oscillator;
+      tempoSyncDelay = delay;
+      tempoSyncRate = time12TempoRate;
+      oscillator.start();
     } else if (id === "grossBeat") {
       const delay = context.createDelay(2);
       const feedbackFilter = context.createBiquadFilter();
@@ -18899,9 +19000,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     const now = state.audioContext?.currentTime || 0;
     getMixerTracks().forEach(({ track }) => {
       track.fxRuntime?.forEach((module) => {
-        if (module.effectId !== "grossBeat") return;
+        if (!["grossBeat", "time12"].includes(module.effectId)) return;
         const beatRate = Math.max(0.05, state.bpm / 60 * module.tempoSyncRate);
         module.tempoSyncOscillator?.frequency.setTargetAtTime(beatRate, now, 0.02);
+        if (module.effectId === "time12") return;
         module.tempoSyncDelay?.delayTime.setTargetAtTime(
           Math.max(0.02, Math.min(2, 60 / state.bpm / module.tempoSyncRate)), now, 0.02,
         );
@@ -20692,6 +20794,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     if (dialog.open) dialog.close();
     state.mixerEffectDialogTrackId = track.id;
     dialog.dataset.effectId = effectId;
+    dialog.style.width = effectId === "time12" ? "640px" : "";
     dialog.style.left = "50%";
     dialog.style.top = "50%";
     dialog.style.transform = "translate(-50%, -50%)";
@@ -20748,6 +20851,236 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       });
       content.append(controls);
       content.append(makeMixerEffectResetButton(track, effectId));
+    } else if (effectId === "time12") {
+      content.className = "mixer-effect-dialog-content mixer-layout-time12 time12-layout";
+      const settings = track.effectSettings.time12;
+      if (!Array.isArray(settings.patterns)) settings.patterns = [{ x: 0, y: 0.5 }];
+      if (!Array.isArray(settings.pattern)) settings.pattern = [{ x: 0, y: 0.5 }];
+      const shell = document.createElement("div");
+      shell.className = "time12-shell";
+
+      const top = document.createElement("div");
+      top.className = "time12-top";
+      const brand = document.createElement("strong");
+      brand.className = "time12-brand";
+      brand.textContent = "TIME-12";
+      top.append(brand);
+
+      const syncSelect = document.createElement("select");
+      syncSelect.className = "time12-select time12-sync";
+      ["1 Bar", "1/2", "1/4", "1/8", "1/16", "Rate Hz"].forEach((label) => {
+        const option = document.createElement("option");
+        option.textContent = label;
+        option.value = label;
+        syncSelect.append(option);
+      });
+      syncSelect.value = settings.sync;
+      syncSelect.addEventListener("change", () => {
+        settings.sync = syncSelect.value;
+        refreshMixerEffectTrack(track);
+      });
+      top.append(syncSelect);
+
+      const triggerLabel = document.createElement("span");
+      triggerLabel.className = "time12-trigger";
+      triggerLabel.textContent = "Trigger";
+      top.append(triggerLabel);
+
+      const triggerSelect = document.createElement("select");
+      triggerSelect.className = "time12-select";
+      ["Sync", "MIDI", "Audio"].forEach((label) => {
+        const option = document.createElement("option");
+        option.textContent = label;
+        option.value = label;
+        triggerSelect.append(option);
+      });
+      triggerSelect.value = settings.trigger;
+      triggerSelect.addEventListener("change", () => {
+        settings.trigger = triggerSelect.value;
+        refreshMixerEffectTrack(track);
+      });
+      top.append(triggerSelect);
+
+      const mix = document.createElement("span");
+      mix.className = "time12-mix";
+      mix.textContent = `Mix ${track.effects.time12}%`;
+      top.append(mix);
+      shell.append(top);
+
+      const patternRow = document.createElement("div");
+      patternRow.className = "time12-pattern-row";
+      const patterns = document.createElement("div");
+      patterns.className = "time12-patterns";
+      settings.patternIndex = Math.max(0, Math.min(11, settings.patternIndex || 0));
+      for (let index = 0; index < 12; index += 1) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = String(index + 1);
+        button.setAttribute("aria-pressed", String(index === settings.patternIndex));
+        button.addEventListener("click", () => {
+          settings.patterns[settings.patternIndex] = settings.pattern.map((point) => ({ ...point }));
+          settings.patternIndex = index;
+          settings.pattern = (settings.patterns[index]?.length
+            ? settings.patterns[index]
+            : [{ x: 0, y: 0.5 }]).map((point) => ({ ...point }));
+          patterns.querySelectorAll("button").forEach((item, itemIndex) =>
+            item.setAttribute("aria-pressed", String(itemIndex === index)));
+          refreshMixerEffectTrack(track);
+        });
+        patterns.append(button);
+      }
+      patternRow.append(patterns);
+      const patSync = document.createElement("label");
+      patSync.className = "time12-pat-sync";
+      patSync.append(document.createTextNode("Pat. Sync"));
+      const patSyncSelect = document.createElement("select");
+      patSyncSelect.className = "time12-select";
+      ["Off", "1/4 Beat", "1/2 Beat", "1 Beat", "2 Beats", "4 Beats"].forEach((label) => {
+        const option = document.createElement("option");
+        option.textContent = label;
+        option.value = label;
+        patSyncSelect.append(option);
+      });
+      patSyncSelect.value = settings.patSync;
+      patSyncSelect.addEventListener("change", () => {
+        settings.patSync = patSyncSelect.value;
+        refreshMixerEffectTrack(track);
+      });
+      patSync.append(patSyncSelect);
+      patternRow.append(patSync);
+      shell.append(patternRow);
+
+      const toolbar = document.createElement("div");
+      toolbar.className = "time12-toolbar";
+      const paint = document.createElement("button");
+      paint.type = "button";
+      paint.className = "time12-tool";
+      paint.textContent = "Paint";
+      paint.setAttribute("aria-pressed", "false");
+      const seq = document.createElement("button");
+      seq.type = "button";
+      seq.className = "time12-tool";
+      seq.textContent = "Seq";
+      seq.setAttribute("aria-pressed", "false");
+      [paint, seq].forEach((button) => button.addEventListener("click", () => {
+        if (button.getAttribute("aria-pressed") === "true") {
+          [paint, seq].forEach((item) => item.setAttribute("aria-pressed", "false"));
+          settings.mode = "Normal";
+          refreshMixerEffectTrack(track);
+          return;
+        }
+        [paint, seq].forEach((item) => item.setAttribute("aria-pressed", String(item === button)));
+        settings.mode = button === paint ? "Paint" : "Seq";
+        if (paint.getAttribute("aria-pressed") === "false" &&
+            seq.getAttribute("aria-pressed") === "false") settings.mode = "Normal";
+        refreshMixerEffectTrack(track);
+      }));
+      toolbar.append(paint, seq);
+      const pointSelect = document.createElement("select");
+      pointSelect.className = "time12-select time12-point";
+      ["Hold", "Curve", "S-Curve", "Pulse", "Wave", "Triangle", "Stairs", "Smooth St", "Half Sine"].forEach((label) => {
+        const option = document.createElement("option");
+        option.textContent = label;
+        option.value = label;
+        pointSelect.append(option);
+      });
+      pointSelect.value = settings.pointMode;
+      pointSelect.addEventListener("change", () => {
+        settings.pointMode = pointSelect.value;
+        settings.pattern.forEach((point) => {
+          point.type = pointSelect.selectedIndex;
+        });
+        refreshMixerEffectTrack(track);
+      });
+      toolbar.append(pointSelect);
+      const gridLabel = document.createElement("button");
+      gridLabel.type = "button";
+      gridLabel.className = "time12-grid";
+      gridLabel.textContent = `Grid ${settings.grid}`;
+      gridLabel.addEventListener("click", () => {
+        const grids = [4, 8, 16, 32];
+        settings.grid = grids[(grids.indexOf(settings.grid) + 1) % grids.length];
+        gridLabel.textContent = `Grid ${settings.grid}`;
+        refreshMixerEffectTrack(track);
+      });
+      toolbar.append(gridLabel);
+      const snap = document.createElement("button");
+      snap.type = "button";
+      snap.className = "time12-tool time12-snap";
+      snap.textContent = "Snap";
+      snap.setAttribute("aria-pressed", "false");
+      snap.setAttribute("aria-pressed", String(settings.snap));
+      snap.addEventListener("click", () => {
+        settings.snap = snap.getAttribute("aria-pressed") !== "true";
+        snap.setAttribute("aria-pressed", String(settings.snap));
+        refreshMixerEffectTrack(track);
+      });
+      toolbar.append(snap);
+      shell.append(toolbar);
+
+      const screen = makeMixerEffectScreen(track, effectId, "is-time12");
+      effectCanvas = screen.canvas;
+      screen.screen.querySelector(".mixer-effect-screen-heading")?.remove();
+      screen.screen.querySelector(".mixer-effect-screen-footer")?.remove();
+      shell.append(screen.screen);
+
+      const controls = document.createElement("div");
+      controls.className = "time12-controls";
+      controls.append(makeMixerSettingKnob("Mix", track.effects.time12, 0, 100, 1, "%", (value) => {
+        track.effects.time12 = value;
+        mix.textContent = `Mix ${value}%`;
+        refreshMixerEffectTrack(track);
+      }));
+      ["rate", "depth", "smooth"].forEach((parameterId) => {
+        const definition = EFFECT_PARAMETERS.time12.find(([id]) => id === parameterId);
+        if (!definition) return;
+        const [, label, min, max, step, unit] = definition;
+        controls.append(makeMixerSettingKnob(label, settings[parameterId], min, max, step, unit, (value) => {
+          settings[parameterId] = value;
+          refreshMixerEffectTrack(track);
+        }));
+      });
+      shell.append(controls);
+      content.append(shell);
+
+      const updatePatternPoint = (event, insertPoint = false) => {
+        const bounds = effectCanvas.getBoundingClientRect();
+        let x = Math.max(0, Math.min(1, (event.clientX - bounds.left) / Math.max(1, bounds.width)));
+        let y = Math.max(0, Math.min(1, 1 - (event.clientY - bounds.top) / Math.max(1, bounds.height)));
+        if (settings.snap) {
+          x = Math.round(x * settings.grid) / settings.grid;
+          y = Math.round(y * settings.grid) / settings.grid;
+        }
+        let nearest = 0;
+        let nearestDistance = Infinity;
+        settings.pattern.forEach((point, index) => {
+          const distance = Math.hypot(point.x - x, point.y - y);
+          if (distance < nearestDistance) {
+            nearestDistance = distance;
+            nearest = index;
+          }
+        });
+        if (insertPoint) {
+          settings.pattern.push({ x, y });
+        } else if (nearestDistance < 0.12 || settings.pattern.length === 0) {
+          if (settings.pattern.length === 0) settings.pattern.push({ x, y });
+          else settings.pattern[nearest] = { x, y };
+        }
+        settings.pattern = settings.pattern.slice(0, 12).sort((a, b) => a.x - b.x);
+        settings.patterns[settings.patternIndex] = settings.pattern.map((point) => ({ ...point }));
+        refreshMixerEffectTrack(track);
+      };
+      effectCanvas.addEventListener("pointerdown", (event) => {
+        effectCanvas.setPointerCapture(event.pointerId);
+        updatePatternPoint(event, event.altKey);
+      });
+      effectCanvas.addEventListener("pointermove", (event) => {
+        if (effectCanvas.hasPointerCapture(event.pointerId)) updatePatternPoint(event);
+      });
+      effectCanvas.addEventListener("pointerup", (event) => {
+        if (effectCanvas.hasPointerCapture(event.pointerId)) effectCanvas.releasePointerCapture(event.pointerId);
+      });
+      effectCanvas.title = "Alt+drag inserts a point.";
     } else {
       const controls = document.createElement("div");
       controls.className = "mixer-effect-controls";
@@ -20789,12 +21122,51 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
           delayBank: "is-delay-bank",
           guitarDistortion: "is-guitar-distortion",
           grossBeat: "is-gross-beat",
+          time12: "is-time12",
           panOMatic: "is-pan-o-matic",
           stereoEnhancer: "is-stereo-enhancer",
         };
         const screen = makeMixerEffectScreen(track, effectId, screenVariants[effectId] || "");
         effectCanvas = screen.canvas;
         content.append(screen.screen);
+        if (effectId === "time12") {
+          const settings = track.effectSettings.time12;
+          if (!Array.isArray(settings.pattern)) settings.pattern = [];
+          const updatePatternPoint = (event, insertPoint = false) => {
+            const bounds = effectCanvas.getBoundingClientRect();
+            const x = Math.max(0, Math.min(1, (event.clientX - bounds.left - 12) / Math.max(1, bounds.width - 24)));
+            const y = Math.max(0, Math.min(1, 1 - (event.clientY - bounds.top - 12) / Math.max(1, bounds.height - 24)));
+            let nearest = 0;
+            let nearestDistance = Infinity;
+            settings.pattern.forEach((point, index) => {
+              const distance = Math.hypot(point.x - x, point.y - y);
+              if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearest = index;
+              }
+            });
+            if (insertPoint) {
+              settings.pattern.push({ x, y });
+              settings.pattern.sort((a, b) => a.x - b.x);
+            } else if (nearestDistance < 0.18 || settings.pattern.length === 0) {
+              if (settings.pattern.length === 0) settings.pattern.push({ x, y });
+              else settings.pattern[nearest] = { x, y };
+            }
+            settings.pattern = settings.pattern.slice(0, 12).sort((a, b) => a.x - b.x);
+            refreshMixerEffectTrack(track);
+          };
+          effectCanvas.addEventListener("pointerdown", (event) => {
+            effectCanvas.setPointerCapture(event.pointerId);
+            updatePatternPoint(event, event.altKey);
+          });
+          effectCanvas.addEventListener("pointermove", (event) => {
+            if (effectCanvas.hasPointerCapture(event.pointerId)) updatePatternPoint(event);
+          });
+          effectCanvas.addEventListener("pointerup", (event) => {
+            if (effectCanvas.hasPointerCapture(event.pointerId)) effectCanvas.releasePointerCapture(event.pointerId);
+          });
+          effectCanvas.title = "TIME-12 pattern. Drag a point; Alt+drag inserts a point.";
+        }
       }
       if (["sidechain", "crossfadeLimiter", "vocoder3Band"].includes(effectId)) {
         const sourceLabel = document.createElement("label");
@@ -20832,7 +21204,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         refreshMixerEffectTrack(track);
       }));
       const knobEffects = new Set([
-        "bloodOverdrive", "chorus", "delayBank", "grossBeat", "guitarDistortion", "panOMatic", "stereoEnhancer",
+        "bloodOverdrive", "chorus", "delayBank", "grossBeat", "time12", "guitarDistortion", "panOMatic", "stereoEnhancer",
       ]);
       (EFFECT_PARAMETERS[effectId] || []).forEach(([id, label, min, max, step, unit]) => {
         const onInput = (value) => {
@@ -21132,8 +21504,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     const visualKind = effectId === "guitarDistortion" ? "guitar-distortion"
       : effectId === "bloodOverdrive" ? "blood-overdrive"
         : effectId === "grossBeat" ? "gross-beat"
-          : effectId === "stereoEnhancer" ? "stereo-enhancer"
-            : effectId === "delayBank" ? "delay-bank"
+          : effectId === "time12" ? "time12"
+            : effectId === "stereoEnhancer" ? "stereo-enhancer"
+              : effectId === "delayBank" ? "delay-bank"
               : effectId === "panOMatic" ? "pan-o-matic"
                 : effectId === "chorus" ? "chorus"
                   : modulationEffects.has(effectId) ? "modulation"
@@ -21247,6 +21620,65 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         context.moveTo(12, height - 7);
         context.lineTo(width - 12, height - 7);
         context.stroke();
+      } else if (visualKind === "time12") {
+        const settings = track.effectSettings.time12;
+        const pattern = Array.isArray(settings.pattern) ? [...settings.pattern].sort((a, b) => a.x - b.x) : [];
+        const smooth = (settings.smooth ?? 35) / 100;
+        const patternAt = (x) => {
+          if (!pattern.length) return 0.5;
+          if (x <= pattern[0].x) return pattern[0].y;
+          if (x >= pattern.at(-1).x) return pattern.at(-1).y;
+          for (let index = 0; index < pattern.length - 1; index += 1) {
+            const left = pattern[index];
+            const right = pattern[index + 1];
+            if (x >= left.x && x <= right.x) {
+              const span = Math.max(0.0001, right.x - left.x);
+              const raw = (x - left.x) / span;
+              const eased = raw * raw * (3 - 2 * raw) * smooth + raw * (1 - smooth);
+              return left.y + (right.y - left.y) * eased;
+            }
+          }
+          return 0.5;
+        };
+        context.strokeStyle = "rgba(190,205,220,.13)";
+        context.lineWidth = 1;
+        for (let column = 0; column <= 12; column += 1) {
+          const x = 12 + column / 12 * (width - 24);
+          context.beginPath();
+          context.moveTo(x, 12);
+          context.lineTo(x, height - 12);
+          context.stroke();
+        }
+        context.beginPath();
+        for (let index = 0; index <= 180; index += 1) {
+          const xRatio = index / 180;
+          const y = 12 + (1 - patternAt(xRatio)) * (height - 24);
+          const x = 12 + xRatio * (width - 24);
+          if (!index) context.moveTo(x, y);
+          else context.lineTo(x, y);
+        }
+        context.strokeStyle = accent;
+        context.lineWidth = 2.5;
+        context.shadowColor = accent;
+        context.shadowBlur = 8;
+        context.stroke();
+        context.shadowBlur = 0;
+        pattern.forEach((point) => {
+          const x = 12 + point.x * (width - 24);
+          const y = 12 + (1 - point.y) * (height - 24);
+          context.fillStyle = "#171a20";
+          context.strokeStyle = accent;
+          context.lineWidth = 2;
+          context.beginPath();
+          context.arc(x, y, 4.5, 0, Math.PI * 2);
+          context.fill();
+          context.stroke();
+        });
+        const rate = settings.rate ?? 1;
+        const playhead = ((time * state.bpm / 60 * rate) % 1);
+        const playheadX = 12 + playhead * (width - 24);
+        context.fillStyle = "#f5f4e8";
+        context.fillRect(playheadX - 1, 8, 2, height - 16);
       } else if (visualKind === "stereo-enhancer") {
         const widthFactor = (track.effectSettings.stereoEnhancer?.width || 125) / 100;
         context.beginPath();

@@ -266,7 +266,7 @@
   const EFFECT_CATEGORIES = [
     { name: "Flanger", effects: [["flanger", "Flanger"], ["chorus", "Chorus"], ["phaser", "Phaser"], ["vibrato", "Vibrato"]] },
     { name: "Gain", effects: [["gain", "Gain"], ["distortion", "Distortion"], ["guitarDistortion", "Guitar Distortion"], ["bloodOverdrive", "Blood Overdrive"], ["saturator", "Saturator"], ["softClipper", "Soft clipper"]] },
-    { name: "Delay", effects: [["delay", "Delay"], ["delayBank", "Delay Bank"], ["pingPong", "Ping-pong delay"], ["slapback", "Slapback"], ["tapeDelay", "Tape delay"]] },
+    { name: "Delay", effects: [["delay", "Delay"], ["delayBank", "Delay Bank"], ["pingPong", "Ping-pong delay"], ["slapback", "Slapback"], ["tapeDelay", "Tape delay"], ["time12", "TIME-12"]] },
     { name: "Reverb", effects: [["reverb", "Reverb"], ["room", "Room"], ["hall", "Hall"], ["plate", "Plate"]] },
     { name: "Controllers", effects: [["autopan", "Auto-pan"], ["panOMatic", "PanOMatic"], ["grossBeat", "Gross Beat"], ["tremolo", "Tremolo"], ["autoFilter", "Auto-filter"], ["lfoGain", "LFO gain"]] },
     { name: "Dynamics", effects: [["compressor", "Compressor"], ["multibandCompressor", "Multiband compressor"], ["limiter", "Limiter"], ["noiseGate", "Noise gate"], ["transientShaper", "Transient shaper"], ["sidechain", "Sidechain"], ["crossfadeLimiter", "Crossfade limiter"]] },
@@ -305,6 +305,11 @@
       ["rate", "Rate", 0.5, 4, 0.25, "× beat", 1],
       ["gate", "Chop", 0, 100, 1, "%", 55],
       ["feedback", "Repeat", 0, 80, 1, "%", 35],
+    ],
+    time12: [
+      ["rate", "Rate", 0.25, 4, 0.25, "× beat", 1],
+      ["depth", "Depth", 0, 100, 1, "%", 75],
+      ["smooth", "Smooth", 0, 100, 1, "%", 35],
     ],
     stereoEnhancer: [
       ["width", "Width", 0, 200, 1, "%", 125],
@@ -532,6 +537,47 @@
       ? settings.crossfadeLimiter.sourceTrackId : "";
     defaults.vocoder3Band.modulatorTrackId = typeof settings?.vocoder3Band?.modulatorTrackId === "string"
       ? settings.vocoder3Band.modulatorTrackId : "";
+    const time12Pattern = Array.isArray(settings?.time12?.pattern)
+      ? settings.time12.pattern.filter((point) => Number.isFinite(point?.x) && Number.isFinite(point?.y))
+        .map((point) => ({
+          x: Math.max(0, Math.min(1, point.x)),
+          y: Math.max(0, Math.min(1, point.y)),
+        })).slice(0, 12)
+      : [{ x: 0, y: 0.2 }, { x: 0.25, y: 0.9 }, { x: 0.5, y: 0.15 }, { x: 0.75, y: 0.65 }, { x: 1, y: 0.2 }];
+    defaults.time12.pattern = time12Pattern;
+    defaults.time12.patterns = Array.from({ length: 12 }, (_, index) => {
+      const savedPattern = settings?.time12?.patterns?.[index];
+      if (!Array.isArray(savedPattern)) return index === 0 ? time12Pattern.map((point) => ({ ...point })) : [{ x: 0, y: 0.5 }];
+      return savedPattern.filter((point) => Number.isFinite(point?.x) && Number.isFinite(point?.y))
+        .map((point) => ({
+          x: Math.max(0, Math.min(1, point.x)),
+          y: Math.max(0, Math.min(1, point.y)),
+        })).slice(0, 12);
+    });
+    defaults.time12.patternIndex = Number.isInteger(settings?.time12?.patternIndex)
+      ? Math.max(0, Math.min(11, settings.time12.patternIndex))
+      : 0;
+    const time12Defaults = {
+      sync: "1 Bar",
+      trigger: "Sync",
+      patSync: "Off",
+      pointMode: "Hold",
+      grid: 16,
+      snap: false,
+      mode: "Normal",
+    };
+    Object.entries(time12Defaults).forEach(([key, fallback]) => {
+      if (key === "grid") {
+        defaults.time12[key] = [4, 8, 16, 32].includes(settings?.time12?.[key])
+          ? settings.time12[key] : fallback;
+      } else if (key === "snap") {
+        defaults.time12[key] = settings?.time12?.[key] === true;
+      } else if (typeof settings?.time12?.[key] === "string") {
+        defaults.time12[key] = settings.time12[key];
+      } else {
+        defaults.time12[key] = fallback;
+      }
+    });
     return defaults;
   }
 

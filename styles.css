@@ -1086,6 +1086,35 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .mixer-effect-dialog[data-effect-id="guitarDistortion"] .mixer-effect-knob-control { background: repeating-linear-gradient(135deg, #2a211a 0 4px, #211b17 4px 8px); }
 .mixer-effect-dialog[data-effect-id="bloodOverdrive"] .mixer-effect-knob-control { background: repeating-linear-gradient(0deg, #2b1d1b 0 3px, #211817 3px 6px); }
 .mixer-effect-dialog[data-effect-id="grossBeat"] .mixer-effect-knob-control { background: linear-gradient(145deg, #202b3a, #151b26); }
+.mixer-effect-dialog[data-effect-id="time12"] .mixer-effect-knob-control { background: linear-gradient(145deg, #1d2a35, #11171f); }
+.mixer-effect-dialog[data-effect-id="time12"] { width: min(640px, calc(100vw - 20px)); height: min(640px, calc(100dvh - 16px)); }
+.mixer-effect-dialog-content.time12-layout { display: block; height: calc(100% - 38px); max-height: none; overflow: hidden; padding: 0; background: #181818; }
+.time12-shell { height: 100%; display: grid; grid-template-rows: 35px 35px 35px minmax(0, 1fr) 70px; box-sizing: border-box; color: #e5e7e5; background: #181818; font-family: var(--mono); }
+.time12-top, .time12-pattern-row, .time12-toolbar { display: flex; align-items: center; gap: 8px; padding: 5px 15px; }
+.time12-brand { width: 110px; font-family: var(--sans); font-size: 24px; letter-spacing: -.02em; color: #fff; }
+.time12-select, .time12-grid, .time12-tool { height: 25px; border: 1px solid #00e672; border-radius: 3px; background: #181818; color: #00e672; font-size: 11px; }
+.time12-select { min-width: 75px; padding: 2px 6px; }
+.time12-sync { color: #00e672; }
+.time12-trigger { margin-left: 5px; color: #999; font-size: 12px; }
+.time12-mix { margin-left: auto; color: #999; font-size: 12px; }
+.time12-pattern-row { border-top: 1px solid #202020; }
+.time12-patterns { display: flex; }
+.time12-patterns button { width: 22px; height: 25px; border: 0; border-right: 1px solid #181818; background: #005f2f; color: #181818; font-size: 11px; cursor: pointer; }
+.time12-patterns button:first-child { border-radius: 3px 0 0 3px; }
+.time12-patterns button:last-child { border-radius: 0 3px 3px 0; }
+.time12-patterns button[aria-pressed="true"] { background: #00e672; }
+.time12-pat-sync { display: flex; align-items: center; gap: 8px; margin-left: 8px; color: #999; font-size: 12px; }
+.time12-toolbar { justify-content: flex-start; }
+.time12-tool { min-width: 75px; cursor: pointer; }
+.time12-tool[aria-pressed="true"] { background: #00e672; color: #181818; }
+.time12-point { margin-left: 8px; }
+.time12-grid { margin-left: auto; border-color: #00e672; }
+.time12-snap { min-width: 60px; }
+.mixer-effect-screen.is-time12 { grid-column: 1 / -1; width: calc(100% - 30px); height: 100%; margin: 0 15px; border: 0; border-radius: 0; background: #181818; box-shadow: none; }
+.mixer-effect-screen.is-time12::after { display: none; }
+.mixer-effect-screen.is-time12 canvas { height: 100%; min-height: 260px; }
+.time12-controls { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 4px 15px; background: #181818; }
+.time12-controls .mixer-effect-knob-control { width: 78px; min-height: 62px; }
 .mixer-effect-dialog[data-effect-id="stereoEnhancer"] .mixer-effect-knob-control { background: repeating-linear-gradient(45deg, #1c2a22 0 4px, #20241f 4px 8px); }
 .mixer-effect-dialog[data-effect-id="delayBank"] .mixer-effect-knob-control { background: repeating-linear-gradient(0deg, #192832 0 3px, #1c222b 3px 6px); }
 .mixer-effect-dialog[data-effect-id="panOMatic"] .mixer-effect-knob-control { background: radial-gradient(circle at 50% 30%, #2a3023, #1b201d 70%); }

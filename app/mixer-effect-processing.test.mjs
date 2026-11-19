@@ -95,6 +95,28 @@ test("guitar distortion and Blood Overdrive build bounded oversampled curves", (
   }
 });
 
+test("TIME-12 builds a tempo-modulated delay pattern", () => {
+  const { context, created } = makeAudioContext();
+  const pattern = [
+    { x: 0, y: 0.2 },
+    { x: 0.25, y: 0.9 },
+    { x: 0.5, y: 0.15 },
+    { x: 0.75, y: 0.65 },
+    { x: 1, y: 0.2 },
+  ];
+  const module = createTrackEffect(context, "time12", 100,
+    { rate: 2, depth: 75, smooth: 35, pattern });
+
+  const oscillator = created.find((node) => node.kind === "oscillator");
+  const shaper = created.find((node) => node.kind === "waveshaper");
+  assert.equal(module.effectId, undefined);
+  assert.equal(oscillator.frequency.value, 4);
+  assert.equal(shaper.oversample, "2x");
+  assert.equal(shaper.curve.length, 4096);
+  assert.ok(Array.from(shaper.curve).every((value) => value >= 0 && value <= 1));
+  assert.equal(created.filter((node) => node.kind === "delay").length, 1);
+});
+
 test("Gross Beat tracks tempo changes without rebuilding its effect graph", () => {
   const { context, created } = makeAudioContext();
   const module = createTrackEffect(context, "grossBeat", 100, { rate: 2, gate: 60, feedback: 35 });

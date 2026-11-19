@@ -1305,6 +1305,61 @@
       preDelay.connect(convolver);
       nodes.push(preDelay, convolver);
       effectOutput = convolver;
+    } else if (id === "time12") {
+      const delay = context.createDelay(2);
+      const oscillator = context.createOscillator();
+      const shaper = context.createWaveShaper();
+      const depth = context.createGain();
+      const feedbackFilter = context.createBiquadFilter();
+      const feedback = context.createGain();
+      const time12TempoRate = setting("rate", 1);
+      const pattern = Array.isArray(settings.pattern) && settings.pattern.length
+        ? settings.pattern
+        : [{ x: 0, y: 0.2 }, { x: 0.25, y: 0.9 }, { x: 0.5, y: 0.15 }, { x: 0.75, y: 0.65 }, { x: 1, y: 0.2 }];
+      const points = [...pattern].sort((a, b) => a.x - b.x);
+      const smooth = setting("smooth", 35) / 100;
+      const curve = new Float32Array(4096);
+      for (let index = 0; index < curve.length; index += 1) {
+        const x = index / (curve.length - 1);
+        let left = points[0];
+        let right = points.at(-1);
+        for (let pointIndex = 0; pointIndex < points.length - 1; pointIndex += 1) {
+          if (x >= points[pointIndex].x && x <= points[pointIndex + 1].x) {
+            left = points[pointIndex];
+            right = points[pointIndex + 1];
+            break;
+          }
+        }
+        const span = Math.max(0.000001, right.x - left.x);
+        const raw = (x - left.x) / span;
+        const eased = smooth > 0
+          ? raw * raw * (3 - 2 * raw) * smooth + raw * (1 - smooth)
+          : raw;
+        curve[index] = left.y + (right.y - left.y) * eased;
+      }
+      shaper.curve = curve;
+      shaper.oversample = "2x";
+      oscillator.type = "sine";
+      oscillator.frequency.value = Math.max(0.05, state.bpm / 60 * time12TempoRate);
+      delay.delayTime.value = 0.02;
+      depth.gain.value = setting("depth", 75) / 100 * 1.48;
+      feedbackFilter.type = "lowpass";
+      feedbackFilter.frequency.value = 8000;
+      feedback.gain.value = 0.18;
+      oscillator.connect(shaper);
+      shaper.connect(depth);
+      depth.connect(delay.delayTime);
+      input.connect(delay);
+      delay.connect(feedbackFilter);
+      feedbackFilter.connect(feedback);
+      feedback.connect(delay);
+      effectOutput = delay;
+      nodes.push(delay, shaper, depth, feedbackFilter, feedback);
+      sources.push(oscillator);
+      tempoSyncOscillator = oscillator;
+      tempoSyncDelay = delay;
+      tempoSyncRate = time12TempoRate;
+      oscillator.start();
     } else if (id === "grossBeat") {
       const delay = context.createDelay(2);
       const feedbackFilter = context.createBiquadFilter();
@@ -1648,9 +1703,10 @@
     const now = state.audioContext?.currentTime || 0;
     getMixerTracks().forEach(({ track }) => {
       track.fxRuntime?.forEach((module) => {
-        if (module.effectId !== "grossBeat") return;
+        if (!["grossBeat", "time12"].includes(module.effectId)) return;
         const beatRate = Math.max(0.05, state.bpm / 60 * module.tempoSyncRate);
         module.tempoSyncOscillator?.frequency.setTargetAtTime(beatRate, now, 0.02);
+        if (module.effectId === "time12") return;
         module.tempoSyncDelay?.delayTime.setTargetAtTime(
           Math.max(0.02, Math.min(2, 60 / state.bpm / module.tempoSyncRate)), now, 0.02,
         );
