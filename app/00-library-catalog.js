@@ -242,7 +242,8 @@
       id: "synth-dansbpm", name: "sinT", kind: "instrument", family: "VST", vstPluginId: "dansbpm-wavetable", color: "#93e2bd", volume: 0.68,
       patch: {
         engine: "dansbpm", wave: "sawtooth", osc2Wave: "square", osc2Detune: 8, osc2Level: 0.28, subLevel: 0.2,
-        wavetablePosition: 0, unison: 1, unisonSpread: 0, fmAmount: 0, noiseLevel: 0,
+        wavetablePosition: 0, unison: 1, unisonSpread: 0, fmAmount: 0, fmRatio: 2,
+        osc1Level: 0.62, osc1Octave: 0, osc2Octave: 0, noiseLevel: 0,
         cutoff: 3200, resonance: 0.2, filterEnvOctaves: 2.5,
         filterType: "lowpass", drive: 0, delayMix: 0,
         attack: 0.01, decay: 0.25, sustain: 0.55, release: 0.25,
@@ -254,7 +255,8 @@
       id: "vst-bell-dansbpm", name: "bellie", kind: "instrument", family: "VST", vstPluginId: "dansbpm-bell", color: "#edc879", volume: 0.68,
       patch: {
         engine: "dansbpm-bell", wave: "sine", osc2Wave: "sine", wavetablePosition: 0,
-        bellInharmonicity: 0.018, bellBrightness: 58, fmAmount: 38, fmRatio: 2.71,
+        bellInharmonicity: 0.018, bellBrightness: 58, bellPartialCount: 8, bellDamping: 0,
+        bellStrike: 100, bellSpread: 0, bellTune: 0, fmAmount: 38, fmRatio: 2.71,
         cutoff: 14000, resonance: 0.18, filterType: "lowpass", filterEnvOctaves: 0,
         attack: 0.002, decay: 3.2, sustain: 0.015, release: 1.8,
         drive: 2, delayMix: 12, lfoRate: 0.18, lfoDepth: 0, lfoTarget: "pitch", output: 0.72,
@@ -265,6 +267,7 @@
       patch: {
         engine: "dansbpm-piano", wave: "triangle", osc2Wave: "sine", wavetablePosition: 0,
         pianoBrightness: 52, pianoHammer: 18, pianoDamping: 42,
+        pianoStringCount: 1, pianoStringWidth: 0, pianoKeyNoise: 0,
         cutoff: 9800, resonance: 0.12, filterType: "lowpass", filterEnvOctaves: 0,
         attack: 0.004, decay: 1.1, sustain: 0.09, release: 0.48,
         drive: 0, delayMix: 0, lfoRate: 0.18, lfoDepth: 0, lfoTarget: "pitch", output: 0.72,
@@ -275,6 +278,7 @@
       patch: {
         engine: "dansbpm-808", wave: "sine", osc2Wave: "triangle", wavetablePosition: 0,
         pitchDrop: 30, pitchDropTime: 0.11, clickLevel: 0.12, clickTone: 3800,
+        clickDuration: 0.045, subTune: 0,
         subLevel: 0.12, cutoff: 6200, resonance: 0.12, filterType: "lowpass", filterEnvOctaves: 0,
         attack: 0.002, decay: 0.5, sustain: 0.24, release: 0.2,
         drive: 15, delayMix: 0, lfoRate: 0.18, lfoDepth: 0, lfoTarget: "pitch", output: 0.72,
@@ -284,7 +288,8 @@
       id: "vst-kick-dansbpm", name: "Backshots", kind: "instrument", family: "VST", vstPluginId: "dansbpm-kick", color: "#ff9f45", volume: 0.72,
       patch: {
         engine: "dansbpm-kick", wave: "sine", osc2Wave: "triangle", wavetablePosition: 0,
-        kickPitchDrop: 34, kickPitchTime: 0.045, kickBody: 0.36, clickLevel: 0.18, clickTone: 5200,
+        kickPitchDrop: 34, kickPitchTime: 0.045, kickBody: 0.36, kickHarmonic: 18,
+        kickClickDuration: 0.025, clickLevel: 0.18, clickTone: 5200,
         cutoff: 9200, resonance: 0.12, filterType: "lowpass",
         attack: 0.001, decay: 0.32, sustain: 0.02, release: 0.12,
         drive: 22, delayMix: 0, lfoRate: 0.18, lfoDepth: 0, lfoTarget: "pitch", output: 0.72,

@@ -404,7 +404,9 @@
     const context = state.audioContext;
     const patch = track.patch || {};
     const parameter = (key, fallback) => Number.isFinite(patch[key]) ? patch[key] : fallback;
-    const frequency = 440 * Math.pow(2, (midi - 69) / 12);
+    const engine = patch.engine || "dansbpm";
+    const frequency = 440 * Math.pow(2, (midi - 69) / 12) *
+      Math.pow(2, (engine === "dansbpm-bell" ? parameter("bellTune", 0) : 0) / 12);
     const durationScale = Number.isFinite(noteOptions.soundDurationScale)
       ? Math.max(0.01, Math.min(1, noteOptions.soundDurationScale))
       : 1;
@@ -419,7 +421,8 @@
       : parameter("release", 0.25) * durationScale);
     const gateEnd = time + Math.max(0.02, duration);
     const outputLevel = Number.isFinite(patch.output) ? Math.max(0, Math.min(1, patch.output)) : 0.72;
-    const peak = velocity * 0.48 * outputLevel;
+    const peak = velocity * 0.48 * outputLevel *
+      (engine === "dansbpm-bell" ? parameter("bellStrike", 100) / 100 : 1);
     const envelope = context.createGain();
     const filter = context.createBiquadFilter();
     const cutoff = Math.max(80, Math.min(18000, Number(patch.cutoff) || 3200));
@@ -444,22 +447,26 @@
     envelope.gain.setValueAtTime(peak * sustain, gateEnd);
     envelope.gain.linearRampToValueAtTime(0.0001, gateEnd + release);
 
-    const engine = patch.engine || "dansbpm";
     const osc1Wave = patch.wave || "sawtooth";
     const wavetablePosition = parameter("wavetablePosition", 0);
     let oscillatorSettings;
     if (engine === "dansbpm-bell") {
       const inharmonicity = parameter("bellInharmonicity", 0.018);
       const brightness = parameter("bellBrightness", 58) / 100;
-      oscillatorSettings = [1, 2, 3, 4, 5, 6, 7, 8].map((partial) => {
+      const partialCount = Math.round(Math.max(3, Math.min(12, parameter("bellPartialCount", 8))));
+      const damping = Math.max(0, Math.min(100, parameter("bellDamping", 0))) / 100;
+      oscillatorSettings = Array.from({ length: partialCount }, (_, index) => {
+        const partial = index + 1;
         const ratio = partial * Math.sqrt(1 + inharmonicity * partial * partial);
         const level = Math.pow(partial, -1.35) * (0.5 + brightness * partial * 0.12);
         return {
           type: partial === 1 ? osc1Wave : "sine",
           rate: frequency * ratio,
           level,
-          detune: Number(noteOptions.detune) || 0,
-          decay: Math.max(0.08, parameter("decay", 3.2) / Math.pow(partial, 0.38)),
+          detune: (Number(noteOptions.detune) || 0) +
+            ((partial - (partialCount + 1) / 2) / Math.max(1, partialCount - 1)) * parameter("bellSpread", 0),
+          decay: Math.max(0.08,
+            parameter("decay", 3.2) * (1 - damping * 0.8) / Math.pow(partial, 0.38)),
           fm: partial === 1 ? parameter("fmAmount", 0) : 0,
           fmRatio: parameter("fmRatio", 2.71),
         };
@@ -468,18 +475,21 @@
       const brightness = parameter("pianoBrightness", 52) / 100;
       const hammer = parameter("pianoHammer", 18) / 100;
       const damping = parameter("pianoDamping", 42) / 100;
+      const stringCount = Math.round(Math.max(1, Math.min(3, parameter("pianoStringCount", 1))));
+      const stringWidth = Math.max(0, Math.min(30, parameter("pianoStringWidth", 0)));
       const partialLevels = [0.58, 0.25, 0.13, 0.075, 0.045, 0.028, 0.018];
-      oscillatorSettings = partialLevels.map((level, index) => {
+      oscillatorSettings = partialLevels.flatMap((level, index) => {
         const partial = index + 1;
         const strike = 0.35 + brightness * 0.65 + hammer * Math.max(0, partial - 2) * 0.09;
-        return {
+        return Array.from({ length: stringCount }, (_, stringIndex) => ({
           type: partial === 1 ? osc1Wave : (partial % 2 ? "sine" : (patch.osc2Wave || "sine")),
           rate: frequency * partial,
-          level: level * strike,
-          detune: Number(noteOptions.detune) || 0,
+          level: level * strike / stringCount,
+          detune: (Number(noteOptions.detune) || 0) +
+            ((stringIndex - (stringCount - 1) / 2) / Math.max(1, stringCount - 1)) * stringWidth,
           decay: Math.max(0.08,
             parameter("decay", 1.1) * (1 - damping * 0.72) / (1 + index * 0.14)),
-        };
+        }));
       });
     } else if (engine === "dansbpm-808") {
       oscillatorSettings = [
@@ -492,7 +502,7 @@
         },
         {
           type: patch.osc2Wave || "triangle",
-          rate: frequency,
+          rate: frequency * Math.pow(2, parameter("subTune", 0) / 12),
           level: Math.max(0, Math.min(0.24, parameter("subLevel", 0.12))),
           detune: Number(noteOptions.detune) || 0,
           pitchDrop: parameter("pitchDrop", 30),
@@ -515,7 +525,7 @@
         {
           type: "sine",
           rate: kickFrequency * 2.4,
-          level: 0.18,
+          level: Math.max(0, Math.min(0.6, parameter("kickHarmonic", 18) / 100)),
           detune: Number(noteOptions.detune) || 0,
           pitchDrop: pitchDrop * 0.55,
           pitchDropTime: parameter("kickPitchTime", 0.045) * 0.65,
@@ -527,18 +537,19 @@
       const unisonSpread = Math.max(0, Math.min(60, parameter("unisonSpread", 0)));
       oscillatorSettings = Array.from({ length: unisonCount }, (_, index) => ({
         type: osc1Wave,
-        rate: frequency,
-        level: 0.62 / Math.sqrt(unisonCount),
+        rate: frequency * Math.pow(2, parameter("osc1Octave", 0)),
+        level: parameter("osc1Level", 0.62) / Math.sqrt(unisonCount),
         detune: (Number(noteOptions.detune) || 0) +
           (unisonCount === 1 ? 0 : (index / (unisonCount - 1) - 0.5) * unisonSpread),
         wavetablePosition,
         pan: unisonCount === 1 ? 0 : (index / (unisonCount - 1) - 0.5) * 1.2,
         fm: parameter("fmAmount", 0),
+        fmRatio: parameter("fmRatio", 2),
       }));
       oscillatorSettings.push(
         {
           type: patch.osc2Wave || osc1Wave,
-          rate: frequency,
+          rate: frequency * Math.pow(2, parameter("osc2Octave", 0)),
           level: Math.max(0, Math.min(0.7, parameter("osc2Level", 0.28))),
           detune: parameter("osc2Detune", 0) + (Number(noteOptions.detune) || 0),
           wavetablePosition,
@@ -589,8 +600,8 @@
         registerArrangementPlaybackSource(modulator);
         const modulatorGain = context.createGain();
         modulator.type = patch.osc2Wave || "sine";
-        modulator.frequency.setValueAtTime(frequency * (settings.fmRatio || 2), time);
-        modulatorGain.gain.setValueAtTime(frequency * settings.fm / 100 * 0.18, time);
+        modulator.frequency.setValueAtTime(settings.rate * (settings.fmRatio || 2), time);
+        modulatorGain.gain.setValueAtTime(settings.rate * settings.fm / 100 * 0.18, time);
         modulator.connect(modulatorGain);
         modulatorGain.connect(oscillator.frequency);
         modulator.start(time);
@@ -614,7 +625,10 @@
     const is808 = engine === "dansbpm-808";
     const isKick = engine === "dansbpm-kick";
     const noiseLevel = Math.max(0, Math.min(0.7,
-      is808 || isKick ? parameter("clickLevel", 0) : parameter("noiseLevel", 0)));
+      is808 || isKick ? parameter("clickLevel", 0) :
+        engine === "dansbpm-piano"
+          ? parameter("pianoKeyNoise", 0)
+          : parameter("noiseLevel", 0)));
     if (noiseLevel > 0) {
       const noise = context.createBufferSource();
       registerArrangementPlaybackSource(noise);
@@ -628,13 +642,18 @@
         clickFilter.frequency.setValueAtTime(parameter("clickTone", 3800), time);
         noise.connect(clickFilter);
         clickFilter.connect(noiseGain);
-        noiseGain.gain.exponentialRampToValueAtTime(0.0001, time + (isKick ? 0.025 : 0.045));
+        noiseGain.gain.exponentialRampToValueAtTime(0.0001, time +
+          (isKick ? parameter("kickClickDuration", 0.025) : parameter("clickDuration", 0.045)));
       } else {
         noise.connect(noiseGain);
       }
       noiseGain.connect(filter);
       noise.start(time);
-      noise.stop(is808 || isKick ? time + (isKick ? 0.04 : 0.06) : gateEnd + release + 0.02);
+      noise.stop(is808 || isKick
+        ? time + (isKick
+          ? parameter("kickClickDuration", 0.025) + 0.015
+          : parameter("clickDuration", 0.045) + 0.015)
+        : gateEnd + release + 0.02);
     }
 
     const delayMix = Math.max(0, Math.min(100, parameter("delayMix", 0))) / 100;

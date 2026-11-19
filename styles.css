@@ -941,6 +941,10 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .synth-edit-button { align-self: center; }
 .synth-edit-button[hidden] { display: none; }
 .dansbpm-synth-dialog { width: min(1200px, calc(100vw - 24px)); height: min(860px, calc(100dvh - 24px)); max-height: calc(100dvh - 24px); overflow: hidden; border: 1px solid #3c5555; border-radius: 8px; background: linear-gradient(145deg, #202528, #15191c 55%); padding: 14px; color: var(--text); box-shadow: 0 20px 60px #000b, inset 0 1px rgba(255,255,255,.035); }
+.dansbpm-synth-dialog.is-floating { width: min(940px, calc(100vw - 24px)); height: min(680px, calc(100dvh - 24px)); max-height: calc(100dvh - 24px); min-width: min(360px, calc(100vw - 24px)); z-index: 1200; }
+.dansbpm-synth-dialog.is-floating .dansbpm-synth-heading { cursor: grab; user-select: none; }
+.dansbpm-synth-dialog.is-floating .dansbpm-synth-heading:active { cursor: grabbing; }
+.dansbpm-synth-dialog .dansbpm-vst-window-mode { min-width: 46px; }
 .dansbpm-synth-dialog[open] { display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 8px; }
 .dansbpm-synth-dialog.has-keyboard[open] { grid-template-rows: auto auto auto minmax(0, 1fr); }
 .dansbpm-synth-dialog::backdrop { background: #0009; backdrop-filter: blur(3px); }
@@ -985,11 +989,35 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .dansbpm-synth-preview-heading { display: flex; align-items: center; gap: 10px; }
 .dansbpm-synth-preview-heading > span { color: var(--muted); font-family: var(--mono); font-size: 9px; }
 .dansbpm-synth-preview canvas { display: block; width: 100%; height: 48px; border: 1px solid #354449; border-radius: 3px; background: repeating-linear-gradient(0deg, #101619 0 13px, #121a1e 13px 14px); }
-.dansbpm-synth-sections { min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 8px; overflow: hidden; }
-.dansbpm-synth-section { min-height: 0; overflow: hidden; border: 1px solid #354246; border-radius: 4px; background: linear-gradient(160deg, #1d2427, #181d20); padding: 7px; box-shadow: inset 0 1px rgba(255,255,255,.025); }
-.dansbpm-synth-section h3 { margin: 0 0 6px; border-bottom: 1px solid #344044; padding-bottom: 5px; color: #8de4d0; font-family: var(--mono); font-size: 8px; letter-spacing: 1px; }
-.dansbpm-synth-controls { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
-.dansbpm-synth-control { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 6px; border: 1px solid #303b3f; border-radius: 3px; background: linear-gradient(180deg, #22292c, #1b2023); padding: 5px; color: #b7c1bd; font-size: 8px; }
+.dansbpm-synth-sections { min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 6px; overflow: hidden; }
+.dansbpm-synth-sections.vst-layout-sint,
+.dansbpm-synth-sections.vst-layout-bellie,
+.dansbpm-synth-sections.vst-layout-fftykeys { grid-template-columns: minmax(0, 1.35fr) minmax(0, .9fr) minmax(0, 1fr); }
+.dansbpm-synth-sections.vst-layout-crunch { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1fr); }
+.dansbpm-synth-sections.vst-layout-backshots { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.vst-layout-sint .vst-section-1, .vst-layout-bellie .vst-section-1, .vst-layout-fftykeys .vst-section-1 { grid-area: 1 / 1 / 3 / 2; }
+.vst-layout-sint .vst-section-2, .vst-layout-bellie .vst-section-2, .vst-layout-fftykeys .vst-section-2 { grid-area: 1 / 2 / 2 / 3; }
+.vst-layout-sint .vst-section-3, .vst-layout-bellie .vst-section-3, .vst-layout-fftykeys .vst-section-3 { grid-area: 2 / 2 / 3 / 3; }
+.vst-layout-sint .vst-section-4, .vst-layout-bellie .vst-section-4, .vst-layout-fftykeys .vst-section-4 { grid-area: 1 / 3 / 3 / 4; }
+.vst-layout-crunch .vst-section-1 { grid-area: 1 / 1 / 3 / 2; }
+.vst-layout-crunch .vst-section-2 { grid-area: 1 / 2 / 2 / 3; }
+.vst-layout-crunch .vst-section-3 { grid-area: 2 / 2 / 3 / 3; }
+.vst-layout-crunch .vst-section-4 { grid-area: 1 / 3 / 3 / 4; }
+.vst-layout-backshots .vst-section-1 { grid-area: 1 / 1 / 2 / 4; }
+.vst-layout-backshots .vst-section-2 { grid-area: 1 / 4 / 2 / 5; }
+.vst-layout-backshots .vst-section-3 { grid-area: 2 / 1 / 3 / 3; }
+.vst-layout-backshots .vst-section-4 { grid-area: 2 / 3 / 3 / 5; }
+.dansbpm-synth-section { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #354246; border-radius: 4px; background: linear-gradient(160deg, #1d2427, #181d20); padding: 5px; box-shadow: inset 0 1px rgba(255,255,255,.025); }
+.dansbpm-synth-section h3 { flex: 0 0 auto; margin: 0 0 4px; border-bottom: 1px solid #344044; padding-bottom: 4px; color: #8de4d0; font-family: var(--mono); font-size: 8px; letter-spacing: 1px; }
+.dansbpm-synth-controls { min-height: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-content: start; gap: 3px; }
+.vst-layout-sint .vst-section-1 .dansbpm-synth-controls,
+.vst-layout-bellie .vst-section-1 .dansbpm-synth-controls,
+.vst-layout-fftykeys .vst-section-1 .dansbpm-synth-controls { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.vst-layout-bellie .vst-section-4 .dansbpm-synth-controls,
+.vst-layout-fftykeys .vst-section-4 .dansbpm-synth-controls { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.vst-layout-crunch .vst-section-1 .dansbpm-synth-controls { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.vst-layout-backshots .vst-section-1 .dansbpm-synth-controls { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.dansbpm-synth-control { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 3px 4px; border: 1px solid #303b3f; border-radius: 3px; background: linear-gradient(180deg, #22292c, #1b2023); padding: 3px; color: #b7c1bd; font-size: 8px; }
 .dansbpm-synth-control input[type="range"] { grid-column: 1 / -1; width: 100%; height: 14px; margin: 0; appearance: none; background: transparent; cursor: ew-resize; }
 .dansbpm-synth-control input[type="range"]::-webkit-slider-runnable-track { height: 4px; border: 1px solid #161b1e; border-radius: 4px; background: linear-gradient(90deg, #7be1c8 0 var(--range-progress, 0%), #3e4a4e var(--range-progress, 0%) 100%); box-shadow: inset 0 1px 2px #0009; }
 .dansbpm-synth-control input[type="range"]::-moz-range-track { height: 4px; border: 1px solid #161b1e; border-radius: 4px; background: #3e4a4e; box-shadow: inset 0 1px 2px #0009; }
@@ -998,17 +1026,17 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .dansbpm-synth-control input[type="range"]::-moz-range-thumb { width: 10px; height: 10px; border: 1px solid #d6fff5; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #eafffa, #6bb9aa 58%, #31534f); box-shadow: 0 0 6px #7be1c855; }
 .dansbpm-synth-control select { min-width: 0; grid-column: 1 / -1; border: 1px solid #3b484c; border-radius: 3px; background: #141a1d; padding: 6px; color: #d5e0dc; font: inherit; }
 .dansbpm-synth-control output { color: #a7e8d8; font-family: var(--mono); font-size: 8px; }
-.dansbpm-synth-control.is-knob-control { grid-template-columns: 1fr; justify-items: center; gap: 3px; padding: 4px; text-align: center; }
-.dansbpm-synth-control.is-knob-control > span:first-child { min-height: 18px; display: flex; align-items: center; justify-content: center; color: #b6c1bd; }
-.dansbpm-synth-knob { position: relative; width: 38px; height: 38px; display: block; border-radius: 50%; background: conic-gradient(from 135deg, #70d7c2 0deg, #70d7c2 var(--knob-fill, 0deg), #3e4b4f var(--knob-fill, 0deg) 270deg, transparent 270deg 360deg); filter: drop-shadow(0 2px 3px #0009); }
+.dansbpm-synth-control.is-knob-control { grid-template-columns: 1fr; justify-items: center; gap: 2px; padding: 3px 2px; text-align: center; }
+.dansbpm-synth-control.is-knob-control > span:first-child { min-height: 22px; display: flex; align-items: center; justify-content: center; color: #b6c1bd; line-height: 1.15; }
+.dansbpm-synth-knob { position: relative; width: 31px; height: 31px; display: block; border-radius: 50%; background: conic-gradient(from 135deg, #70d7c2 0deg, #70d7c2 var(--knob-fill, 0deg), #3e4b4f var(--knob-fill, 0deg) 270deg, transparent 270deg 360deg); filter: drop-shadow(0 2px 3px #0009); }
 .dansbpm-synth-knob-face { position: absolute; inset: 4px; overflow: hidden; border: 1px solid #58666a; border-radius: 50%; background: radial-gradient(circle at 34% 27%, #646e71 0, #3e474a 28%, #242b2e 63%, #151a1d 100%), repeating-conic-gradient(from 0deg, rgba(255,255,255,.1) 0deg 1deg, transparent 1deg 9deg); box-shadow: inset 0 2px 4px #ffffff20, inset 0 -4px 7px #000b, 0 1px 2px #000; }
 .dansbpm-synth-knob-face::after { position: absolute; top: 3px; left: calc(50% - 1px); width: 2px; height: 9px; border-radius: 2px; background: #ddfff6; box-shadow: 0 0 5px #8af0dc; content: ""; transform: rotate(var(--knob-angle, -135deg)); transform-origin: 50% 16px; }
 .dansbpm-synth-knob-input { position: absolute; inset: -2px; z-index: 1; width: calc(100% + 4px) !important; height: calc(100% + 4px) !important; opacity: 0; cursor: ew-resize !important; }
 .dansbpm-synth-knob-input:focus-visible { outline: 2px solid #a8fff0; outline-offset: 3px; border-radius: 50%; }
-.dansbpm-synth-oscillator-visualizers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0 0 9px; }
+.dansbpm-synth-oscillator-visualizers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; margin: 0 0 5px; }
 .dansbpm-synth-oscillator-visualizer { min-width: 0; overflow: hidden; border: 1px solid #365154; border-radius: 3px; background: #0b1115; }
 .dansbpm-synth-oscillator-visualizer > span { display: block; border-bottom: 1px solid #263a3f; padding: 5px 7px; color: #7faaa5; font: 7px var(--mono); letter-spacing: .75px; }
-.dansbpm-synth-oscillator-visualizer canvas { display: block; width: 100%; height: 62px; background: #0b1115; }
+.dansbpm-synth-oscillator-visualizer canvas { display: block; width: 100%; height: 48px; background: #0b1115; }
 .dansbpm-synth-control output { justify-self: end; }
 .mixer-effects-library { min-height: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #303136; border-radius: 7px; background: #1c1d20; padding: 12px; }
 .mixer-effects-library h2 { margin: 0; color: #e0e1dc; font-size: 13px; }
@@ -1179,11 +1207,30 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
   .mixer-volume-monitor { width: 42px; }
   .mixer-track-effects { grid-column: 1 / -1; }
   .dansbpm-synth-dialog { width: calc(100vw - 12px); height: calc(100dvh - 12px); max-height: calc(100dvh - 12px); padding: 6px; }
+  .dansbpm-synth-dialog.is-floating { width: calc(100vw - 12px); height: min(680px, calc(100dvh - 12px)); min-width: 0; }
   .dansbpm-synth-heading { align-items: flex-start; flex-wrap: wrap; gap: 6px; }
   .dansbpm-vst-preset-bar { order: 3; width: calc(100% - 34px); flex-wrap: wrap; }
   .dansbpm-vst-preset-bar select { flex: 1 1 120px; }
   .dansbpm-vst-preset-bar input { flex: 1 1 90px; }
   .dansbpm-vst-keyboard-keys { height: 48px; }
+  .dansbpm-synth-sections.vst-layout-sint,
+  .dansbpm-synth-sections.vst-layout-bellie,
+  .dansbpm-synth-sections.vst-layout-fftykeys,
+  .dansbpm-synth-sections.vst-layout-crunch,
+  .dansbpm-synth-sections.vst-layout-backshots { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .vst-layout-sint .vst-section-1, .vst-layout-bellie .vst-section-1, .vst-layout-fftykeys .vst-section-1,
+  .vst-layout-sint .vst-section-2, .vst-layout-bellie .vst-section-2, .vst-layout-fftykeys .vst-section-2,
+  .vst-layout-sint .vst-section-3, .vst-layout-bellie .vst-section-3, .vst-layout-fftykeys .vst-section-3,
+  .vst-layout-sint .vst-section-4, .vst-layout-bellie .vst-section-4, .vst-layout-fftykeys .vst-section-4,
+  .vst-layout-crunch .vst-section-1, .vst-layout-crunch .vst-section-2,
+  .vst-layout-crunch .vst-section-3, .vst-layout-crunch .vst-section-4,
+  .vst-layout-backshots .vst-section-1, .vst-layout-backshots .vst-section-2,
+  .vst-layout-backshots .vst-section-3, .vst-layout-backshots .vst-section-4 { grid-area: auto; }
+  .vst-layout-sint .vst-section-1 .dansbpm-synth-controls,
+  .vst-layout-bellie .vst-section-1 .dansbpm-synth-controls,
+  .vst-layout-fftykeys .vst-section-1 .dansbpm-synth-controls,
+  .vst-layout-crunch .vst-section-1 .dansbpm-synth-controls,
+  .vst-layout-backshots .vst-section-1 .dansbpm-synth-controls { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .dansbpm-synth-controls { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; }
   .dansbpm-synth-control { gap: 2px; padding: 3px; font-size: 6px; }
   .dansbpm-synth-control.is-knob-control > span:first-child { min-height: 15px; }

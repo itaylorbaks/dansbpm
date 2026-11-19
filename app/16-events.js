@@ -915,8 +915,18 @@
         target.isContentEditable || target.tagName === "TEXTAREA" ||
         (target.tagName === "INPUT" && !["button", "submit", "reset", "checkbox", "radio", "range", "color", "file", "hidden", "image"].includes(target.type))
       );
+      const vstDialog = $("#dansbpm-synth-dialog");
+      if (vstDialog?.open && event.code === "Space" && !isTextEntry &&
+          !(target instanceof Element && target.closest("select, textarea, [contenteditable='true']")) &&
+          !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) toggleDansBpmSynthPreview(vstDialog);
+        return;
+      }
       const dialogOpen = $("#help-dialog").open || $("#project-dialog").open || $("#source-browser-dialog").open ||
-        $("#step-instrument-dialog").open || $("#step-track-mix-dialog").open || $("#audio-tempo-dialog").open;
+        $("#step-instrument-dialog").open || $("#step-track-mix-dialog").open || $("#audio-tempo-dialog").open ||
+        vstDialog?.open;
       if (!isTextEntry && !dialogOpen && matchesConfiguredShortcut(event, "redo")) {
         event.preventDefault();
         if (!event.repeat) redoCurrentView();
