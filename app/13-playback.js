@@ -444,43 +444,108 @@
     envelope.gain.setValueAtTime(peak * sustain, gateEnd);
     envelope.gain.linearRampToValueAtTime(0.0001, gateEnd + release);
 
-    const unisonCount = Math.round(Math.max(1, Math.min(7, parameter("unison", 1))));
-    const unisonSpread = Math.max(0, Math.min(60, parameter("unisonSpread", 0)));
+    const engine = patch.engine || "dansbpm";
     const osc1Wave = patch.wave || "sawtooth";
     const wavetablePosition = parameter("wavetablePosition", 0);
-    const oscillatorSettings = Array.from({ length: unisonCount }, (_, index) => ({
-      type: osc1Wave,
-      rate: frequency,
-      level: 0.62 / Math.sqrt(unisonCount),
-      detune: (Number(noteOptions.detune) || 0) +
-        (unisonCount === 1 ? 0 : (index / (unisonCount - 1) - 0.5) * unisonSpread),
-      wavetablePosition,
-      pan: unisonCount === 1 ? 0 : (index / (unisonCount - 1) - 0.5) * 1.2,
-      fm: parameter("fmAmount", 0),
-    }));
-    oscillatorSettings.push(
-      {
-        type: patch.osc2Wave || osc1Wave,
+    let oscillatorSettings;
+    if (engine === "dansbpm-bell") {
+      const inharmonicity = parameter("bellInharmonicity", 0.018);
+      const brightness = parameter("bellBrightness", 58) / 100;
+      oscillatorSettings = [1, 2, 3, 4, 5, 6, 7, 8].map((partial) => {
+        const ratio = partial * Math.sqrt(1 + inharmonicity * partial * partial);
+        const level = Math.pow(partial, -1.35) * (0.5 + brightness * partial * 0.12);
+        return {
+          type: partial === 1 ? osc1Wave : "sine",
+          rate: frequency * ratio,
+          level,
+          detune: Number(noteOptions.detune) || 0,
+          decay: Math.max(0.08, parameter("decay", 3.2) / Math.pow(partial, 0.38)),
+          fm: partial === 1 ? parameter("fmAmount", 0) : 0,
+          fmRatio: parameter("fmRatio", 2.71),
+        };
+      });
+    } else if (engine === "dansbpm-piano") {
+      const brightness = parameter("pianoBrightness", 52) / 100;
+      const hammer = parameter("pianoHammer", 18) / 100;
+      const damping = parameter("pianoDamping", 42) / 100;
+      const partialLevels = [0.58, 0.25, 0.13, 0.075, 0.045, 0.028, 0.018];
+      oscillatorSettings = partialLevels.map((level, index) => {
+        const partial = index + 1;
+        const strike = 0.35 + brightness * 0.65 + hammer * Math.max(0, partial - 2) * 0.09;
+        return {
+          type: partial === 1 ? osc1Wave : (partial % 2 ? "sine" : (patch.osc2Wave || "sine")),
+          rate: frequency * partial,
+          level: level * strike,
+          detune: Number(noteOptions.detune) || 0,
+          decay: Math.max(0.08,
+            parameter("decay", 1.1) * (1 - damping * 0.72) / (1 + index * 0.14)),
+        };
+      });
+    } else if (engine === "dansbpm-808") {
+      oscillatorSettings = [
+        {
+          type: osc1Wave,
+          rate: frequency,
+          level: 0.78,
+          detune: Number(noteOptions.detune) || 0,
+          pitchDrop: parameter("pitchDrop", 30),
+        },
+        {
+          type: patch.osc2Wave || "triangle",
+          rate: frequency,
+          level: Math.max(0, Math.min(0.24, parameter("subLevel", 0.12))),
+          detune: Number(noteOptions.detune) || 0,
+          pitchDrop: parameter("pitchDrop", 30),
+        },
+      ];
+    } else {
+      const unisonCount = Math.round(Math.max(1, Math.min(7, parameter("unison", 1))));
+      const unisonSpread = Math.max(0, Math.min(60, parameter("unisonSpread", 0)));
+      oscillatorSettings = Array.from({ length: unisonCount }, (_, index) => ({
+        type: osc1Wave,
         rate: frequency,
-        level: Math.max(0, Math.min(0.7, parameter("osc2Level", 0.28))),
-        detune: parameter("osc2Detune", 0) + (Number(noteOptions.detune) || 0),
+        level: 0.62 / Math.sqrt(unisonCount),
+        detune: (Number(noteOptions.detune) || 0) +
+          (unisonCount === 1 ? 0 : (index / (unisonCount - 1) - 0.5) * unisonSpread),
         wavetablePosition,
-      },
-      {
-        type: "sine",
-        rate: frequency / 2,
-        level: Math.max(0, Math.min(0.7, parameter("subLevel", 0))),
-        detune: 0,
-      },
-    );
+        pan: unisonCount === 1 ? 0 : (index / (unisonCount - 1) - 0.5) * 1.2,
+        fm: parameter("fmAmount", 0),
+      }));
+      oscillatorSettings.push(
+        {
+          type: patch.osc2Wave || osc1Wave,
+          rate: frequency,
+          level: Math.max(0, Math.min(0.7, parameter("osc2Level", 0.28))),
+          detune: parameter("osc2Detune", 0) + (Number(noteOptions.detune) || 0),
+          wavetablePosition,
+        },
+        {
+          type: "sine",
+          rate: frequency / 2,
+          level: Math.max(0, Math.min(0.7, parameter("subLevel", 0))),
+          detune: 0,
+        },
+      );
+    }
     const activeOscillators = oscillatorSettings.filter((oscillator) => oscillator.level > 0).map((settings) => {
       const oscillator = context.createOscillator();
       registerArrangementPlaybackSource(oscillator);
       const gain = context.createGain();
       oscillator.type = settings.type;
-      oscillator.frequency.setValueAtTime(settings.rate, time);
+      if (settings.pitchDrop > 0) {
+        const startFrequency = settings.rate * Math.pow(2, settings.pitchDrop / 12);
+        oscillator.frequency.setValueAtTime(startFrequency, time);
+        oscillator.frequency.exponentialRampToValueAtTime(settings.rate,
+          time + Math.max(0.01, parameter("pitchDropTime", 0.11)));
+      } else {
+        oscillator.frequency.setValueAtTime(settings.rate, time);
+      }
       oscillator.detune.setValueAtTime(settings.detune, time);
       gain.gain.setValueAtTime(settings.level, time);
+      if (settings.decay) {
+        gain.gain.exponentialRampToValueAtTime(0.0001,
+          time + Math.max(0.02, Math.min(8, settings.decay)));
+      }
       const periodicWave = makeVstPeriodicWave(context, settings.type, settings.wavetablePosition || 0, settings.rate);
       if (periodicWave) oscillator.setPeriodicWave(periodicWave);
       if (settings.pan) {
@@ -498,7 +563,8 @@
         const modulator = context.createOscillator();
         registerArrangementPlaybackSource(modulator);
         const modulatorGain = context.createGain();
-        modulator.frequency.setValueAtTime(frequency * 2, time);
+        modulator.type = patch.osc2Wave || "sine";
+        modulator.frequency.setValueAtTime(frequency * (settings.fmRatio || 2), time);
         modulatorGain.gain.setValueAtTime(frequency * settings.fm / 100 * 0.18, time);
         modulator.connect(modulatorGain);
         modulatorGain.connect(oscillator.frequency);
@@ -520,7 +586,9 @@
     }
     envelope.connect(outputNode);
 
-    const noiseLevel = Math.max(0, Math.min(0.7, parameter("noiseLevel", 0)));
+    const is808 = engine === "dansbpm-808";
+    const noiseLevel = Math.max(0, Math.min(0.7,
+      is808 ? parameter("clickLevel", 0) : parameter("noiseLevel", 0)));
     if (noiseLevel > 0) {
       const noise = context.createBufferSource();
       registerArrangementPlaybackSource(noise);
@@ -528,10 +596,19 @@
       noise.loop = true;
       const noiseGain = context.createGain();
       noiseGain.gain.setValueAtTime(noiseLevel, time);
-      noise.connect(noiseGain);
+      if (is808) {
+        const clickFilter = context.createBiquadFilter();
+        clickFilter.type = "lowpass";
+        clickFilter.frequency.setValueAtTime(parameter("clickTone", 3800), time);
+        noise.connect(clickFilter);
+        clickFilter.connect(noiseGain);
+        noiseGain.gain.exponentialRampToValueAtTime(0.0001, time + 0.045);
+      } else {
+        noise.connect(noiseGain);
+      }
       noiseGain.connect(filter);
       noise.start(time);
-      noise.stop(gateEnd + release + 0.02);
+      noise.stop(is808 ? time + 0.06 : gateEnd + release + 0.02);
     }
 
     const delayMix = Math.max(0, Math.min(100, parameter("delayMix", 0))) / 100;
@@ -571,7 +648,7 @@
   function playInstrumentVoice(track, time, midi, duration, velocity, outputTrack = track, outputNode = outputTrack.gainNode, noteOptions = {}) {
     const context = state.audioContext;
     const patch = track.patch || {};
-    if (patch.engine === "dansbpm") {
+    if (["dansbpm", "dansbpm-bell", "dansbpm-piano", "dansbpm-808"].includes(patch.engine)) {
       playDansBpmSynthVoice(track, time, midi, duration, velocity, outputNode, noteOptions);
       return;
     }
@@ -1579,6 +1656,8 @@
         ...(track.vstPluginId ? {
           vstPluginId: track.vstPluginId,
           patch: track.patch ? { ...track.patch } : {},
+          vstPatch: track.vstPatch ? { ...track.vstPatch } : undefined,
+          vstBypassed: track.vstBypassed === true,
         } : {}),
         name: track.name,
         kind: track.kind,

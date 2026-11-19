@@ -336,7 +336,8 @@
     }
     if (stepInstrumentPendingId !== instrument.id) return;
     if (stepInstrumentPickerMode === "piano-roll") {
-      selectPianoInstrument(instrument.id);
+      if (instrument.vstPluginId) assignVstToPianoRoll(instrument.id, instrument.vstPluginId);
+      else selectPianoInstrument(instrument.id);
     } else if (stepInstrumentPickerMode === "mel-track") {
       const melTrack = state.melTracks.find((track) => track.id === stepInstrumentTargetTrackId);
       if (!melTrack) {
@@ -376,6 +377,13 @@
       swing: oldTrack.swing,
       effects: oldTrack.effects,
     });
+    if (source.vstPluginId) {
+      replacement.vstPatch = { ...(source.patch || {}) };
+      if (oldTrack.patch) {
+        replacement.patch = { ...oldTrack.patch };
+        replacement.vstBypassed = true;
+      }
+    }
     state.tracks.push(replacement);
     pattern.trackIds[rowIndex] = replacement.id;
     delete pattern.cells[oldTrack.id];
@@ -397,7 +405,9 @@
     renderPatternSelectors();
     renderPresets();
     saveState();
-    showToast(`${oldTrack.name} replaced with ${source.name}`);
+    showToast(replacement.vstBypassed
+      ? `${source.name} attached; ${oldTrack.name}'s sound is preserved until you edit a VST control`
+      : `${oldTrack.name} replaced with ${source.name}`);
     return replacement.id;
   }
 
@@ -1393,7 +1403,12 @@
             return;
           }
           const assignedTrackId = replacePatternInstrument(track.id, source.id);
-          if (assignedTrackId) showToast(`${source.name} assigned to ${track.name}`);
+          if (assignedTrackId) {
+            const assignedTrack = state.tracks.find((item) => item.id === assignedTrackId);
+            showToast(assignedTrack?.vstBypassed
+              ? `${source.name} attached to ${track.name}; edit a VST control to switch its sound`
+              : `${source.name} assigned to ${track.name}`);
+          }
         } catch {
           showToast("That VST could not be assigned.");
         }

@@ -498,8 +498,27 @@
           if (typeof savedTrack.vstPluginId === "string") {
             track.vstPluginId = savedTrack.vstPluginId;
           }
-          if (track.vstPluginId === "dansbpm-wavetable" && savedTrack.patch) {
-            track.patch = normalizeDansBpmSynthPatch(savedTrack.patch, track.patch);
+          if (track.vstPluginId) {
+            track.vstBypassed = savedTrack.vstBypassed === true;
+            const sourcePatch = state.tracks.find((item) =>
+              item.id === track.sourceId && item.vstPluginId)?.patch || track.patch;
+            if (track.vstBypassed) {
+              if (savedTrack.patch && typeof savedTrack.patch === "object") {
+                track.patch = { ...savedTrack.patch };
+              }
+              track.vstPatch = normalizeDansBpmSynthPatch(
+                savedTrack.vstPatch || track.vstPatch || sourcePatch,
+                sourcePatch,
+              );
+            } else {
+              if (savedTrack.patch) {
+                track.patch = normalizeDansBpmSynthPatch(savedTrack.patch, track.patch);
+              }
+              track.vstPatch = normalizeDansBpmSynthPatch(
+                savedTrack.vstPatch || track.patch,
+                track.patch,
+              );
+            }
           }
           if (Array.isArray(savedTrack.cells)) {
             track.cells = Array.from({ length: STEP_COUNT }, (_, index) => savedTrack.cells[index] === true);

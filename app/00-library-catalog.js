@@ -250,6 +250,36 @@
         lfoRate: 0.18, lfoDepth: 4, lfoTarget: "pitch", output: 0.72,
       },
     },
+    {
+      id: "vst-bell-dansbpm", name: "DansBPM Bell", kind: "instrument", family: "VST", vstPluginId: "dansbpm-bell", color: "#edc879", volume: 0.68,
+      patch: {
+        engine: "dansbpm-bell", wave: "sine", osc2Wave: "sine", wavetablePosition: 0,
+        bellInharmonicity: 0.018, bellBrightness: 58, fmAmount: 38, fmRatio: 2.71,
+        cutoff: 14000, resonance: 0.18, filterType: "lowpass", filterEnvOctaves: 0,
+        attack: 0.002, decay: 3.2, sustain: 0.015, release: 1.8,
+        drive: 2, delayMix: 12, lfoRate: 0.18, lfoDepth: 0, lfoTarget: "pitch", output: 0.72,
+      },
+    },
+    {
+      id: "vst-piano-dansbpm", name: "DansBPM Piano", kind: "instrument", family: "VST", vstPluginId: "dansbpm-piano", color: "#cfb0ff", volume: 0.68,
+      patch: {
+        engine: "dansbpm-piano", wave: "triangle", osc2Wave: "sine", wavetablePosition: 0,
+        pianoBrightness: 52, pianoHammer: 18, pianoDamping: 42,
+        cutoff: 9800, resonance: 0.12, filterType: "lowpass", filterEnvOctaves: 0,
+        attack: 0.004, decay: 1.1, sustain: 0.09, release: 0.48,
+        drive: 0, delayMix: 0, lfoRate: 0.18, lfoDepth: 0, lfoTarget: "pitch", output: 0.72,
+      },
+    },
+    {
+      id: "vst-808-dansbpm", name: "DansBPM 808", kind: "instrument", family: "VST", vstPluginId: "dansbpm-808", color: "#f28570", volume: 0.72,
+      patch: {
+        engine: "dansbpm-808", wave: "sine", osc2Wave: "triangle", wavetablePosition: 0,
+        pitchDrop: 30, pitchDropTime: 0.11, clickLevel: 0.12, clickTone: 3800,
+        subLevel: 0.12, cutoff: 6200, resonance: 0.12, filterType: "lowpass", filterEnvOctaves: 0,
+        attack: 0.002, decay: 0.5, sustain: 0.24, release: 0.2,
+        drive: 15, delayMix: 0, lfoRate: 0.18, lfoDepth: 0, lfoTarget: "pitch", output: 0.72,
+      },
+    },
   ];
   function makeLiveSampleTracks(family, category, color, entries, volume = 0.68) {
     return entries.map(([id, name, file, rootMidi]) => ({
