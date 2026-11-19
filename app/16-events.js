@@ -722,6 +722,22 @@
     });
     $("#mixer-effect-preview").addEventListener("click", () => toggleMixerEffectPreview());
     $("#mixer-effect-close").addEventListener("click", () => $("#mixer-effect-dialog").close());
+    $("#remove-mixer-effect-context").addEventListener("click", () => {
+      const menu = $("#mixer-effect-context-menu");
+      const track = getMixerTracks().find(({ track: item }) => item.id === menu.dataset.trackId)?.track;
+      const effectId = menu.dataset.effectId;
+      closeMixerEffectContextMenu();
+      if (track && effectId) removeMixerEffect(track, effectId);
+    });
+    document.addEventListener("pointerdown", (event) => {
+      const menu = $("#mixer-effect-context-menu");
+      if (!menu.hidden && event.target instanceof Node && !menu.contains(event.target)) {
+        closeMixerEffectContextMenu();
+      }
+    }, true);
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeMixerEffectContextMenu();
+    });
     $("#mixer-effect-dialog").addEventListener("close", () => {
       if ($("#mixer-effect-dialog").open) return;
       stopMixerEffectPreview();

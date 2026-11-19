@@ -1102,7 +1102,57 @@
       effectButton.type = "button";
       effectButton.textContent = id === "eq" ? name : `${name} ${Math.round(track.effects[id])}%`;
       effectButton.title = `Open ${name} settings for ${track.name}`;
-      effectButton.addEventListener("click", () => openMixerEffectDialog(track, id));
+      let dragMoved = false;
+      let startX = 0;
+      let startY = 0;
+      let pointerId = null;
+      effectButton.addEventListener("contextmenu", (event) => {
+        event.preventEvent?.();
+        event.preventDefault();
+        openMixerEffectContextMenu(track, id, event);
+      });
+      effectButton.addEventListener("click", () => {
+        if (dragMoved) {
+          dragMoved = false;
+          return;
+        }
+        openMixerEffectDialog(track, id);
+      });
+      effectButton.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) return;
+        startX = event.clientX;
+        startY = event.clientY;
+        pointerId = event.pointerId;
+        dragMoved = false;
+        effectButton.setPointerCapture(pointerId);
+      });
+      effectButton.addEventListener("pointermove", (event) => {
+        if (pointerId !== event.pointerId) return;
+        if (Math.hypot(event.clientX - startX, event.clientY - startY) < 8) return;
+        dragMoved = true;
+        const slotBounds = effects.getBoundingClientRect();
+        const outside = event.clientX < slotBounds.left - 12 ||
+          event.clientX > slotBounds.right + 12 ||
+          event.clientY < slotBounds.top - 12 ||
+          event.clientY > slotBounds.bottom + 12;
+        effectButton.classList.toggle("is-drag-remove", outside);
+      });
+      effectButton.addEventListener("pointerup", (event) => {
+        if (pointerId !== event.pointerId) return;
+        if (effectButton.hasPointerCapture(pointerId)) effectButton.releasePointerCapture(pointerId);
+        const slotBounds = effects.getBoundingClientRect();
+        const outside = event.clientX < slotBounds.left - 12 ||
+          event.clientX > slotBounds.right + 12 ||
+          event.clientY < slotBounds.top - 12 ||
+          event.clientY > slotBounds.bottom + 12;
+        effectButton.classList.remove("is-drag-remove");
+        pointerId = null;
+        if (dragMoved && outside) removeMixerEffect(track, id);
+      });
+      effectButton.addEventListener("pointercancel", () => {
+        pointerId = null;
+        effectButton.classList.remove("is-drag-remove");
+      });
       effects.append(effectButton);
     };
     addSlot("eq", "EQ");
@@ -1129,12 +1179,36 @@
   }
 
   function removeMixerEffect(track, effectId) {
-    track.effectChain = track.effectChain.filter((id) => id !== effectId);
-    track.effects[effectId] = 0;
+    if (effectId === "eq") {
+      ["eqSub", "eqLow", "eqMid", "eqHigh", "eqAir"].forEach((band) => { track.effects[band] = 0; });
+    } else {
+      track.effectChain = track.effectChain.filter((id) => id !== effectId);
+      track.effects[effectId] = 0;
+    }
     if (state.audioContext) rebuildTrackEffectChain(track);
     saveState();
-    $("#mixer-effect-dialog").close();
+    if ($("#mixer-effect-dialog").open) $("#mixer-effect-dialog").close();
     renderMixer();
+  }
+
+  function closeMixerEffectContextMenu() {
+    const menu = $("#mixer-effect-context-menu");
+    if (!menu) return;
+    menu.hidden = true;
+    delete menu.dataset.trackId;
+    delete menu.dataset.effectId;
+  }
+
+  function openMixerEffectContextMenu(track, effectId, event) {
+    closeMixerEffectContextMenu();
+    const menu = $("#mixer-effect-context-menu");
+    menu.dataset.trackId = track.id;
+    menu.dataset.effectId = effectId;
+    menu.hidden = false;
+    const width = 190;
+    const height = 38;
+    menu.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - width - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(event.clientY, window.innerHeight - height - 8))}px`;
   }
 
   function refreshMixerEffectTrack(track) {
