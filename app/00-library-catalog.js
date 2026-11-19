@@ -239,7 +239,7 @@
     { id: "bass-sub", name: "Sub Bass", kind: "instrument", family: "Bass", color: "#78a6d4", volume: 0.72, patch: { wave: "sine", cutoff: 420, attack: 0.01, decay: 0.2, sustain: 0.48, release: 0.16 } },
     { id: "bass-fuzz", name: "Fuzz Bass", kind: "instrument", family: "Bass", color: "#d47e78", volume: 0.68, patch: { wave: "sawtooth", cutoff: 1500, attack: 0.004, decay: 0.18, sustain: 0.32, release: 0.12, detune: 5 } },
     {
-      id: "synth-dansbpm", name: "DansBPM Wavetable", kind: "instrument", family: "VST", vstPluginId: "dansbpm-wavetable", color: "#93e2bd", volume: 0.68,
+      id: "synth-dansbpm", name: "sinT", kind: "instrument", family: "VST", vstPluginId: "dansbpm-wavetable", color: "#93e2bd", volume: 0.68,
       patch: {
         engine: "dansbpm", wave: "sawtooth", osc2Wave: "square", osc2Detune: 8, osc2Level: 0.28, subLevel: 0.2,
         wavetablePosition: 0, unison: 1, unisonSpread: 0, fmAmount: 0, noiseLevel: 0,
@@ -251,7 +251,7 @@
       },
     },
     {
-      id: "vst-bell-dansbpm", name: "DansBPM Bell", kind: "instrument", family: "VST", vstPluginId: "dansbpm-bell", color: "#edc879", volume: 0.68,
+      id: "vst-bell-dansbpm", name: "bellie", kind: "instrument", family: "VST", vstPluginId: "dansbpm-bell", color: "#edc879", volume: 0.68,
       patch: {
         engine: "dansbpm-bell", wave: "sine", osc2Wave: "sine", wavetablePosition: 0,
         bellInharmonicity: 0.018, bellBrightness: 58, fmAmount: 38, fmRatio: 2.71,
@@ -261,7 +261,7 @@
       },
     },
     {
-      id: "vst-piano-dansbpm", name: "DansBPM Piano", kind: "instrument", family: "VST", vstPluginId: "dansbpm-piano", color: "#cfb0ff", volume: 0.68,
+      id: "vst-piano-dansbpm", name: "fftyKeys", kind: "instrument", family: "VST", vstPluginId: "dansbpm-piano", color: "#cfb0ff", volume: 0.68,
       patch: {
         engine: "dansbpm-piano", wave: "triangle", osc2Wave: "sine", wavetablePosition: 0,
         pianoBrightness: 52, pianoHammer: 18, pianoDamping: 42,
@@ -271,13 +271,23 @@
       },
     },
     {
-      id: "vst-808-dansbpm", name: "DansBPM 808", kind: "instrument", family: "VST", vstPluginId: "dansbpm-808", color: "#f28570", volume: 0.72,
+      id: "vst-808-dansbpm", name: "crunchCrunch", kind: "instrument", family: "VST", vstPluginId: "dansbpm-808", color: "#f28570", volume: 0.72,
       patch: {
         engine: "dansbpm-808", wave: "sine", osc2Wave: "triangle", wavetablePosition: 0,
         pitchDrop: 30, pitchDropTime: 0.11, clickLevel: 0.12, clickTone: 3800,
         subLevel: 0.12, cutoff: 6200, resonance: 0.12, filterType: "lowpass", filterEnvOctaves: 0,
         attack: 0.002, decay: 0.5, sustain: 0.24, release: 0.2,
         drive: 15, delayMix: 0, lfoRate: 0.18, lfoDepth: 0, lfoTarget: "pitch", output: 0.72,
+      },
+    },
+    {
+      id: "vst-kick-dansbpm", name: "Backshots", kind: "instrument", family: "VST", vstPluginId: "dansbpm-kick", color: "#ff9f45", volume: 0.72,
+      patch: {
+        engine: "dansbpm-kick", wave: "sine", osc2Wave: "triangle", wavetablePosition: 0,
+        kickPitchDrop: 34, kickPitchTime: 0.045, kickBody: 0.36, clickLevel: 0.18, clickTone: 5200,
+        cutoff: 9200, resonance: 0.12, filterType: "lowpass",
+        attack: 0.001, decay: 0.32, sustain: 0.02, release: 0.12,
+        drive: 22, delayMix: 0, lfoRate: 0.18, lfoDepth: 0, lfoTarget: "pitch", output: 0.72,
       },
     },
   ];

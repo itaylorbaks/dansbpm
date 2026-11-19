@@ -6390,7 +6390,7 @@ const DRIVE_SAMPLE_TRACKS = [
     { id: "bass-sub", name: "Sub Bass", kind: "instrument", family: "Bass", color: "#78a6d4", volume: 0.72, patch: { wave: "sine", cutoff: 420, attack: 0.01, decay: 0.2, sustain: 0.48, release: 0.16 } },
     { id: "bass-fuzz", name: "Fuzz Bass", kind: "instrument", family: "Bass", color: "#d47e78", volume: 0.68, patch: { wave: "sawtooth", cutoff: 1500, attack: 0.004, decay: 0.18, sustain: 0.32, release: 0.12, detune: 5 } },
     {
-      id: "synth-dansbpm", name: "DansBPM Wavetable", kind: "instrument", family: "VST", vstPluginId: "dansbpm-wavetable", color: "#93e2bd", volume: 0.68,
+      id: "synth-dansbpm", name: "sinT", kind: "instrument", family: "VST", vstPluginId: "dansbpm-wavetable", color: "#93e2bd", volume: 0.68,
       patch: {
         engine: "dansbpm", wave: "sawtooth", osc2Wave: "square", osc2Detune: 8, osc2Level: 0.28, subLevel: 0.2,
         wavetablePosition: 0, unison: 1, unisonSpread: 0, fmAmount: 0, noiseLevel: 0,
@@ -6402,7 +6402,7 @@ const DRIVE_SAMPLE_TRACKS = [
       },
     },
     {
-      id: "vst-bell-dansbpm", name: "DansBPM Bell", kind: "instrument", family: "VST", vstPluginId: "dansbpm-bell", color: "#edc879", volume: 0.68,
+      id: "vst-bell-dansbpm", name: "bellie", kind: "instrument", family: "VST", vstPluginId: "dansbpm-bell", color: "#edc879", volume: 0.68,
       patch: {
         engine: "dansbpm-bell", wave: "sine", osc2Wave: "sine", wavetablePosition: 0,
         bellInharmonicity: 0.018, bellBrightness: 58, fmAmount: 38, fmRatio: 2.71,
@@ -6412,7 +6412,7 @@ const DRIVE_SAMPLE_TRACKS = [
       },
     },
     {
-      id: "vst-piano-dansbpm", name: "DansBPM Piano", kind: "instrument", family: "VST", vstPluginId: "dansbpm-piano", color: "#cfb0ff", volume: 0.68,
+      id: "vst-piano-dansbpm", name: "fftyKeys", kind: "instrument", family: "VST", vstPluginId: "dansbpm-piano", color: "#cfb0ff", volume: 0.68,
       patch: {
         engine: "dansbpm-piano", wave: "triangle", osc2Wave: "sine", wavetablePosition: 0,
         pianoBrightness: 52, pianoHammer: 18, pianoDamping: 42,
@@ -6422,13 +6422,23 @@ const DRIVE_SAMPLE_TRACKS = [
       },
     },
     {
-      id: "vst-808-dansbpm", name: "DansBPM 808", kind: "instrument", family: "VST", vstPluginId: "dansbpm-808", color: "#f28570", volume: 0.72,
+      id: "vst-808-dansbpm", name: "crunchCrunch", kind: "instrument", family: "VST", vstPluginId: "dansbpm-808", color: "#f28570", volume: 0.72,
       patch: {
         engine: "dansbpm-808", wave: "sine", osc2Wave: "triangle", wavetablePosition: 0,
         pitchDrop: 30, pitchDropTime: 0.11, clickLevel: 0.12, clickTone: 3800,
         subLevel: 0.12, cutoff: 6200, resonance: 0.12, filterType: "lowpass", filterEnvOctaves: 0,
         attack: 0.002, decay: 0.5, sustain: 0.24, release: 0.2,
         drive: 15, delayMix: 0, lfoRate: 0.18, lfoDepth: 0, lfoTarget: "pitch", output: 0.72,
+      },
+    },
+    {
+      id: "vst-kick-dansbpm", name: "Backshots", kind: "instrument", family: "VST", vstPluginId: "dansbpm-kick", color: "#ff9f45", volume: 0.72,
+      patch: {
+        engine: "dansbpm-kick", wave: "sine", osc2Wave: "triangle", wavetablePosition: 0,
+        kickPitchDrop: 34, kickPitchTime: 0.045, kickBody: 0.36, clickLevel: 0.18, clickTone: 5200,
+        cutoff: 9200, resonance: 0.12, filterType: "lowpass",
+        attack: 0.001, decay: 0.32, sustain: 0.02, release: 0.12,
+        drive: 22, delayMix: 0, lfoRate: 0.18, lfoDepth: 0, lfoTarget: "pitch", output: 0.72,
       },
     },
   ];
@@ -8510,6 +8520,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     return trackId === "synth-dansbpm" ? key : `${key}-${trackId}`;
   }
 
+  function getDansBpmVstPresetStorageKey(pluginId) {
+    return `${STORAGE_KEY}-vst-presets-${state.currentUser}-${state.projectId}-${pluginId}`;
+  }
+
   function normalizeDansBpmSynthPatch(patch, basePatch = null) {
     const requestedEngine = patch?.engine || basePatch?.engine || "dansbpm";
     const factoryPatch = LIBRARY_TRACKS.find((instrument) =>
@@ -8538,6 +8552,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       bellInharmonicity: [0, 0.08], bellBrightness: [0, 100], fmRatio: [1, 8],
       pianoBrightness: [0, 100], pianoHammer: [0, 100], pianoDamping: [0, 100],
       pitchDrop: [0, 48], pitchDropTime: [0.01, 0.5], clickLevel: [0, 0.5], clickTone: [200, 12000],
+      kickPitchDrop: [0, 60], kickPitchTime: [0.01, 0.25], kickBody: [0.05, 1],
     };
     Object.entries(ranges).forEach(([key, [min, max]]) => {
       const value = Number(normalized[key]);
@@ -8552,6 +8567,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   function restoreDansBpmSynthPatch() {
     if (!state.currentUser || !state.projectId) return;
     try {
+      const restoredPresetLibraries = new Set();
       state.tracks.filter(isVstInstrument).forEach((track) => {
         const key = getDansBpmSynthStorageKey(track.id);
         const legacyKey = `${STORAGE_KEY}-inhouse-synth-${state.currentUser}-${state.projectId}`;
@@ -8561,9 +8577,59 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         const patch = normalizeDansBpmSynthPatch(saved && typeof saved === "object" ? saved : basePatch, basePatch);
         track.vstPatch = patch;
         if (!track.vstBypassed) track.patch = patch;
+        const source = getVstSourceTrack(track) || track;
+        if (!restoredPresetLibraries.has(source.vstPluginId)) {
+          const storedPresets = JSON.parse(
+            window.localStorage.getItem(getDansBpmVstPresetStorageKey(source.vstPluginId)) || "null",
+          );
+          if (Array.isArray(storedPresets)) {
+            source.vstUserPresets = storedPresets
+              .map((preset) => normalizeDansBpmVstUserPreset(preset, source.patch))
+              .filter(Boolean);
+          } else {
+            source.vstUserPresets = Array.isArray(source.vstUserPresets)
+              ? source.vstUserPresets.map((preset) => normalizeDansBpmVstUserPreset(preset, source.patch)).filter(Boolean)
+              : [];
+          }
+          restoredPresetLibraries.add(source.vstPluginId);
+        }
       });
     } catch (error) {
       showToast(`Could not load VST settings: ${error.message || "browser storage is unavailable."}`);
+    }
+  }
+
+  function normalizeDansBpmVstUserPreset(preset, basePatch) {
+    if (!preset || typeof preset !== "object" || typeof preset.name !== "string" ||
+        typeof preset.id !== "string" || !preset.patch || typeof preset.patch !== "object") return null;
+    const name = preset.name.trim().slice(0, 40);
+    if (!name) return null;
+    return {
+      id: preset.id,
+      name,
+      patch: normalizeDansBpmSynthPatch(preset.patch, basePatch),
+    };
+  }
+
+  function saveDansBpmVstUserPresets(track) {
+    const source = getVstSourceTrack(track) || track;
+    if (!state.currentUser || !state.projectId || !source.vstPluginId) {
+      showToast("Choose a profile and project before saving a VST preset.");
+      return false;
+    }
+    try {
+      source.vstUserPresets = (source.vstUserPresets || [])
+        .map((preset) => normalizeDansBpmVstUserPreset(preset, source.patch))
+        .filter(Boolean);
+      window.localStorage.setItem(
+        getDansBpmVstPresetStorageKey(source.vstPluginId),
+        JSON.stringify(source.vstUserPresets),
+      );
+      saveState();
+      return true;
+    } catch (error) {
+      showToast(`Could not save VST presets: ${error.message || "browser storage is unavailable."}`);
+      return false;
     }
   }
 
@@ -8588,9 +8654,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     if (key === "cutoff") return `${Math.round(value)} Hz`;
     if (key === "clickTone") return `${Math.round(value)} Hz`;
     if (key === "attack" || key === "decay" || key === "release" || key === "filterAttack" || key === "filterDecay") return `${Number(value).toFixed(2)} s`;
-    if (key === "pitchDropTime") return `${Number(value).toFixed(2)} s`;
+    if (key === "pitchDropTime" || key === "kickPitchTime" || key === "kickBody") return `${Number(value).toFixed(2)} s`;
     if (key === "osc2Detune" || key === "unisonSpread") return `${Math.round(value)} cents`;
-    if (key === "pitchDrop") return `${Math.round(value)} semitones`;
+    if (key === "pitchDrop" || key === "kickPitchDrop") return `${Math.round(value)} semitones`;
     if (key === "fmRatio") return `${Number(value).toFixed(2)}×`;
     if (key === "bellInharmonicity") return Number(value).toFixed(3);
     if (key === "filterEnvOctaves") return `${Number(value).toFixed(1)} oct`;
@@ -8927,7 +8993,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       slider("output", "Output", 0, 1, 0.01),
     ];
     const wavetable = {
-      name: "DansBPM Wavetable",
+      name: "sinT",
+      theme: "sint",
+      keyboard: true,
       description: "Wavetable synthesis · dual oscillators · unison · FM",
       sections: [
         {
@@ -8968,7 +9036,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     };
     const specialized = {
       "dansbpm-bell": {
-        name: "DansBPM Bell",
+        name: "bellie",
+        theme: "bellie",
+        keyboard: true,
         description: "Modal bell synthesis · inharmonic partials · FM strike",
         sections: [
           {
@@ -8995,7 +9065,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         ],
       },
       "dansbpm-piano": {
-        name: "DansBPM Piano",
+        name: "fftyKeys",
+        theme: "fftykeys",
+        keyboard: true,
         description: "Additive piano synthesis · hammer strike · string damping",
         sections: [
           {
@@ -9022,7 +9094,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         ],
       },
       "dansbpm-808": {
-        name: "DansBPM 808",
+        name: "crunchCrunch",
+        theme: "crunch",
         description: "808 bass synthesis · tuned pitch drop · transient click · drive",
         sections: [
           {
@@ -9041,15 +9114,223 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
           { title: "DRIVE & OUTPUT", definitions: effectControls },
         ],
       },
+      "dansbpm-kick": {
+        name: "Backshots",
+        theme: "backshots",
+        description: "Kick synthesis · pitch dive · body resonance · transient",
+        sections: [
+          {
+            title: "IMPACT & TONE",
+            definitions: [
+              knob("kickPitchDrop", "Pitch dive", 0, 60),
+              knob("kickPitchTime", "Dive time", 0.01, 0.25, 0.005),
+              knob("kickBody", "Body length", 0.05, 1, 0.01),
+              knob("clickLevel", "Attack transient", 0, 0.5, 0.01),
+              knob("clickTone", "Transient tone", 200, 12000, 50),
+            ],
+          },
+          { title: "BODY FILTER", definitions: filterControls },
+          { title: "AMP ENVELOPE", definitions: envelopeControls },
+          { title: "SATURATION", definitions: effectControls },
+        ],
+      },
     };
-    return specialized[pluginId] || wavetable;
+    const presets = {
+      "dansbpm-wavetable": [
+        { id: "neon-glass", name: "Neon Glass", patch: { wavetablePosition: 18, osc2Level: 0.18, cutoff: 5400 } },
+        { id: "acid-bloom", name: "Acid Bloom", patch: { wave: "sawtooth", wavetablePosition: 64, resonance: 0.62, cutoff: 2100, drive: 18 } },
+        { id: "wide-horizon", name: "Wide Horizon", patch: { unison: 7, unisonSpread: 34, wavetablePosition: 22, delayMix: 18 } },
+        { id: "fm-prism", name: "FM Prism", patch: { wave: "sine", osc2Wave: "sine", fmAmount: 58, wavetablePosition: 8, decay: 0.8 } },
+        { id: "submerged", name: "Submerged", patch: { wave: "triangle", subLevel: 0.48, cutoff: 720, filterEnvOctaves: 1.1, lfoDepth: 0 } },
+      ],
+      "dansbpm-bell": [
+        { id: "bronze-bloom", name: "Bronze Bloom", patch: { bellInharmonicity: 0.026, bellBrightness: 66, fmAmount: 42, fmRatio: 2.71, decay: 3.4, delayMix: 16 } },
+        { id: "glass-tine", name: "Glass Tine", patch: { bellInharmonicity: 0.008, bellBrightness: 92, fmAmount: 68, fmRatio: 3.5, decay: 2.1, cutoff: 16000 } },
+        { id: "temple-gong", name: "Temple Gong", patch: { bellInharmonicity: 0.052, bellBrightness: 48, fmAmount: 34, fmRatio: 1.43, decay: 4, release: 2.2, delayMix: 24 } },
+        { id: "tiny-chime", name: "Tiny Chime", patch: { bellInharmonicity: 0.012, bellBrightness: 76, fmAmount: 26, fmRatio: 4.01, decay: 1.2, release: 0.8 } },
+        { id: "frozen-bell", name: "Frozen Bell", patch: { bellInharmonicity: 0.034, bellBrightness: 84, fmAmount: 75, fmRatio: 5.2, decay: 3.7, lfoRate: 0.12, delayMix: 30 } },
+      ],
+      "dansbpm-piano": [
+        { id: "felt-room", name: "Felt Room", patch: { pianoBrightness: 30, pianoHammer: 8, pianoDamping: 68, cutoff: 5200, decay: 0.9 } },
+        { id: "bright-grand", name: "Bright Grand", patch: { pianoBrightness: 82, pianoHammer: 42, pianoDamping: 24, cutoff: 14500, decay: 1.4 } },
+        { id: "electric-velvet", name: "Electric Velvet", patch: { wave: "sine", osc2Wave: "triangle", pianoBrightness: 54, pianoHammer: 30, pianoDamping: 50, drive: 8 } },
+        { id: "soft-tape", name: "Soft Tape", patch: { wave: "triangle", pianoBrightness: 36, pianoHammer: 12, pianoDamping: 74, attack: 0.012, release: 0.7, delayMix: 9 } },
+        { id: "concert-hall", name: "Concert Hall", patch: { pianoBrightness: 68, pianoHammer: 24, pianoDamping: 34, decay: 1.9, release: 1.2, delayMix: 21 } },
+      ],
+      "dansbpm-808": [
+        { id: "deep-roll", name: "Deep Roll", patch: { pitchDrop: 40, pitchDropTime: 0.14, clickLevel: 0.06, cutoff: 1200, drive: 9, decay: 0.62 } },
+        { id: "tape-knock", name: "Tape Knock", patch: { pitchDrop: 24, pitchDropTime: 0.07, clickLevel: 0.2, clickTone: 2800, drive: 24, decay: 0.34 } },
+        { id: "wide-808", name: "Wide 808", patch: { pitchDrop: 28, pitchDropTime: 0.12, subLevel: 0.22, cutoff: 7800, drive: 12, decay: 0.8 } },
+        { id: "short-knock", name: "Short Knock", patch: { pitchDrop: 35, pitchDropTime: 0.045, clickLevel: 0.28, clickTone: 6400, decay: 0.22, sustain: 0.02 } },
+        { id: "overdrive", name: "Overdrive", patch: { pitchDrop: 18, pitchDropTime: 0.08, clickLevel: 0.16, clickTone: 4500, cutoff: 4200, drive: 52 } },
+      ],
+      "dansbpm-kick": [
+        { id: "club-thump", name: "Club Thump", patch: { kickPitchDrop: 38, kickPitchTime: 0.055, kickBody: 0.42, clickLevel: 0.12, drive: 18 } },
+        { id: "tight-punch", name: "Tight Punch", patch: { kickPitchDrop: 32, kickPitchTime: 0.025, kickBody: 0.19, clickLevel: 0.27, clickTone: 6800, drive: 12 } },
+        { id: "sub-cannon", name: "Sub Cannon", patch: { kickPitchDrop: 45, kickPitchTime: 0.1, kickBody: 0.76, clickLevel: 0.05, cutoff: 1800, drive: 28 } },
+        { id: "rubber-hit", name: "Rubber Hit", patch: { kickPitchDrop: 22, kickPitchTime: 0.04, kickBody: 0.28, clickLevel: 0.21, clickTone: 3200, drive: 36 } },
+        { id: "dry-909", name: "Dry 909", patch: { kickPitchDrop: 34, kickPitchTime: 0.03, kickBody: 0.24, clickLevel: 0.3, clickTone: 7500, drive: 10 } },
+      ],
+    };
+    const config = specialized[pluginId] || wavetable;
+    return {
+      ...config,
+      presets: presets[pluginId] || [],
+    };
+  }
+
+  function renderDansBpmVstPresetOptions(dialog, track) {
+    const select = dialog.querySelector("#dansbpm-vst-preset-select");
+    const source = getVstSourceTrack(track) || track;
+    const profile = getDansBpmVstEditorConfig(source.vstPluginId);
+    select.replaceChildren();
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "SOUND BANK";
+    select.append(placeholder);
+    const factoryGroup = document.createElement("optgroup");
+    factoryGroup.label = "Factory sounds";
+    profile.presets.forEach((preset) => {
+      const option = document.createElement("option");
+      option.value = `factory:${preset.id}`;
+      option.textContent = preset.name;
+      factoryGroup.append(option);
+    });
+    select.append(factoryGroup);
+    const userPresets = source.vstUserPresets || [];
+    if (userPresets.length) {
+      const userGroup = document.createElement("optgroup");
+      userGroup.label = "My sounds";
+      userPresets.forEach((preset) => {
+        const option = document.createElement("option");
+        option.value = `user:${preset.id}`;
+        option.textContent = preset.name;
+        userGroup.append(option);
+      });
+      select.append(userGroup);
+    }
+    select.value = "";
+  }
+
+  function loadDansBpmVstPreset(dialog, value) {
+    if (!value) return;
+    const track = getDansBpmSynthTrack(dialog.dataset.trackId);
+    const source = track ? getVstSourceTrack(track) : null;
+    if (!track || !source) return;
+    const [group, presetId] = value.split(":", 2);
+    const profile = getDansBpmVstEditorConfig(source.vstPluginId);
+    const factory = LIBRARY_TRACKS.find((instrument) => instrument.vstPluginId === source.vstPluginId);
+    const preset = group === "factory"
+      ? profile.presets.find((item) => item.id === presetId)
+      : group === "user"
+        ? source.vstUserPresets?.find((item) => item.id === presetId)
+        : null;
+    if (!preset || !factory) return;
+    const basePatch = group === "factory"
+      ? { ...factory.patch, ...preset.patch }
+      : preset.patch;
+    const patch = normalizeDansBpmSynthPatch(basePatch, factory.patch);
+    track.vstPatch = patch;
+    track.patch = patch;
+    track.vstBypassed = false;
+    syncDansBpmSynthEditor(dialog, track);
+    drawDansBpmSynthOscillatorVisualizers(dialog, patch);
+    saveDansBpmSynthPatch(track);
+    showToast(`${preset.name} loaded in ${source.name}`);
+  }
+
+  function saveDansBpmVstPreset(dialog) {
+    const track = getDansBpmSynthTrack(dialog.dataset.trackId);
+    const source = track ? getVstSourceTrack(track) : null;
+    const input = dialog.querySelector("#dansbpm-vst-preset-name");
+    const name = input.value.trim().slice(0, 40);
+    if (!track || !source) return;
+    if (!name) {
+      showToast("Enter a name for your VST sound.");
+      input.focus();
+      return;
+    }
+    const presets = [...(source.vstUserPresets || [])];
+    const existing = presets.find((preset) => preset.name.toLocaleLowerCase() === name.toLocaleLowerCase());
+    const preset = {
+      id: existing?.id || makeId(),
+      name,
+      patch: { ...getDansBpmSynthPatch(track) },
+    };
+    const index = presets.findIndex((item) => item.id === preset.id);
+    if (index >= 0) presets[index] = preset;
+    else presets.push(preset);
+    source.vstUserPresets = presets;
+    if (!saveDansBpmVstUserPresets(track)) return;
+    input.value = "";
+    renderDansBpmVstPresetOptions(dialog, track);
+    dialog.querySelector("#dansbpm-vst-preset-select").value = `user:${preset.id}`;
+    showToast(`${preset.name} saved in ${source.name}`);
+  }
+
+  function playDansBpmVstKeyboardNote(dialog, midi) {
+    const track = getDansBpmSynthTrack(dialog.dataset.trackId);
+    if (!track) return;
+    ensureAudio().then(() => {
+      const previewTrack = { ...track, patch: getDansBpmSynthPatch(track) };
+      ensureDansBpmSynthPreviewAudio();
+      const now = state.audioContext.currentTime;
+      dansBpmSynthPreview.output.gain.cancelScheduledValues(now);
+      dansBpmSynthPreview.output.gain.setTargetAtTime(0.72, now, 0.01);
+      playInstrumentVoice(previewTrack, state.audioContext.currentTime + 0.02, midi, 0.62,
+        0.78, track, dansBpmSynthPreview.output);
+    }).catch((error) => {
+      showToast(`Could not play VST key: ${error.message || "audio is unavailable."}`);
+    });
+  }
+
+  function makeDansBpmVstKeyboard(dialog) {
+    const keyboard = document.createElement("section");
+    keyboard.className = "dansbpm-vst-keyboard";
+    keyboard.setAttribute("aria-label", "Play notes on the VST keyboard");
+    const heading = document.createElement("div");
+    heading.className = "dansbpm-vst-keyboard-label";
+    heading.textContent = "LIVE KEYBOARD · C3–C5";
+    const keys = document.createElement("div");
+    keys.className = "dansbpm-vst-keyboard-keys";
+    const blackNotes = new Set([1, 3, 6, 8, 10]);
+    let whiteIndex = 0;
+    for (let midi = 48; midi <= 72; midi += 1) {
+      const pitchClass = midi % 12;
+      const isBlack = blackNotes.has(pitchClass);
+      const key = document.createElement("button");
+      key.type = "button";
+      key.className = `dansbpm-vst-key${isBlack ? " is-black" : " is-white"}`;
+      key.dataset.midi = String(midi);
+      key.setAttribute("aria-label", `Play ${midiNoteName(midi)}`);
+      if (isBlack) {
+        key.style.left = `${whiteIndex / 15 * 100}%`;
+      } else {
+        key.style.gridColumn = String(whiteIndex + 1);
+        whiteIndex += 1;
+      }
+      key.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        key.setPointerCapture(event.pointerId);
+        key.classList.add("is-active");
+        playDansBpmVstKeyboardNote(dialog, midi);
+      });
+      const releaseKey = () => key.classList.remove("is-active");
+      key.addEventListener("pointerup", releaseKey);
+      key.addEventListener("pointercancel", releaseKey);
+      key.addEventListener("lostpointercapture", releaseKey);
+      keys.append(key);
+    }
+    keyboard.append(heading, keys);
+    return keyboard;
   }
 
   function createDansBpmSynthEditor(pluginId = "dansbpm-wavetable") {
     const profile = getDansBpmVstEditorConfig(pluginId);
     const dialog = document.createElement("dialog");
     dialog.id = "dansbpm-synth-dialog";
-    dialog.className = "dansbpm-synth-dialog";
+    dialog.className = `dansbpm-synth-dialog vst-theme-${profile.theme}`;
+    if (profile.keyboard) dialog.classList.add("has-keyboard");
     dialog.dataset.pluginId = pluginId;
     dialog.setAttribute("aria-labelledby", "dansbpm-synth-title");
     const heading = document.createElement("div");
@@ -9061,13 +9342,53 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     const description = document.createElement("p");
     description.textContent = profile.description;
     title.append(headingText, description);
+    const presetBar = document.createElement("div");
+    presetBar.className = "dansbpm-vst-preset-bar";
+    const presetSelect = document.createElement("select");
+    presetSelect.id = "dansbpm-vst-preset-select";
+    presetSelect.setAttribute("aria-label", "VST sound library");
+    const presetPlaceholder = document.createElement("option");
+    presetPlaceholder.value = "";
+    presetPlaceholder.textContent = "SOUND BANK";
+    presetSelect.append(presetPlaceholder);
+    presetSelect.addEventListener("change", () =>
+      loadDansBpmVstPreset(dialog, presetSelect.value));
+    const presetName = document.createElement("input");
+    presetName.id = "dansbpm-vst-preset-name";
+    presetName.type = "text";
+    presetName.maxLength = 40;
+    presetName.placeholder = "Save sound as…";
+    presetName.setAttribute("aria-label", "New VST sound name");
+    const savePreset = document.createElement("button");
+    savePreset.className = "dansbpm-vst-save-preset";
+    savePreset.type = "button";
+    savePreset.textContent = "SAVE";
+    savePreset.addEventListener("click", () => saveDansBpmVstPreset(dialog));
+    const reset = document.createElement("button");
+    reset.className = "dansbpm-vst-reset";
+    reset.type = "button";
+    reset.textContent = "INIT";
+    reset.title = "Reset to factory sound";
+    reset.addEventListener("click", () => {
+      const track = getDansBpmSynthTrack(dialog.dataset.trackId);
+      const factory = LIBRARY_TRACKS.find((instrument) =>
+        instrument.vstPluginId === dialog.dataset.pluginId);
+      if (!track || !factory) return;
+      track.patch = normalizeDansBpmSynthPatch(factory.patch);
+      track.vstPatch = track.patch;
+      track.vstBypassed = false;
+      syncDansBpmSynthEditor(dialog, track);
+      drawDansBpmSynthOscillatorVisualizers(dialog, track.patch);
+      saveDansBpmSynthPatch(track);
+    });
+    presetBar.append(presetSelect, presetName, savePreset, reset);
     const close = document.createElement("button");
     close.className = "dialog-close";
     close.type = "button";
     close.textContent = "×";
     close.setAttribute("aria-label", "Close synth editor");
     close.addEventListener("click", () => dialog.close());
-    heading.append(title, close);
+    heading.append(title, presetBar, close);
 
     const preview = document.createElement("section");
     preview.className = "dansbpm-synth-preview";
@@ -9181,23 +9502,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       controls.append(sectionElement);
     });
 
-    const reset = document.createElement("button");
-    reset.className = "quiet-button";
-    reset.type = "button";
-    reset.textContent = "Reset to factory";
-    reset.addEventListener("click", () => {
-      const track = getDansBpmSynthTrack(dialog.dataset.trackId);
-      const factory = LIBRARY_TRACKS.find((instrument) =>
-        instrument.vstPluginId === dialog.dataset.pluginId);
-      if (!track || !factory) return;
-      track.patch = normalizeDansBpmSynthPatch(factory.patch);
-      track.vstPatch = track.patch;
-      track.vstBypassed = false;
-      syncDansBpmSynthEditor(dialog, track);
-      drawDansBpmSynthOscillatorVisualizers(dialog, getDansBpmSynthPatch(track));
-      saveDansBpmSynthPatch(track);
-    });
-    dialog.append(heading, preview, controls, reset);
+    dialog.append(heading, preview);
+    if (profile.keyboard) dialog.append(makeDansBpmVstKeyboard(dialog));
+    dialog.append(controls);
     dialog.addEventListener("close", () => {
       stopDansBpmSynthPreview(dialog);
       if (dansBpmSynthPreview.animationFrame !== null) {
@@ -9235,6 +9542,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     if (!dialog) dialog = createDansBpmSynthEditor(source.vstPluginId);
     dialog.dataset.trackId = track.id;
     dialog.querySelector("#dansbpm-synth-title").textContent = source.name;
+    renderDansBpmVstPresetOptions(dialog, track);
     syncDansBpmSynthEditor(dialog, track);
     dialog.showModal();
     drawDansBpmSynthOscillatorVisualizers(dialog, getDansBpmSynthPatch(track));
@@ -10292,7 +10600,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=f0bf83189b14");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=c733bd47e30d");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -25887,6 +26195,30 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
           pitchDrop: parameter("pitchDrop", 30),
         },
       ];
+    } else if (engine === "dansbpm-kick") {
+      const kickFrequency = Math.max(28, Math.min(120,
+        55 * Math.pow(2, (midi - 60) / 12)));
+      const pitchDrop = parameter("kickPitchDrop", 34);
+      oscillatorSettings = [
+        {
+          type: "sine",
+          rate: kickFrequency,
+          level: 0.8,
+          detune: Number(noteOptions.detune) || 0,
+          pitchDrop,
+          pitchDropTime: parameter("kickPitchTime", 0.045),
+          decay: parameter("kickBody", 0.36),
+        },
+        {
+          type: "sine",
+          rate: kickFrequency * 2.4,
+          level: 0.18,
+          detune: Number(noteOptions.detune) || 0,
+          pitchDrop: pitchDrop * 0.55,
+          pitchDropTime: parameter("kickPitchTime", 0.045) * 0.65,
+          decay: 0.045,
+        },
+      ];
     } else {
       const unisonCount = Math.round(Math.max(1, Math.min(7, parameter("unison", 1))));
       const unisonSpread = Math.max(0, Math.min(60, parameter("unisonSpread", 0)));
@@ -25925,7 +26257,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         const startFrequency = settings.rate * Math.pow(2, settings.pitchDrop / 12);
         oscillator.frequency.setValueAtTime(startFrequency, time);
         oscillator.frequency.exponentialRampToValueAtTime(settings.rate,
-          time + Math.max(0.01, parameter("pitchDropTime", 0.11)));
+          time + Math.max(0.01, settings.pitchDropTime ||
+            parameter("pitchDropTime", engine === "dansbpm-kick" ? 0.045 : 0.11)));
       } else {
         oscillator.frequency.setValueAtTime(settings.rate, time);
       }
@@ -25976,8 +26309,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     envelope.connect(outputNode);
 
     const is808 = engine === "dansbpm-808";
+    const isKick = engine === "dansbpm-kick";
     const noiseLevel = Math.max(0, Math.min(0.7,
-      is808 ? parameter("clickLevel", 0) : parameter("noiseLevel", 0)));
+      is808 || isKick ? parameter("clickLevel", 0) : parameter("noiseLevel", 0)));
     if (noiseLevel > 0) {
       const noise = context.createBufferSource();
       registerArrangementPlaybackSource(noise);
@@ -25985,19 +26319,19 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       noise.loop = true;
       const noiseGain = context.createGain();
       noiseGain.gain.setValueAtTime(noiseLevel, time);
-      if (is808) {
+      if (is808 || isKick) {
         const clickFilter = context.createBiquadFilter();
         clickFilter.type = "lowpass";
         clickFilter.frequency.setValueAtTime(parameter("clickTone", 3800), time);
         noise.connect(clickFilter);
         clickFilter.connect(noiseGain);
-        noiseGain.gain.exponentialRampToValueAtTime(0.0001, time + 0.045);
+        noiseGain.gain.exponentialRampToValueAtTime(0.0001, time + (isKick ? 0.025 : 0.045));
       } else {
         noise.connect(noiseGain);
       }
       noiseGain.connect(filter);
       noise.start(time);
-      noise.stop(is808 ? time + 0.06 : gateEnd + release + 0.02);
+      noise.stop(is808 || isKick ? time + (isKick ? 0.04 : 0.06) : gateEnd + release + 0.02);
     }
 
     const delayMix = Math.max(0, Math.min(100, parameter("delayMix", 0))) / 100;
@@ -26037,7 +26371,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   function playInstrumentVoice(track, time, midi, duration, velocity, outputTrack = track, outputNode = outputTrack.gainNode, noteOptions = {}) {
     const context = state.audioContext;
     const patch = track.patch || {};
-    if (["dansbpm", "dansbpm-bell", "dansbpm-piano", "dansbpm-808"].includes(patch.engine)) {
+    if (["dansbpm", "dansbpm-bell", "dansbpm-piano", "dansbpm-808", "dansbpm-kick"].includes(patch.engine)) {
       playDansBpmSynthVoice(track, time, midi, duration, velocity, outputNode, noteOptions);
       return;
     }
@@ -27047,6 +27381,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
           patch: track.patch ? { ...track.patch } : {},
           vstPatch: track.vstPatch ? { ...track.vstPatch } : undefined,
           vstBypassed: track.vstBypassed === true,
+          ...(Array.isArray(track.vstUserPresets)
+            ? { vstUserPresets: track.vstUserPresets.map((preset) => ({ ...preset, patch: { ...preset.patch } })) }
+            : {}),
         } : {}),
         name: track.name,
         kind: track.kind,
@@ -29539,6 +29876,11 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
           }
           if (track.vstPluginId) {
             track.vstBypassed = savedTrack.vstBypassed === true;
+            if (Array.isArray(savedTrack.vstUserPresets)) {
+              track.vstUserPresets = savedTrack.vstUserPresets
+                .map((preset) => normalizeDansBpmVstUserPreset(preset, track.patch))
+                .filter(Boolean);
+            }
             const sourcePatch = state.tracks.find((item) =>
               item.id === track.sourceId && item.vstPluginId)?.patch || track.patch;
             if (track.vstBypassed) {

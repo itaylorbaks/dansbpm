@@ -500,6 +500,11 @@
           }
           if (track.vstPluginId) {
             track.vstBypassed = savedTrack.vstBypassed === true;
+            if (Array.isArray(savedTrack.vstUserPresets)) {
+              track.vstUserPresets = savedTrack.vstUserPresets
+                .map((preset) => normalizeDansBpmVstUserPreset(preset, track.patch))
+                .filter(Boolean);
+            }
             const sourcePatch = state.tracks.find((item) =>
               item.id === track.sourceId && item.vstPluginId)?.patch || track.patch;
             if (track.vstBypassed) {

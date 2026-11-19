@@ -498,6 +498,30 @@
           pitchDrop: parameter("pitchDrop", 30),
         },
       ];
+    } else if (engine === "dansbpm-kick") {
+      const kickFrequency = Math.max(28, Math.min(120,
+        55 * Math.pow(2, (midi - 60) / 12)));
+      const pitchDrop = parameter("kickPitchDrop", 34);
+      oscillatorSettings = [
+        {
+          type: "sine",
+          rate: kickFrequency,
+          level: 0.8,
+          detune: Number(noteOptions.detune) || 0,
+          pitchDrop,
+          pitchDropTime: parameter("kickPitchTime", 0.045),
+          decay: parameter("kickBody", 0.36),
+        },
+        {
+          type: "sine",
+          rate: kickFrequency * 2.4,
+          level: 0.18,
+          detune: Number(noteOptions.detune) || 0,
+          pitchDrop: pitchDrop * 0.55,
+          pitchDropTime: parameter("kickPitchTime", 0.045) * 0.65,
+          decay: 0.045,
+        },
+      ];
     } else {
       const unisonCount = Math.round(Math.max(1, Math.min(7, parameter("unison", 1))));
       const unisonSpread = Math.max(0, Math.min(60, parameter("unisonSpread", 0)));
@@ -536,7 +560,8 @@
         const startFrequency = settings.rate * Math.pow(2, settings.pitchDrop / 12);
         oscillator.frequency.setValueAtTime(startFrequency, time);
         oscillator.frequency.exponentialRampToValueAtTime(settings.rate,
-          time + Math.max(0.01, parameter("pitchDropTime", 0.11)));
+          time + Math.max(0.01, settings.pitchDropTime ||
+            parameter("pitchDropTime", engine === "dansbpm-kick" ? 0.045 : 0.11)));
       } else {
         oscillator.frequency.setValueAtTime(settings.rate, time);
       }
@@ -587,8 +612,9 @@
     envelope.connect(outputNode);
 
     const is808 = engine === "dansbpm-808";
+    const isKick = engine === "dansbpm-kick";
     const noiseLevel = Math.max(0, Math.min(0.7,
-      is808 ? parameter("clickLevel", 0) : parameter("noiseLevel", 0)));
+      is808 || isKick ? parameter("clickLevel", 0) : parameter("noiseLevel", 0)));
     if (noiseLevel > 0) {
       const noise = context.createBufferSource();
       registerArrangementPlaybackSource(noise);
@@ -596,19 +622,19 @@
       noise.loop = true;
       const noiseGain = context.createGain();
       noiseGain.gain.setValueAtTime(noiseLevel, time);
-      if (is808) {
+      if (is808 || isKick) {
         const clickFilter = context.createBiquadFilter();
         clickFilter.type = "lowpass";
         clickFilter.frequency.setValueAtTime(parameter("clickTone", 3800), time);
         noise.connect(clickFilter);
         clickFilter.connect(noiseGain);
-        noiseGain.gain.exponentialRampToValueAtTime(0.0001, time + 0.045);
+        noiseGain.gain.exponentialRampToValueAtTime(0.0001, time + (isKick ? 0.025 : 0.045));
       } else {
         noise.connect(noiseGain);
       }
       noiseGain.connect(filter);
       noise.start(time);
-      noise.stop(is808 ? time + 0.06 : gateEnd + release + 0.02);
+      noise.stop(is808 || isKick ? time + (isKick ? 0.04 : 0.06) : gateEnd + release + 0.02);
     }
 
     const delayMix = Math.max(0, Math.min(100, parameter("delayMix", 0))) / 100;
@@ -648,7 +674,7 @@
   function playInstrumentVoice(track, time, midi, duration, velocity, outputTrack = track, outputNode = outputTrack.gainNode, noteOptions = {}) {
     const context = state.audioContext;
     const patch = track.patch || {};
-    if (["dansbpm", "dansbpm-bell", "dansbpm-piano", "dansbpm-808"].includes(patch.engine)) {
+    if (["dansbpm", "dansbpm-bell", "dansbpm-piano", "dansbpm-808", "dansbpm-kick"].includes(patch.engine)) {
       playDansBpmSynthVoice(track, time, midi, duration, velocity, outputNode, noteOptions);
       return;
     }
@@ -1658,6 +1684,9 @@
           patch: track.patch ? { ...track.patch } : {},
           vstPatch: track.vstPatch ? { ...track.vstPatch } : undefined,
           vstBypassed: track.vstBypassed === true,
+          ...(Array.isArray(track.vstUserPresets)
+            ? { vstUserPresets: track.vstUserPresets.map((preset) => ({ ...preset, patch: { ...preset.patch } })) }
+            : {}),
         } : {}),
         name: track.name,
         kind: track.kind,
