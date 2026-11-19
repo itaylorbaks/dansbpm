@@ -8958,18 +8958,22 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
           };
         });
       } else if (engine === "dansbpm-808") {
+        const subLevel = Number.isFinite(Number(patch.subLevel))
+          ? Number(patch.subLevel) : 0.12;
         harmonics = standardHarmonics(shape).map((harmonic) => ({
           ...harmonic,
           amplitude: harmonic.amplitude * 0.78,
         }));
         harmonics.push({
           ratio: 1,
-          amplitude: Math.max(0, Math.min(0.24, Number(patch.subLevel) || 0.12)),
+          amplitude: Math.max(0, Math.min(0.24, subLevel)),
         });
       } else if (engine === "dansbpm-kick") {
+        const kickHarmonic = Number.isFinite(Number(patch.kickHarmonic))
+          ? Number(patch.kickHarmonic) : 18;
         harmonics = [
           { ratio: 1, amplitude: 0.8 },
-          { ratio: 2.4, amplitude: Math.max(0, Math.min(0.6, Number(patch.kickHarmonic) || 0.18)) },
+          { ratio: 2.4, amplitude: Math.max(0, Math.min(0.6, kickHarmonic / 100)) },
         ];
       } else {
         harmonics = standardHarmonics(shape);
@@ -10765,7 +10769,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=f73deed30e7e");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=66e06a663d68");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -26462,8 +26466,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         registerArrangementPlaybackSource(modulator);
         const modulatorGain = context.createGain();
         modulator.type = patch.osc2Wave || "sine";
-        modulator.frequency.setValueAtTime(frequency * (settings.fmRatio || 2), time);
-        modulatorGain.gain.setValueAtTime(frequency * settings.fm / 100 * 0.18, time);
+        modulator.frequency.setValueAtTime(settings.rate * (settings.fmRatio || 2), time);
+        modulatorGain.gain.setValueAtTime(settings.rate * settings.fm / 100 * 0.18, time);
         modulator.connect(modulatorGain);
         modulatorGain.connect(oscillator.frequency);
         modulator.start(time);
