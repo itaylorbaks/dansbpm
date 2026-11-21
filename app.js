@@ -11157,7 +11157,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=67d2abf68c55");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=f8705b9d626c");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -13546,6 +13546,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       const nameText = document.createElement("span");
       nameText.className = "track-name-text";
       nameText.textContent = track.name;
+      nameText.title = track.name;
       const chooseInstrument = document.createElement("button");
       chooseInstrument.className = "track-instrument-picker";
       chooseInstrument.type = "button";
@@ -36362,10 +36363,15 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       if (!trackMenu.hidden && event.target instanceof Node && !trackMenu.contains(event.target)) {
         trackMenu.hidden = true;
       }
+      const rackMenu = $("#rack-row-context-menu");
+      if (!rackMenu.hidden && event.target instanceof Node && !rackMenu.contains(event.target)) {
+        rackMenu.hidden = true;
+      }
     }, true);
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") closeMixerEffectContextMenu();
       if (event.key === "Escape") $("#mixer-track-context-menu").hidden = true;
+      if (event.key === "Escape") $("#rack-row-context-menu").hidden = true;
     });
     $("#mixer-effect-dialog").addEventListener("close", () => {
       if ($("#mixer-effect-dialog").open) return;

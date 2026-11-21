@@ -1638,6 +1638,7 @@
       const nameText = document.createElement("span");
       nameText.className = "track-name-text";
       nameText.textContent = track.name;
+      nameText.title = track.name;
       const chooseInstrument = document.createElement("button");
       chooseInstrument.className = "track-instrument-picker";
       chooseInstrument.type = "button";
