@@ -44,7 +44,7 @@
       .find((item) => item.id === clipId) ||
       state.audioAssets.find((asset) => asset.id === clipId);
     const nameSource = clip?.name || "Audio";
-    const baseName = `${nameSource.replace(/\.[^.]+$/, "").trim() || "Audio"} Mel`.slice(0, 48);
+    const baseName = (nameSource.replace(/\.[^.]+$/, "").trim() || "Audio").slice(0, 48);
     let name = baseName;
     let suffix = 2;
     while (state.mels.some((mel) => mel.name.toLowerCase() === name.toLowerCase())) {
@@ -1647,7 +1647,18 @@
       const clip = track.clips.find((item) => item.id === clipId);
       if (clip) return clip;
     }
-    return state.audioAssets.find((asset) => asset.id === clipId) || null;
+    const asset = state.audioAssets.find((item) => item.id === clipId);
+    if (asset) return asset;
+    const rackSample = state.tracks.find((track) => track.id === clipId && track.sample?.buffer);
+    return rackSample ? {
+      id: rackSample.id,
+      name: rackSample.name,
+      buffer: rackSample.sample.buffer,
+      audioMetadata: rackSample.audioMetadata,
+      durationSeconds: rackSample.sample.buffer.duration,
+      sourceOffsetSeconds: 0,
+      assetId: rackSample.id,
+    } : null;
   }
 
   function selectPianoRollAudioSource(clipId) {
@@ -1956,9 +1967,13 @@
         state.selectedMelId = mel.id;
         loadMel(mel.id);
       } else {
-        state.pianoNotes = notes.map((note) => ({ ...note }));
-        state.pianoBars = bars;
-        state.selectedMelId = null;
+        const name = (clip.name || "Audio").replace(/\.[^.]+$/, "").trim() || "Audio";
+        mel = makeMel(name, state.selectedPianoTrackId, bars, notes);
+        mel.audioSourceClipId = clip.id;
+        mel.audioSourceAssetId = clip.assetId || clip.id;
+        state.mels.push(mel);
+        state.selectedMelId = mel.id;
+        loadMel(mel.id);
       }
       const detectedKey = clip.audioMetadata?.key?.match(/^([A-G]#?) (major|minor)$/i);
       if (detectedKey) {
@@ -1992,7 +2007,7 @@
     }
   }
 
-  async function openAudioClipInPianoRoll(trackId, clipId) {
+  async function openAudioClipInPianoRoll(trackId, clipId, keepMainView = false) {
     if (state.stepPianoEditContext) {
       showToast("Return to the Piano Roll before editing an audio segment.");
       return;
@@ -2012,7 +2027,7 @@
     } else {
       state.pianoRollAudioClipId = clip.id;
     }
-    setWorkspaceView("piano-roll", true);
+    if (!keepMainView) setWorkspaceView("piano-roll", true);
     $("#piano-audio-mode-select").value = "audio";
     const audioOptions = $("#piano-toolbar-audio-options");
     const audioToggle = document.querySelector('[aria-controls="piano-toolbar-audio-options"]');
@@ -2029,7 +2044,7 @@
     await transcribeAudioClipToPianoRoll(clip);
   }
 
-  async function openAudioAssetInPianoRoll(asset) {
+  async function openAudioAssetInPianoRoll(asset, keepMainView = false) {
     if (!asset?.buffer) {
       showToast("That audio asset is no longer available.");
       return;
@@ -2043,7 +2058,7 @@
     const linkedMel = getAudioClipEditedMel(asset);
     if (linkedMel) loadMel(linkedMel.id);
     else state.pianoRollAudioClipId = asset.id;
-    setWorkspaceView("piano-roll", true);
+    if (!keepMainView) setWorkspaceView("piano-roll", true);
     $("#piano-audio-mode-select").value = "audio";
     const audioOptions = $("#piano-toolbar-audio-options");
     const audioToggle = document.querySelector('[aria-controls="piano-toolbar-audio-options"]');

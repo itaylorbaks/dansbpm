@@ -493,6 +493,8 @@
               solo: savedTrack.solo,
               pitch: savedTrack.pitch,
               swing: savedTrack.swing,
+              sampleRootMidi: savedTrack.sampleRootMidi,
+              sampleOneShot: savedTrack.sampleOneShot === true,
               cells: savedTrack.cells,
               effects: savedTrack.effects,
               audioMetadata: savedTrack.audioMetadata,
@@ -545,6 +547,8 @@
             : hasTrackAutomation(savedTrack.automation);
           if (Number.isFinite(savedTrack.pitch)) track.pitch = Math.max(-12, Math.min(12, savedTrack.pitch));
           if (Number.isFinite(savedTrack.swing)) track.swing = Math.max(0, Math.min(45, savedTrack.swing));
+          if (typeof savedTrack.sampleRootMidi === "number") track.sampleRootMidi = savedTrack.sampleRootMidi;
+          if (typeof savedTrack.sampleOneShot === "boolean") track.sampleOneShot = savedTrack.sampleOneShot;
           if (savedTrack.audioMetadata) track.audioMetadata = normalizeAudioMetadata(savedTrack.audioMetadata);
           track.effects = makeDefaultEffects(savedTrack.effects);
           track.effectSettings = makeDefaultEffectSettings(savedTrack.effectSettings);

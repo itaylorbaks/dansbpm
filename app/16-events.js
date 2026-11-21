@@ -246,6 +246,7 @@
         renderPatternSelectors();
       }
     }
+    floating.hidden = false;
     const width = Math.min(860, window.innerWidth - 24);
     floating.style.width = `${width}px`;
     floating.style.height = "auto";
@@ -266,7 +267,27 @@
     $("#rack-floating-window").hidden = true;
     $("#rack-floating-window").style.removeProperty("min-width");
     $("#rack-floating-window").style.removeProperty("width");
-    setWorkspaceView("sequencer");
+    setWorkspaceView(state.view, true);
+  }
+
+  function openPatternInRackWindow(patternId) {
+    if (!getPattern(patternId)) {
+      showToast("That pattern is no longer available.");
+      return;
+    }
+    if (state.view === "sequencer" && !state.workspaceHidden && !state.rackUndocked) {
+      selectPattern(patternId);
+      return;
+    }
+    selectPattern(patternId);
+    if (state.rackUndocked) {
+      $("#rack-floating-window").hidden = false;
+      renderTracks();
+      renderPresets();
+      renderPatternSelectors();
+    } else {
+      floatRackWindow(window.innerWidth / 2, window.innerHeight / 3);
+    }
   }
 
   function openRackAssetLibrary() {
@@ -347,6 +368,7 @@
       floating.hidden = false;
       if (state.view === "piano-roll") setWorkspaceView("arrangement");
     }
+    floating.hidden = false;
     const width = Math.min(960, window.innerWidth - 24);
     const height = Math.min(640, window.innerHeight - 24);
     floating.style.width = `${width}px`;
@@ -361,7 +383,53 @@
     state.pianoRollUndocked = false;
     $(".workspace-content").insertBefore(pianoRoll, $("#mixer-view"));
     $("#piano-floating-window").hidden = true;
-    setWorkspaceView("piano-roll", true);
+    setWorkspaceView(state.view, true);
+  }
+
+  function openMelInPianoRollWindow(melId) {
+    const mel = getMel(melId);
+    if (!mel) {
+      showToast("That Mel is no longer available.");
+      return;
+    }
+    captureCurrentMel();
+    loadMel(melId);
+    renderMelOptions();
+    renderPianoInstrumentOptions();
+    renderPianoRoll();
+    if (state.view === "piano-roll" && !state.workspaceHidden && !state.pianoRollUndocked) return;
+    if (state.pianoRollUndocked) {
+      $("#piano-floating-window").hidden = false;
+    } else {
+      floatPianoRollWindow(window.innerWidth / 2, window.innerHeight / 3);
+    }
+  }
+
+  function openAudioAssetInPianoRollWindow(type, assetId) {
+    const asset = getArrangementAsset(type, assetId);
+    if (asset && state.audioAssets.includes(asset)) {
+      if (state.view === "piano-roll" && !state.workspaceHidden && !state.pianoRollUndocked) {
+        void openAudioAssetInPianoRoll(asset);
+      } else {
+        if (state.pianoRollUndocked) $("#piano-floating-window").hidden = false;
+        else floatPianoRollWindow(window.innerWidth / 2, window.innerHeight / 3);
+        void openAudioAssetInPianoRoll(asset, true);
+      }
+      return;
+    }
+    const track = state.arrangementTracks.find((candidate) =>
+      candidate.clips.some((clip) => clip.id === assetId));
+    if (!track) {
+      showToast("That audio asset is no longer available.");
+      return;
+    }
+    if (state.view === "piano-roll" && !state.workspaceHidden && !state.pianoRollUndocked) {
+      void openAudioClipInPianoRoll(track.id, assetId);
+    } else {
+      if (state.pianoRollUndocked) $("#piano-floating-window").hidden = false;
+      else floatPianoRollWindow(window.innerWidth / 2, window.innerHeight / 3);
+      void openAudioClipInPianoRoll(track.id, assetId, true);
+    }
   }
 
   function movePianoRollTab(event) {
@@ -1016,6 +1084,16 @@
     };
     $("#rename-library-asset").addEventListener("click", () => handleLibraryAssetAction("rename"));
     $("#branch-library-asset").addEventListener("click", () => handleLibraryAssetAction("branch"));
+    $("#open-library-asset").addEventListener("click", () => {
+      const { assetType, assetId } = $("#asset-context-menu").dataset;
+      closeAssetContextMenu();
+      if ($("#source-browser-dialog").open) $("#source-browser-dialog").close();
+      if (assetType && assetId) {
+        if (assetType === "pattern") openPatternInRackWindow(assetId);
+        else if (assetType === "mel") openMelInPianoRollWindow(assetId);
+        else openAudioAssetInPianoRollWindow(assetType, assetId);
+      }
+    });
     $("#draw-pattern-components").addEventListener("click", () => {
       const { assetType, assetId } = $("#asset-context-menu").dataset;
       closeAssetContextMenu();

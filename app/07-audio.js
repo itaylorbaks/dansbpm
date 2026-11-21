@@ -621,6 +621,8 @@
       solo: options.solo === true,
       pitch: Number.isFinite(options.pitch) ? Math.max(-12, Math.min(12, options.pitch)) : 0,
       swing: Number.isFinite(options.swing) ? Math.max(0, Math.min(45, options.swing)) : null,
+      sampleRootMidi: Number.isFinite(options.sampleRootMidi) ? options.sampleRootMidi : 60,
+      sampleOneShot: options.sampleOneShot === true,
       sample: options.buffer ? { name: options.fileName || name, buffer: options.buffer } : null,
       audioMetadata: normalizeAudioMetadata(options.audioMetadata),
       gainNode: null,

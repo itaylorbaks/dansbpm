@@ -1736,6 +1736,8 @@
         pitch: track.pitch || 0,
         swing: Number.isFinite(track.swing) ? track.swing : null,
         audioMetadata: normalizeAudioMetadata(track.audioMetadata),
+        sampleRootMidi: Number.isFinite(track.sampleRootMidi) ? track.sampleRootMidi : 60,
+        sampleOneShot: track.sampleOneShot === true,
         effects: makeDefaultEffects(track.effects),
         effectSettings: makeDefaultEffectSettings(track.effectSettings),
         effectChain: ensureTrackMixerState(track),

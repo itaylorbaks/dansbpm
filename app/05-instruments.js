@@ -42,6 +42,139 @@
     return true;
   }
 
+  function addMelToPatternRack(melId, targetTrackId = null) {
+    const pattern = getPattern();
+    const mel = state.mels.find((item) => item.id === melId);
+    const target = targetTrackId ? state.tracks.find((item) => item.id === targetTrackId) : null;
+    const melInstrument = state.tracks.find((item) => item.id === mel?.instrumentId);
+    const instrument = target || (melInstrument?.sourceId
+      ? state.tracks.find((item) => item.id === melInstrument.sourceId)
+      : melInstrument);
+    if (!pattern || !mel || !instrument || instrument.kind === "drumkit") return false;
+    captureCurrentPattern();
+    const track = makePatternInstrumentLayer(instrument, {
+      name: target ? `${target.name} · ${mel.name}` : mel.name,
+      volume: target?.volume,
+      muted: target?.muted,
+      solo: target?.solo,
+      pitch: target?.pitch,
+      swing: target?.swing,
+      variant: target ? pattern.variants?.[target.id] || target.variant : instrument.variant,
+      effects: target?.effects,
+    });
+    const trackIds = getPatternTrackIds(pattern);
+    const targetIndex = target ? trackIds.indexOf(target.id) : -1;
+    trackIds.splice(targetIndex < 0 ? trackIds.length : targetIndex + 1, 0, track.id);
+    state.tracks.push(track);
+    pattern.trackIds = trackIds;
+    pattern.cells ||= {};
+    pattern.cells[track.id] = Array(STEP_COUNT).fill(false);
+    pattern.stepPianoNotes ||= {};
+    pattern.steps = Math.max(pattern.steps, normalizePatternSteps((mel.bars || 1) * 16));
+    pattern.stepPianoNotes[track.id] = mel.notes.map((note) => ({
+      ...note,
+      id: makeId(),
+      trackId: track.id,
+    }));
+    const ticksPerStep = getGridTicksPerStep(pattern);
+    pattern.stepPianoNotes[track.id].forEach((note) => {
+      const step = Math.floor(note.startTick / ticksPerStep);
+      if (step >= 0 && step < getGridStepCount(pattern)) pattern.cells[track.id][step] = true;
+    });
+    track.cells = [...pattern.cells[track.id]];
+    if (SOUND_VARIANTS[track.kind]) {
+      pattern.variants ||= {};
+      pattern.variants[track.id] = track.variant || "classic";
+    }
+    if (pattern.id === state.selectedPatternId) state.steps = pattern.steps;
+    renderTracks();
+    renderPatternSelectors();
+    renderArrangement();
+    saveState();
+    showToast(`${mel.name} added to ${pattern.name} as ${track.name}`);
+    return true;
+  }
+
+  function addAudioToPatternRack(audioPayload, targetTrackId = null) {
+    const pattern = getPattern();
+    if (!pattern) return false;
+    const clip = state.arrangementTracks
+      .flatMap((track) => track.clips)
+      .find((item) => item.id === audioPayload.clipId);
+    const asset = state.audioAssets.find((item) => item.id === audioPayload.clipId) ||
+      state.audioAssets.find((item) => item.id === (clip?.assetId || clip?.id));
+    const buffer = clip?.buffer || asset?.buffer;
+    if (!buffer) return false;
+    const target = targetTrackId ? state.tracks.find((item) => item.id === targetTrackId) : null;
+    const track = makeDrumSampleTrack({
+      name: (clip?.name || asset?.name || "Audio").replace(/\.[^.]+$/, "") || "Audio",
+      buffer,
+      fileName: clip?.name || asset?.name || "Audio",
+      audioMetadata: clip?.audioMetadata || asset?.audioMetadata,
+      sampleOneShot: true,
+    });
+    track.subtitle = "Audio sample";
+    captureCurrentPattern();
+    const trackIds = getPatternTrackIds(pattern);
+    const targetIndex = target ? trackIds.indexOf(target.id) : -1;
+    trackIds.splice(targetIndex < 0 ? trackIds.length : targetIndex + 1, 0, track.id);
+    state.tracks.push(track);
+    pattern.trackIds = trackIds;
+    pattern.cells ||= {};
+    pattern.cells[track.id] = Array(STEP_COUNT).fill(false);
+    const audioBlob = clip?.blob || asset?.blob;
+    if (audioBlob instanceof Blob) {
+      void persistDrumSample(track, audioBlob)
+        .then(() => saveState())
+        .catch(() => showToast(`${track.name} was added, but its audio could not be saved.`));
+    }
+    renderTracks();
+    renderPatternSelectors();
+    renderArrangement();
+    saveState();
+    showToast(`${track.name} added to ${pattern.name} as an audio row`);
+    return true;
+  }
+
+  function handleRackAssetDrop(event, targetTrackId = null) {
+    const transfer = event.dataTransfer;
+    if (!transfer) return;
+    const melPayload = transfer.getData("application/x-pulsegrid-mel-source");
+    const audioPayload = transfer.getData("application/x-pulsegrid-audio-source");
+    const instrumentPayload = transfer.getData("application/x-pulsegrid-instrument-source");
+    if (!melPayload && !audioPayload && !instrumentPayload) return;
+    event.preventDefault();
+    try {
+      if (melPayload) {
+        const { melId } = JSON.parse(melPayload);
+        if (!addMelToPatternRack(melId, targetTrackId)) showToast("That Mel could not be added to the Rack.");
+      } else if (audioPayload) {
+        if (!addAudioToPatternRack(JSON.parse(audioPayload), targetTrackId)) {
+          showToast("That audio asset could not be added to the Rack.");
+        }
+      } else {
+        const { instrumentId } = JSON.parse(instrumentPayload);
+        const source = state.tracks.find((item) => item.id === instrumentId);
+        if (!source) {
+          showToast("That instrument is no longer available.");
+          return;
+        }
+        const assignedTrackId = targetTrackId
+          ? replacePatternInstrument(targetTrackId, source.id)
+          : addPatternInstrument(source.id);
+        if (assignedTrackId) {
+          const assignedTrack = state.tracks.find((item) => item.id === assignedTrackId);
+          if (!targetTrackId) return;
+          showToast(assignedTrack?.vstBypassed
+            ? `${source.name} attached to the Rack row; edit a VST control to switch its sound`
+            : `${source.name} assigned to the Rack row`);
+        }
+      }
+    } catch {
+      showToast("That item could not be added to the Rack.");
+    }
+  }
+
   function getStepInstrumentGroup(track) {
     if (track.sampleCategory && track.family) return `${track.family} · ${track.sampleCategory}`;
     if (track.kind === "sample") return "User Samples";
@@ -1388,7 +1521,52 @@
     const track = state.tracks.find((item) => item.id === trackId);
     if (!track) return;
     if (action === "piano-roll") {
-      openStepInstrumentPianoRoll(track.id);
+      if (track.kind === "sample" && track.sample?.buffer) {
+        state.selectedPianoTrackId = track.id;
+        const audio = {
+          id: track.id,
+          name: track.name,
+          buffer: track.sample.buffer,
+          audioMetadata: track.audioMetadata,
+          durationSeconds: track.sample.buffer.duration,
+          sourceOffsetSeconds: 0,
+          assetId: track.id,
+        };
+        const useMainPianoRoll = state.view === "piano-roll" &&
+          !state.workspaceHidden && !state.pianoRollUndocked;
+        if (!useMainPianoRoll) {
+          if (state.pianoRollUndocked) $("#piano-floating-window").hidden = false;
+          else floatPianoRollWindow(window.innerWidth / 2, window.innerHeight / 3);
+        }
+        void openAudioAssetInPianoRoll(audio, !useMainPianoRoll).then(() => {
+          const mel = state.mels.find((item) => item.audioSourceClipId === track.id);
+          const pattern = getPattern();
+          if (!mel || !pattern || !getPatternTrackIds(pattern).includes(track.id)) return;
+          captureCurrentPattern();
+          pattern.stepPianoNotes ||= {};
+          pattern.steps = Math.max(pattern.steps, normalizePatternSteps((mel.bars || 1) * 16));
+          state.steps = pattern.steps;
+          const notes = mel.notes.map((note) => ({
+            ...note,
+            id: makeId(),
+            trackId: track.id,
+          }));
+          pattern.stepPianoNotes[track.id] = notes;
+          const cells = Array(STEP_COUNT).fill(false);
+          const ticksPerStep = getGridTicksPerStep(pattern);
+          notes.forEach((note) => {
+            const step = Math.floor(note.startTick / ticksPerStep);
+            if (step >= 0 && step < getGridStepCount(pattern)) cells[step] = true;
+          });
+          pattern.cells[track.id] = cells;
+          track.cells = [...cells];
+          renderTracks();
+          renderArrangement();
+          saveState();
+        });
+      } else {
+        openStepInstrumentPianoRoll(track.id);
+      }
     } else if (action === "edit-sound") {
       openStepTrackMix(track);
     } else if (action === "rename") {
@@ -1564,7 +1742,12 @@
       row.dataset.trackId = track.id;
       row.style.setProperty("--track-color", track.color);
       row.addEventListener("dragover", (event) => {
-        if (!Array.from(event.dataTransfer?.types || []).includes("application/x-pulsegrid-instrument-source")) return;
+        const types = Array.from(event.dataTransfer?.types || []);
+        if (!types.some((type) => [
+          "application/x-pulsegrid-instrument-source",
+          "application/x-pulsegrid-mel-source",
+          "application/x-pulsegrid-audio-source",
+        ].includes(type))) return;
         event.preventDefault();
         event.dataTransfer.dropEffect = "copy";
         row.classList.add("is-vst-drop-target");
@@ -1573,27 +1756,8 @@
         if (!row.contains(event.relatedTarget)) row.classList.remove("is-vst-drop-target");
       });
       row.addEventListener("drop", (event) => {
-        const payload = event.dataTransfer?.getData("application/x-pulsegrid-instrument-source");
-        if (!payload) return;
-        event.preventDefault();
         row.classList.remove("is-vst-drop-target");
-        try {
-          const { instrumentId } = JSON.parse(payload);
-          const source = state.tracks.find((item) => item.id === instrumentId);
-          if (!source) {
-            showToast("That instrument is no longer available.");
-            return;
-          }
-          const assignedTrackId = replacePatternInstrument(track.id, source.id);
-          if (assignedTrackId) {
-            const assignedTrack = state.tracks.find((item) => item.id === assignedTrackId);
-            showToast(assignedTrack?.vstBypassed
-              ? `${source.name} attached to ${track.name}; edit a VST control to switch its sound`
-              : `${source.name} assigned to ${track.name}`);
-          }
-        } catch {
-          showToast("That instrument could not be assigned.");
-        }
+        handleRackAssetDrop(event, track.id);
       });
       const slotsPerBar = getStepsPerBar();
       const stepCount = getGridStepCount();
@@ -1770,7 +1934,12 @@
     addInstrument.setAttribute("aria-controls", "source-browser-dialog");
     addInstrument.addEventListener("click", () => openRackAssetLibrary());
     addInstrument.addEventListener("dragover", (event) => {
-      if (!Array.from(event.dataTransfer?.types || []).includes("application/x-pulsegrid-instrument-source")) return;
+      const types = Array.from(event.dataTransfer?.types || []);
+      if (!types.some((type) => [
+        "application/x-pulsegrid-instrument-source",
+        "application/x-pulsegrid-mel-source",
+        "application/x-pulsegrid-audio-source",
+      ].includes(type))) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = "copy";
       addInstrument.classList.add("is-vst-drop-target");
@@ -1779,16 +1948,8 @@
       if (!addInstrument.contains(event.relatedTarget)) addInstrument.classList.remove("is-vst-drop-target");
     });
     addInstrument.addEventListener("drop", (event) => {
-      const payload = event.dataTransfer?.getData("application/x-pulsegrid-instrument-source");
-      if (!payload) return;
-      event.preventDefault();
       addInstrument.classList.remove("is-vst-drop-target");
-      try {
-        const { instrumentId } = JSON.parse(payload);
-        if (!addPatternInstrument(instrumentId)) showToast("That instrument could not be added.");
-      } catch {
-        showToast("That instrument could not be added.");
-      }
+      handleRackAssetDrop(event);
     });
     trackList.append(addInstrument);
     $("#track-count").textContent = String(visibleTracks.length).padStart(2, "0");

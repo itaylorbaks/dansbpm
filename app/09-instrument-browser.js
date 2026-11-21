@@ -434,6 +434,9 @@
     }
     menu.dataset.assetType = type;
     menu.dataset.assetId = id;
+    const openAsset = $("#open-library-asset");
+    openAsset.hidden = !["pattern", "mel", "audio"].includes(type);
+    openAsset.textContent = type === "pattern" ? "Open in Rack" : "Open in Piano Roll";
     $("#draw-pattern-components").hidden = type !== "pattern";
     menu.hidden = false;
     positionContextMenuAtTarget(menu, event.currentTarget);
@@ -449,6 +452,7 @@
     }
     delete menu.dataset.assetType;
     delete menu.dataset.assetId;
+    $("#open-library-asset").hidden = true;
   }
 
   function getArrangementAsset(type, id) {

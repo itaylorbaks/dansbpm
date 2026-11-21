@@ -540,6 +540,7 @@
         libraryOnly: track.libraryOnly === true,
         pitch: track.pitch || 0,
         swing: Number.isFinite(track.swing) ? track.swing : null,
+        sampleOneShot: track.sampleOneShot === true,
         cells: track.cells,
         audioMetadata: normalizeAudioMetadata(track.audioMetadata),
         blob: file,
@@ -635,6 +636,7 @@
               libraryOnly: record.libraryOnly === true,
               pitch: record.pitch,
               swing: record.swing,
+              sampleOneShot: record.sampleOneShot === true,
               cells: record.cells,
               audioMetadata: record.audioMetadata || detectAudioMetadata(buffer),
               buffer,
@@ -647,6 +649,7 @@
             }
           } else {
             track.sample = { name: record.fileName || record.trackName, buffer };
+            if (typeof record.sampleOneShot === "boolean") track.sampleOneShot = record.sampleOneShot;
             track.audioMetadata = record.audioMetadata
               ? normalizeAudioMetadata(record.audioMetadata)
               : detectAudioMetadata(buffer);
