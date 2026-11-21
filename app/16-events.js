@@ -219,6 +219,8 @@
 
   let rackTabDrag = null;
   let suppressRackTabClick = false;
+  let pianoRollTabDrag = null;
+  let suppressPianoRollTabClick = false;
 
   function fitFloatingRackWindow() {
     if (!state.rackUndocked) return;
@@ -278,6 +280,76 @@
   function startFloatingRackMove(event) {
     if (event.button !== 0 || event.target.closest("button")) return;
     const floating = $("#rack-floating-window");
+    const start = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      left: floating.offsetLeft,
+      top: floating.offsetTop,
+    };
+    event.preventDefault();
+    const move = (moveEvent) => {
+      if (moveEvent.pointerId !== start.pointerId) return;
+      const maxLeft = Math.max(8, window.innerWidth - floating.offsetWidth - 8);
+      const maxTop = Math.max(8, window.innerHeight - floating.offsetHeight - 8);
+      floating.style.left = `${Math.max(8, Math.min(maxLeft, start.left + moveEvent.clientX - start.x))}px`;
+      floating.style.top = `${Math.max(8, Math.min(maxTop, start.top + moveEvent.clientY - start.y))}px`;
+    };
+    const finish = () => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", finish);
+      document.removeEventListener("pointercancel", finish);
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", finish);
+    document.addEventListener("pointercancel", finish);
+  }
+
+  function floatPianoRollWindow(clientX, clientY) {
+    const floating = $("#piano-floating-window");
+    const pianoRoll = $("#piano-roll-view");
+    if (!state.pianoRollUndocked) {
+      state.pianoRollUndocked = true;
+      $("#piano-floating-content").append(pianoRoll);
+      pianoRoll.hidden = false;
+      floating.hidden = false;
+      if (state.view === "piano-roll") setWorkspaceView("arrangement");
+    }
+    const width = Math.min(960, window.innerWidth - 24);
+    const height = Math.min(640, window.innerHeight - 24);
+    floating.style.width = `${width}px`;
+    floating.style.height = `${height}px`;
+    floating.style.left = `${Math.max(8, Math.min(clientX - 100, window.innerWidth - width - 8))}px`;
+    floating.style.top = `${Math.max(8, Math.min(clientY - 16, window.innerHeight - height - 8))}px`;
+    renderPianoRoll();
+  }
+
+  function dockPianoRollWindow() {
+    const pianoRoll = $("#piano-roll-view");
+    state.pianoRollUndocked = false;
+    $(".workspace-content").insertBefore(pianoRoll, $("#mixer-view"));
+    $("#piano-floating-window").hidden = true;
+    setWorkspaceView("piano-roll", true);
+  }
+
+  function movePianoRollTab(event) {
+    if (!pianoRollTabDrag || event.pointerId !== pianoRollTabDrag.pointerId) return;
+    if (event.clientY - pianoRollTabDrag.y < 24) return;
+    event.preventDefault();
+    suppressPianoRollTabClick = true;
+    floatPianoRollWindow(event.clientX, event.clientY);
+    pianoRollTabDrag = null;
+    document.removeEventListener("pointermove", movePianoRollTab);
+  }
+
+  function endPianoRollTabDrag() {
+    pianoRollTabDrag = null;
+    document.removeEventListener("pointermove", movePianoRollTab);
+  }
+
+  function startFloatingPianoRollMove(event) {
+    if (event.button !== 0 || event.target.closest("button")) return;
+    const floating = $("#piano-floating-window");
     const start = {
       pointerId: event.pointerId,
       x: event.clientX,
@@ -596,7 +668,23 @@
     $("#rack-dock-button").addEventListener("click", dockRackWindow);
     $("#rack-floating-header").addEventListener("pointerdown", startFloatingRackMove);
     $("#arrangement-tab")?.addEventListener("click", () => setWorkspaceView("arrangement"));
-    $("#piano-roll-tab").addEventListener("click", () => setWorkspaceView("piano-roll"));
+    const pianoRollTab = $("#piano-roll-tab");
+    pianoRollTab.addEventListener("click", () => {
+      if (suppressPianoRollTabClick) {
+        suppressPianoRollTabClick = false;
+        return;
+      }
+      setWorkspaceView("piano-roll");
+    });
+    pianoRollTab.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      pianoRollTabDrag = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+      document.addEventListener("pointermove", movePianoRollTab);
+      document.addEventListener("pointerup", endPianoRollTabDrag, { once: true });
+      document.addEventListener("pointercancel", endPianoRollTabDrag, { once: true });
+    });
+    $("#piano-dock-button").addEventListener("click", dockPianoRollWindow);
+    $("#piano-floating-header").addEventListener("pointerdown", startFloatingPianoRollMove);
     $("#step-piano-return").addEventListener("click", () => {
       closeStepInstrumentPianoRoll();
       setWorkspaceView("sequencer");

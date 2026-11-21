@@ -1557,7 +1557,7 @@
       row.dataset.trackId = track.id;
       row.style.setProperty("--track-color", track.color);
       row.addEventListener("dragover", (event) => {
-        if (!Array.from(event.dataTransfer?.types || []).includes("application/x-pulsegrid-vst")) return;
+        if (!Array.from(event.dataTransfer?.types || []).includes("application/x-pulsegrid-instrument-source")) return;
         event.preventDefault();
         event.dataTransfer.dropEffect = "copy";
         row.classList.add("is-vst-drop-target");
@@ -1566,16 +1566,15 @@
         if (!row.contains(event.relatedTarget)) row.classList.remove("is-vst-drop-target");
       });
       row.addEventListener("drop", (event) => {
-        const payload = event.dataTransfer?.getData("application/x-pulsegrid-vst");
+        const payload = event.dataTransfer?.getData("application/x-pulsegrid-instrument-source");
         if (!payload) return;
         event.preventDefault();
         row.classList.remove("is-vst-drop-target");
         try {
-          const { instrumentId, vstPluginId } = JSON.parse(payload);
-          const source = state.tracks.find((item) =>
-            item.id === instrumentId && item.vstPluginId === vstPluginId);
+          const { instrumentId } = JSON.parse(payload);
+          const source = state.tracks.find((item) => item.id === instrumentId);
           if (!source) {
-            showToast("That VST is no longer available.");
+            showToast("That instrument is no longer available.");
             return;
           }
           const assignedTrackId = replacePatternInstrument(track.id, source.id);
@@ -1586,7 +1585,7 @@
               : `${source.name} assigned to ${track.name}`);
           }
         } catch {
-          showToast("That VST could not be assigned.");
+          showToast("That instrument could not be assigned.");
         }
       });
       const slotsPerBar = getStepsPerBar();
@@ -1768,9 +1767,31 @@
     addInstrument.className = "add-step-instrument-row";
     addInstrument.type = "button";
     addInstrument.innerHTML = '<span aria-hidden="true">＋</span> Add instrument';
+    addInstrument.title = "Browse the Asset Library or drop an instrument here";
     addInstrument.setAttribute("aria-haspopup", "dialog");
-    addInstrument.setAttribute("aria-controls", "step-instrument-dialog");
-    addInstrument.addEventListener("click", () => openStepInstrumentPicker());
+    addInstrument.setAttribute("aria-controls", "source-browser-dialog");
+    addInstrument.addEventListener("click", () => openAssetLibrary());
+    addInstrument.addEventListener("dragover", (event) => {
+      if (!Array.from(event.dataTransfer?.types || []).includes("application/x-pulsegrid-instrument-source")) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      addInstrument.classList.add("is-vst-drop-target");
+    });
+    addInstrument.addEventListener("dragleave", (event) => {
+      if (!addInstrument.contains(event.relatedTarget)) addInstrument.classList.remove("is-vst-drop-target");
+    });
+    addInstrument.addEventListener("drop", (event) => {
+      const payload = event.dataTransfer?.getData("application/x-pulsegrid-instrument-source");
+      if (!payload) return;
+      event.preventDefault();
+      addInstrument.classList.remove("is-vst-drop-target");
+      try {
+        const { instrumentId } = JSON.parse(payload);
+        if (!addPatternInstrument(instrumentId)) showToast("That instrument could not be added.");
+      } catch {
+        showToast("That instrument could not be added.");
+      }
+    });
     trackList.append(addInstrument);
     $("#track-count").textContent = String(visibleTracks.length).padStart(2, "0");
     if (state.view === "mixer") renderMixer();

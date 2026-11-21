@@ -149,7 +149,7 @@
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h2v2H3zm6 0h2v2H9zm6 0h2v2h-2zM3 11h2v2H3zm6 0h2v2H9zm6 0h2v2h-2z" /></svg>
             Rack
           </button>
-          <button class="workspace-tab" id="piano-roll-tab" type="button" role="tab" aria-selected="false" aria-controls="piano-roll-view">
+          <button class="workspace-tab" id="piano-roll-tab" type="button" role="tab" aria-selected="false" aria-controls="piano-roll-view" title="Drag down to float Piano Roll">
             Piano Roll
           </button>
           <button class="workspace-tab" id="mixer-tab" type="button" role="tab" aria-selected="false" aria-controls="mixer-view">
@@ -164,6 +164,13 @@
             <button class="quiet-button" id="rack-dock-button" type="button" title="Dock Rack">Dock</button>
           </header>
           <div class="rack-floating-content" id="rack-floating-content"></div>
+        </section>
+        <section class="piano-floating-window" id="piano-floating-window" aria-label="Floating Piano Roll" hidden>
+          <header class="rack-floating-header" id="piano-floating-header">
+            <span>PIANO ROLL</span>
+            <button class="quiet-button" id="piano-dock-button" type="button" title="Dock Piano Roll">Dock</button>
+          </header>
+          <div class="piano-floating-content" id="piano-floating-content"></div>
         </section>
 
         <section class="arrangement-workspace" id="arrangement-view" role="region" aria-label="Track View">
@@ -1397,6 +1404,6 @@
       <button class="continue-as-guest" id="continue-as-guest" type="button">Continue as Guest</button>
     </section>
     <script src="assets/vendor/lame.min.js"></script>
-    <script src="app.js?v=7a989207bd8b"></script>
+    <script src="app.js?v=67d2abf68c55"></script>
   </body>
 </html>

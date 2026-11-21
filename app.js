@@ -6795,6 +6795,7 @@ const DRIVE_SAMPLE_TRACKS = [
     workspaceHidden: true,
     trackViewHidden: false,
     rackUndocked: false,
+    pianoRollUndocked: false,
     lastInteractedViewArea: "track-view",
     scheduledPianoNotes: new Set(),
     scheduledArrangementSteps: new Set(),
@@ -11156,7 +11157,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=7a989207bd8b");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=67d2abf68c55");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -13464,7 +13465,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       row.dataset.trackId = track.id;
       row.style.setProperty("--track-color", track.color);
       row.addEventListener("dragover", (event) => {
-        if (!Array.from(event.dataTransfer?.types || []).includes("application/x-pulsegrid-vst")) return;
+        if (!Array.from(event.dataTransfer?.types || []).includes("application/x-pulsegrid-instrument-source")) return;
         event.preventDefault();
         event.dataTransfer.dropEffect = "copy";
         row.classList.add("is-vst-drop-target");
@@ -13473,16 +13474,15 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         if (!row.contains(event.relatedTarget)) row.classList.remove("is-vst-drop-target");
       });
       row.addEventListener("drop", (event) => {
-        const payload = event.dataTransfer?.getData("application/x-pulsegrid-vst");
+        const payload = event.dataTransfer?.getData("application/x-pulsegrid-instrument-source");
         if (!payload) return;
         event.preventDefault();
         row.classList.remove("is-vst-drop-target");
         try {
-          const { instrumentId, vstPluginId } = JSON.parse(payload);
-          const source = state.tracks.find((item) =>
-            item.id === instrumentId && item.vstPluginId === vstPluginId);
+          const { instrumentId } = JSON.parse(payload);
+          const source = state.tracks.find((item) => item.id === instrumentId);
           if (!source) {
-            showToast("That VST is no longer available.");
+            showToast("That instrument is no longer available.");
             return;
           }
           const assignedTrackId = replacePatternInstrument(track.id, source.id);
@@ -13493,7 +13493,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
               : `${source.name} assigned to ${track.name}`);
           }
         } catch {
-          showToast("That VST could not be assigned.");
+          showToast("That instrument could not be assigned.");
         }
       });
       const slotsPerBar = getStepsPerBar();
@@ -13675,9 +13675,31 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     addInstrument.className = "add-step-instrument-row";
     addInstrument.type = "button";
     addInstrument.innerHTML = '<span aria-hidden="true">＋</span> Add instrument';
+    addInstrument.title = "Browse the Asset Library or drop an instrument here";
     addInstrument.setAttribute("aria-haspopup", "dialog");
-    addInstrument.setAttribute("aria-controls", "step-instrument-dialog");
-    addInstrument.addEventListener("click", () => openStepInstrumentPicker());
+    addInstrument.setAttribute("aria-controls", "source-browser-dialog");
+    addInstrument.addEventListener("click", () => openAssetLibrary());
+    addInstrument.addEventListener("dragover", (event) => {
+      if (!Array.from(event.dataTransfer?.types || []).includes("application/x-pulsegrid-instrument-source")) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      addInstrument.classList.add("is-vst-drop-target");
+    });
+    addInstrument.addEventListener("dragleave", (event) => {
+      if (!addInstrument.contains(event.relatedTarget)) addInstrument.classList.remove("is-vst-drop-target");
+    });
+    addInstrument.addEventListener("drop", (event) => {
+      const payload = event.dataTransfer?.getData("application/x-pulsegrid-instrument-source");
+      if (!payload) return;
+      event.preventDefault();
+      addInstrument.classList.remove("is-vst-drop-target");
+      try {
+        const { instrumentId } = JSON.parse(payload);
+        if (!addPatternInstrument(instrumentId)) showToast("That instrument could not be added.");
+      } catch {
+        showToast("That instrument could not be added.");
+      }
+    });
     trackList.append(addInstrument);
     $("#track-count").textContent = String(visibleTracks.length).padStart(2, "0");
     if (state.view === "mixer") renderMixer();
@@ -26699,7 +26721,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   function setWorkspaceView(view, force = false) {
     if (view === state.view && !force && !state.workspaceHidden) return;
     if (view !== "dj" && djViewExpanded) setDjViewExpanded(false, false);
-    if (state.stepPianoEditContext && view !== "piano-roll") closeStepInstrumentPianoRoll();
+    if (state.stepPianoEditContext && view !== "piano-roll" && !state.pianoRollUndocked) {
+      closeStepInstrumentPianoRoll();
+    }
     if (state.keyboardRecordingCountdown && view !== "piano-roll") cancelKeyboardRecordingCountdown();
     if (state.isPlaying) stopPlayback();
     if (view !== "piano-roll") {
@@ -26722,7 +26746,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     $("#arrangement-view").hidden = false;
     document.body.classList.toggle("is-beat-grid-open", showSequencer);
     $("#sequencer-view").hidden = !showSequencer && !state.rackUndocked;
-    $("#piano-roll-view").hidden = !showPianoRoll;
+    $("#piano-roll-view").hidden = !showPianoRoll && !state.pianoRollUndocked;
     $("#mixer-view").hidden = !showMixer;
     $("#dj-view").hidden = !showDJ;
     if (showDJ) renderDjView();
@@ -35346,6 +35370,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
 
   let rackTabDrag = null;
   let suppressRackTabClick = false;
+  let pianoRollTabDrag = null;
+  let suppressPianoRollTabClick = false;
 
   function fitFloatingRackWindow() {
     if (!state.rackUndocked) return;
@@ -35405,6 +35431,76 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   function startFloatingRackMove(event) {
     if (event.button !== 0 || event.target.closest("button")) return;
     const floating = $("#rack-floating-window");
+    const start = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      left: floating.offsetLeft,
+      top: floating.offsetTop,
+    };
+    event.preventDefault();
+    const move = (moveEvent) => {
+      if (moveEvent.pointerId !== start.pointerId) return;
+      const maxLeft = Math.max(8, window.innerWidth - floating.offsetWidth - 8);
+      const maxTop = Math.max(8, window.innerHeight - floating.offsetHeight - 8);
+      floating.style.left = `${Math.max(8, Math.min(maxLeft, start.left + moveEvent.clientX - start.x))}px`;
+      floating.style.top = `${Math.max(8, Math.min(maxTop, start.top + moveEvent.clientY - start.y))}px`;
+    };
+    const finish = () => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", finish);
+      document.removeEventListener("pointercancel", finish);
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", finish);
+    document.addEventListener("pointercancel", finish);
+  }
+
+  function floatPianoRollWindow(clientX, clientY) {
+    const floating = $("#piano-floating-window");
+    const pianoRoll = $("#piano-roll-view");
+    if (!state.pianoRollUndocked) {
+      state.pianoRollUndocked = true;
+      $("#piano-floating-content").append(pianoRoll);
+      pianoRoll.hidden = false;
+      floating.hidden = false;
+      if (state.view === "piano-roll") setWorkspaceView("arrangement");
+    }
+    const width = Math.min(960, window.innerWidth - 24);
+    const height = Math.min(640, window.innerHeight - 24);
+    floating.style.width = `${width}px`;
+    floating.style.height = `${height}px`;
+    floating.style.left = `${Math.max(8, Math.min(clientX - 100, window.innerWidth - width - 8))}px`;
+    floating.style.top = `${Math.max(8, Math.min(clientY - 16, window.innerHeight - height - 8))}px`;
+    renderPianoRoll();
+  }
+
+  function dockPianoRollWindow() {
+    const pianoRoll = $("#piano-roll-view");
+    state.pianoRollUndocked = false;
+    $(".workspace-content").insertBefore(pianoRoll, $("#mixer-view"));
+    $("#piano-floating-window").hidden = true;
+    setWorkspaceView("piano-roll", true);
+  }
+
+  function movePianoRollTab(event) {
+    if (!pianoRollTabDrag || event.pointerId !== pianoRollTabDrag.pointerId) return;
+    if (event.clientY - pianoRollTabDrag.y < 24) return;
+    event.preventDefault();
+    suppressPianoRollTabClick = true;
+    floatPianoRollWindow(event.clientX, event.clientY);
+    pianoRollTabDrag = null;
+    document.removeEventListener("pointermove", movePianoRollTab);
+  }
+
+  function endPianoRollTabDrag() {
+    pianoRollTabDrag = null;
+    document.removeEventListener("pointermove", movePianoRollTab);
+  }
+
+  function startFloatingPianoRollMove(event) {
+    if (event.button !== 0 || event.target.closest("button")) return;
+    const floating = $("#piano-floating-window");
     const start = {
       pointerId: event.pointerId,
       x: event.clientX,
@@ -35723,7 +35819,23 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     $("#rack-dock-button").addEventListener("click", dockRackWindow);
     $("#rack-floating-header").addEventListener("pointerdown", startFloatingRackMove);
     $("#arrangement-tab")?.addEventListener("click", () => setWorkspaceView("arrangement"));
-    $("#piano-roll-tab").addEventListener("click", () => setWorkspaceView("piano-roll"));
+    const pianoRollTab = $("#piano-roll-tab");
+    pianoRollTab.addEventListener("click", () => {
+      if (suppressPianoRollTabClick) {
+        suppressPianoRollTabClick = false;
+        return;
+      }
+      setWorkspaceView("piano-roll");
+    });
+    pianoRollTab.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      pianoRollTabDrag = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+      document.addEventListener("pointermove", movePianoRollTab);
+      document.addEventListener("pointerup", endPianoRollTabDrag, { once: true });
+      document.addEventListener("pointercancel", endPianoRollTabDrag, { once: true });
+    });
+    $("#piano-dock-button").addEventListener("click", dockPianoRollWindow);
+    $("#piano-floating-header").addEventListener("pointerdown", startFloatingPianoRollMove);
     $("#step-piano-return").addEventListener("click", () => {
       closeStepInstrumentPianoRoll();
       setWorkspaceView("sequencer");

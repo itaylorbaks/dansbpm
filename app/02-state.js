@@ -129,6 +129,7 @@
     workspaceHidden: true,
     trackViewHidden: false,
     rackUndocked: false,
+    pianoRollUndocked: false,
     lastInteractedViewArea: "track-view",
     scheduledPianoNotes: new Set(),
     scheduledArrangementSteps: new Set(),

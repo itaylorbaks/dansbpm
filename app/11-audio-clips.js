@@ -1575,7 +1575,9 @@
   function setWorkspaceView(view, force = false) {
     if (view === state.view && !force && !state.workspaceHidden) return;
     if (view !== "dj" && djViewExpanded) setDjViewExpanded(false, false);
-    if (state.stepPianoEditContext && view !== "piano-roll") closeStepInstrumentPianoRoll();
+    if (state.stepPianoEditContext && view !== "piano-roll" && !state.pianoRollUndocked) {
+      closeStepInstrumentPianoRoll();
+    }
     if (state.keyboardRecordingCountdown && view !== "piano-roll") cancelKeyboardRecordingCountdown();
     if (state.isPlaying) stopPlayback();
     if (view !== "piano-roll") {
@@ -1598,7 +1600,7 @@
     $("#arrangement-view").hidden = false;
     document.body.classList.toggle("is-beat-grid-open", showSequencer);
     $("#sequencer-view").hidden = !showSequencer && !state.rackUndocked;
-    $("#piano-roll-view").hidden = !showPianoRoll;
+    $("#piano-roll-view").hidden = !showPianoRoll && !state.pianoRollUndocked;
     $("#mixer-view").hidden = !showMixer;
     $("#dj-view").hidden = !showDJ;
     if (showDJ) renderDjView();
