@@ -5,6 +5,21 @@
     return state.tracks.find((track) => track.id === trackId) || null;
   }
 
+  function getPianoNotePlaybackDurationTicks(notes, note, endTick = Infinity) {
+    if (state.pianoNoteMode !== "mono") return note.durationTicks;
+    const availableTicks = Math.max(0, Math.min(note.durationTicks, endTick - note.startTick));
+    const latestAtStart = new Map();
+    notes.forEach((item, index) => {
+      if (item.startTick < endTick) latestAtStart.set(item.startTick, { item, index });
+    });
+    const events = [...latestAtStart.values()].sort((left, right) =>
+      left.item.startTick - right.item.startTick || left.index - right.index);
+    const eventIndex = events.findIndex(({ item }) => item === note);
+    if (eventIndex < 0) return 0;
+    const nextStartTick = events[eventIndex + 1]?.item.startTick ?? endTick;
+    return Math.max(0, Math.min(availableTicks, nextStartTick - note.startTick));
+  }
+
   function getMel(melId = state.selectedMelId) {
     return state.mels.find((mel) => mel.id === melId) || null;
   }
@@ -1754,6 +1769,51 @@
     $("#piano-chopper-dialog").showModal();
   }
 
+  function openPianoNoteChopper() {
+    const selectedIds = new Set(state.selectedPianoNoteIds);
+    if (state.selectedPianoNoteId) selectedIds.add(state.selectedPianoNoteId);
+    if (!state.pianoNotes.some((note) => selectedIds.has(note.id))) {
+      showToast("Select one or more notes to chop.");
+      return;
+    }
+    $("#piano-note-chopper-dialog").showModal();
+  }
+
+  function chopSelectedPianoNotes() {
+    const selectedIds = new Set(state.selectedPianoNoteIds);
+    if (state.selectedPianoNoteId) selectedIds.add(state.selectedPianoNoteId);
+    const selected = state.pianoNotes.filter((note) => selectedIds.has(note.id));
+    const divisions = Number($("#piano-note-chopper-division").value);
+    if (!selected.length || !Number.isInteger(divisions) || divisions < 2 || divisions > 16) return;
+    const replacementsById = new Map();
+    selected.forEach((note) => {
+      const sliceDuration = note.durationTicks / divisions;
+      if (sliceDuration < 0.5) {
+        replacementsById.set(note.id, [note]);
+        return;
+      }
+      const slices = [];
+      for (let index = 0; index < divisions; index += 1) {
+        slices.push({
+          ...note,
+          id: index === 0 ? note.id : makeId(),
+          startTick: note.startTick + sliceDuration * index,
+          durationTicks: sliceDuration,
+        });
+      }
+      replacementsById.set(note.id, slices);
+    });
+    state.pianoNotes = state.pianoNotes.flatMap((note) =>
+      selectedIds.has(note.id) ? replacementsById.get(note.id) || [] : [note]);
+    const choppedNotes = [...replacementsById.values()].flat();
+    state.selectedPianoNoteIds = new Set(choppedNotes.map((note) => note.id));
+    state.selectedPianoNoteId = choppedNotes.at(-1)?.id || null;
+    $("#piano-note-chopper-dialog").close();
+    markPianoRollAudioEdited();
+    renderPianoRoll();
+    saveState();
+  }
+
   function chopSelectedPianoAudio() {
     const clip = getPianoRollAudioClip();
     if (state.stepPianoEditContext || !clip?.buffer) {
@@ -2326,6 +2386,33 @@
       });
       keys.append(key);
     }
+    const currentTrackId = state.stepPianoEditContext?.trackId || state.selectedPianoTrackId;
+    const ghostNotes = [];
+    const currentPattern = getPattern();
+    getPatternTrackIds(currentPattern).forEach((trackId) => {
+      if (trackId === currentTrackId) return;
+      const track = getPianoTrack(trackId);
+      if (!track) return;
+      const notes = currentPattern.stepPianoNotes?.[trackId];
+      if (Array.isArray(notes)) notes.forEach((note) => ghostNotes.push({ ...note, trackId, ghost: true }));
+    });
+    state.mels.forEach((mel) => {
+      if (mel.instrumentId === currentTrackId) return;
+      mel.notes.forEach((note) => ghostNotes.push({ ...note, trackId: mel.instrumentId, ghost: true }));
+    });
+    ghostNotes.filter((note) => note.startTick < totalTicks).forEach((note) => {
+      const track = getPianoTrack(note.trackId);
+      if (!track) return;
+      const ghost = document.createElement("div");
+      ghost.className = "piano-roll-note is-ghost";
+      ghost.style.setProperty("--note-color", "#8a8c92");
+      ghost.style.left = `${note.startTick * tickWidth + 1}px`;
+      ghost.style.top = `${(PIANO_TOP_MIDI - note.midi) * PIANO_ROW_HEIGHT + 1}px`;
+      ghost.style.width = `${Math.max(getPianoSnapStep() * tickWidth, note.durationTicks * tickWidth - 2)}px`;
+      ghost.setAttribute("aria-hidden", "true");
+      grid.append(ghost);
+    });
+
     state.pianoNotes
       .filter((note) => note.startTick < totalTicks)
       .forEach((note) => {
@@ -2371,6 +2458,46 @@
         });
         grid.append(element);
       });
+      const velocityBars = $("#piano-velocity-bars");
+      if (velocityBars) {
+        velocityBars.replaceChildren();
+        const pianoKeysWidth = $("#piano-roll-keys").offsetWidth || 52;
+        const velocityContent = document.createElement("div");
+        velocityContent.className = "piano-velocity-content";
+        velocityContent.style.width = `${width + pianoKeysWidth}px`;
+        velocityBars.append(velocityContent);
+        state.pianoNotes.forEach((note) => {
+          if (note.startTick >= totalTicks) return;
+          const bar = document.createElement("button");
+          bar.type = "button";
+          bar.className = "piano-velocity-bar";
+          bar.style.left = `${pianoKeysWidth + note.startTick * tickWidth + 1}px`;
+          bar.style.width = `${Math.max(4, Math.min(10, tickWidth * 0.6))}px`;
+          bar.style.height = `${Math.max(4, Math.round((note.velocity ?? 0.8) * 44))}px`;
+          bar.title = `${midiNoteName(note.midi)} velocity ${Math.round((note.velocity ?? 0.8) * 100)}%`;
+          bar.addEventListener("pointerdown", (event) => {
+            event.preventEvent && event.preventEvent();
+            event.preventDefault();
+            bar.setPointerCapture(event.pointerId);
+            const update = (pointerEvent) => {
+              const bounds = velocityBars.getBoundingClientRect();
+              const y = Math.max(0, Math.min(1, (bounds.bottom - pointerEvent.clientY) / 44));
+              note.velocity = Math.max(0.1, Math.min(1, y));
+              bar.style.height = `${Math.max(4, Math.round(note.velocity * 44))}px`;
+              bar.title = `${midiNoteName(note.midi)} velocity ${Math.round(note.velocity * 100)}%`;
+            };
+            update(event);
+            bar.addEventListener("pointermove", update);
+            bar.addEventListener("pointerup", () => {
+              bar.removeEventListener("pointermove", update);
+              markPianoRollAudioEdited();
+              saveState();
+            }, { once: true });
+          });
+          velocityContent.append(bar);
+        });
+        velocityBars.scrollLeft = pianoRollScroll.scrollLeft;
+      }
       updatePianoRulerViewport();
       updatePianoPlayhead();
     renderQuickActionPanel();
@@ -2420,8 +2547,10 @@
       updatePianoNoteContextOutput(property, Number(input.value));
     });
     menu.hidden = false;
-    menu.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - menu.offsetWidth - 8))}px`;
-    menu.style.top = `${Math.max(8, Math.min(event.clientY, window.innerHeight - menu.offsetHeight - 8))}px`;
+    const anchor = event.target instanceof Element
+      ? event.target.closest(".piano-roll-note") || event.currentTarget
+      : event.currentTarget;
+    positionContextMenuAtTarget(menu, anchor);
   }
 
   function closePianoNoteContextMenu() {
@@ -3070,6 +3199,120 @@
     const selected = new Set(state.selectedPianoNoteIds);
     if (state.selectedPianoNoteId) selected.add(state.selectedPianoNoteId);
     deleteSelectedPianoNotes(selected);
+  }
+
+  function duplicateSelectedPianoNotesRight() {
+    const selected = state.pianoNotes.filter((note) =>
+      state.selectedPianoNoteIds.has(note.id) || note.id === state.selectedPianoNoteId);
+    if (!selected.length) {
+      showToast("Select one or more notes to duplicate.");
+      return;
+    }
+    const rightEdge = Math.max(...selected.map((note) => note.startTick + note.durationTicks));
+    const offset = rightEdge - Math.min(...selected.map((note) => note.startTick));
+    const copies = selected.map((note) => ({
+      ...note,
+      id: makeId(),
+      startTick: Math.min(state.pianoBars * PIANO_TICKS_PER_BAR - 0.5,
+        note.startTick + offset),
+      trackId: note.trackId || state.selectedPianoTrackId,
+    })).filter((note) => note.startTick >= 0);
+    state.pianoNotes.push(...copies);
+    state.selectedPianoNoteIds = new Set(copies.map((note) => note.id));
+    state.selectedPianoNoteId = copies.at(-1)?.id || null;
+    markPianoRollAudioEdited();
+    renderPianoRoll();
+    saveState();
+  }
+
+  function lengthenSelectedPianoNotesToNext() {
+    const selectedIds = new Set(state.selectedPianoNoteIds);
+    if (state.selectedPianoNoteId) selectedIds.add(state.selectedPianoNoteId);
+    const selected = state.pianoNotes.filter((note) => selectedIds.has(note.id));
+    if (!selected.length) return false;
+    selected.forEach((note) => {
+      const next = state.pianoNotes
+        .filter((candidate) => candidate.trackId === note.trackId && candidate.midi === note.midi &&
+          candidate.startTick > note.startTick)
+        .sort((left, right) => left.startTick - right.startTick)[0];
+      if (next) note.durationTicks = Math.max(0.5, next.startTick - note.startTick);
+    });
+    markPianoRollAudioEdited();
+    renderPianoRoll();
+    saveState();
+    return true;
+  }
+
+  function adjustSelectedPianoNoteVelocity(delta) {
+    const selectedIds = new Set(state.selectedPianoNoteIds);
+    if (state.selectedPianoNoteId) selectedIds.add(state.selectedPianoNoteId);
+    const selected = state.pianoNotes.filter((note) => selectedIds.has(note.id));
+    if (!selected.length) return false;
+    selected.forEach((note) => {
+      note.velocity = Math.max(0.01, Math.min(1, (note.velocity ?? 0.8) + delta));
+    });
+    markPianoRollAudioEdited();
+    renderPianoRoll();
+    saveState();
+    return true;
+  }
+
+  function shortenSelectedPianoNotesToStabs() {
+    const selected = state.pianoNotes.filter((note) =>
+      state.selectedPianoNoteIds.has(note.id) || note.id === state.selectedPianoNoteId);
+    if (!selected.length) {
+      showToast("Select one or more notes to shorten.");
+      return;
+    }
+    selected.forEach((note) => {
+      note.durationTicks = Math.min(note.durationTicks, getPianoSnapStep());
+    });
+    markPianoRollAudioEdited();
+    renderPianoRoll();
+    saveState();
+  }
+
+  function strumSelectedPianoNotes() {
+    const selected = state.pianoNotes.filter((note) =>
+      state.selectedPianoNoteIds.has(note.id) || note.id === state.selectedPianoNoteId);
+    if (!selected.length) {
+      showToast("Select a chord or group of notes to strum.");
+      return;
+    }
+    const strumTick = Math.max(0.5, getPianoSnapStep());
+    selected.sort((left, right) => right.midi - left.midi).forEach((note, index) => {
+      note.startTick += index * strumTick;
+    });
+    markPianoRollAudioEdited();
+    renderPianoRoll();
+    saveState();
+  }
+
+  function flipPianoNotes(direction) {
+    const selected = state.pianoNotes.filter((note) =>
+      state.selectedPianoNoteIds.has(note.id) || note.id === state.selectedPianoNoteId);
+    if (!selected.length) {
+      showToast("Select notes to flip.");
+      return;
+    }
+    if (direction === "vertical") {
+      const top = PIANO_TOP_MIDI;
+      const bottom = PIANO_BOTTOM_MIDI;
+      selected.forEach((note) => { note.midi = top + bottom - note.midi; });
+    } else {
+      const end = state.pianoBars * PIANO_TICKS_PER_BAR;
+      const left = Math.min(...selected.map((note) => note.startTick));
+      const right = Math.max(...selected.map((note) => note.startTick + note.durationTicks));
+      selected.forEach((note) => {
+        note.startTick = left + right - note.startTick - note.durationTicks;
+      });
+      selected.forEach((note) => {
+        note.startTick = Math.max(0, Math.min(end - note.durationTicks, note.startTick));
+      });
+    }
+    markPianoRollAudioEdited();
+    renderPianoRoll();
+    saveState();
   }
 
   function nudgeSelectedPianoNotes(horizontal, vertical = 0, resize = false) {

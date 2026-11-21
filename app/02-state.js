@@ -124,8 +124,10 @@
     pianoSelectionFromMarquee: false,
     arrangementSelectionFromMarquee: false,
     workspaceRatio: 50,
-    workspaceHidden: false,
+    bottomMixerRatio: 36,
+    workspaceHidden: true,
     trackViewHidden: false,
+    rackUndocked: false,
     lastInteractedViewArea: "track-view",
     scheduledPianoNotes: new Set(),
     scheduledArrangementSteps: new Set(),
@@ -157,6 +159,7 @@
     selectedPreset: "warehouse",
     isPlaying: false,
     playbackMode: "arrangement",
+    transportMode: "arrangement",
     isExporting: false,
     metronome: false,
     currentStep: -1,
@@ -190,6 +193,13 @@
       sequencer: null,
       "piano-roll": null,
     },
+    editorTool: "select",
+    selectedAsset: null,
+    selectedRackRows: new Set(),
+    rackRowClipboard: null,
+    pianoNoteMode: "stereo",
+    personalAssetFolders: {},
+    personalAssets: [],
   };
   let stepPaint = null;
   let stepSelectionDrag = null;
@@ -229,6 +239,17 @@
   const MAX_UNDO_STEPS = 50;
 
   const $ = (selector) => document.querySelector(selector);
+  function positionContextMenuAtTarget(menu, target) {
+    if (!menu || !target?.getBoundingClientRect) return;
+    const bounds = target.getBoundingClientRect();
+    const width = menu.offsetWidth;
+    const height = menu.offsetHeight;
+    menu.style.left = `${Math.max(8, Math.min(bounds.right, window.innerWidth - width - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(
+      bounds.top + (bounds.height - height) / 2,
+      window.innerHeight - height - 8,
+    ))}px`;
+  }
   const trackList = $("#track-list");
   const stepsHeader = $("#steps-header");
   const sequencerGridScroll = $("#sequencer-grid-scroll");
@@ -679,5 +700,13 @@
     };
   }
 
+  function makeDefaultMixerTracks() {
+    return Array.from({ length: 12 }, (_, index) => makeMixerBusTrack("mixer-effects", {
+      id: makeId(),
+      name: `Mixer ${String(index + 1).padStart(2, "0")}`,
+    }));
+  }
+
   state.masterTrack = makeMixerBusTrack("mixer-master");
+  state.effectTracks = makeDefaultMixerTracks();
 

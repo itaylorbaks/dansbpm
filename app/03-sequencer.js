@@ -1,5 +1,7 @@
   function getPattern(patternId = state.selectedPatternId) {
-    return state.patterns.find((pattern) => pattern.id === patternId) || null;
+    const pattern = state.patterns.find((item) => item.id === patternId) || null;
+    if (pattern && !["auto", "fixed"].includes(pattern.lengthMode)) pattern.lengthMode = "auto";
+    return pattern;
   }
 
   function getArrangementPatternTrackIds() {
@@ -162,6 +164,25 @@
     pattern.cells[track.id][step] = value;
   }
 
+  function updateAutoPatternLength(pattern, trackIds = getPatternTrackIds(pattern)) {
+    if (!pattern || pattern.lengthMode !== "auto") return;
+    const ticksPerStep = PIANO_TICKS_PER_BAR / getStepsPerBar(pattern);
+    let endTick = PIANO_TICKS_PER_BAR;
+    trackIds.forEach((trackId) => {
+      const cells = pattern.cells?.[trackId] || state.tracks.find((track) => track.id === trackId)?.cells || [];
+      cells.forEach((active, index) => {
+        if (active) endTick = Math.max(endTick, (index + 1) * ticksPerStep);
+      });
+      (pattern.stepPianoNotes?.[trackId] || []).forEach((note) => {
+        endTick = Math.max(endTick, note.startTick + note.durationTicks);
+      });
+    });
+    pattern.steps = normalizePatternSteps(Math.ceil(endTick / PIANO_TICKS_PER_BAR) * 16);
+    if (getPattern()?.id !== pattern.id) return;
+    state.steps = pattern.steps;
+    renderPatternLengthControls();
+  }
+
   function syncStepPianoEdit() {
     const context = state.stepPianoEditContext;
     if (!context) return false;
@@ -190,6 +211,18 @@
       if (step >= 0 && step < stepCount) cells[step] = true;
     });
     pattern.cells[track.id] = cells;
+    updateAutoPatternLength(pattern);
+    if (pattern.lengthMode === "auto") {
+      const stepCount = getGridStepCount(pattern);
+      const ticksPerStep = getGridTicksPerStep(pattern);
+      const expandedCells = Array(STEP_COUNT).fill(false);
+      state.pianoNotes.forEach((note) => {
+        const step = Math.floor(note.startTick / ticksPerStep);
+        if (step >= 0 && step < stepCount) expandedCells[step] = true;
+      });
+      pattern.cells[track.id] = expandedCells;
+      cells.splice(0, cells.length, ...expandedCells);
+    }
     if (getPattern()?.id === pattern.id) track.cells = [...cells];
     if (state.view === "sequencer" && getPattern()?.id === pattern.id) renderTracks();
     return true;
@@ -210,9 +243,11 @@
       dragSource.disabled = !pattern;
       dragSource.style.setProperty("--pattern-color", pattern?.color || "var(--accent)");
     }
-    ["#mel-select", "#piano-instrument-select", "#piano-bars-select"].forEach((selector) => {
+    ["#mel-select", "#piano-instrument-select"].forEach((selector) => {
       $(selector).closest("label").hidden = active;
     });
+    const pattern = active ? getPattern(state.stepPianoEditContext.patternId) : null;
+    $("#piano-bars-select").closest("label").hidden = active && pattern?.lengthMode === "fixed";
     ["#new-mel-button", "#rename-mel-button", "#piano-keyboard-record-button",
       "#import-midi-button", "#export-midi-button"].forEach((selector) => {
       $(selector).hidden = active;
@@ -545,10 +580,9 @@
 
   const fullscreenWorkspaceViews = [
     ["sequencer", "Rack"],
-    ["arrangement", "Arrangement"],
+    ["arrangement", "Track View"],
     ["piano-roll", "Piano Roll"],
     ["mixer", "Mixer"],
-    ["dj", "DJ View"],
   ];
 
   function updateFullscreenViewToggle() {
@@ -683,20 +717,70 @@
     });
   }
 
-  function makePatternSnapshot(id, name, color = getPatternColor(state.patterns.length)) {
+  function makeBlankRackTrack(name = "Instrument 1") {
+    const source = state.tracks.find((track) => !track.libraryOnly && track.kind !== "drumkit");
+    if (!source) throw new Error("Cannot create a Rack row without an available instrument template.");
+    const track = makePatternInstrumentLayer(source, {
+      id: makeId(),
+      name,
+      cells: [],
+    });
+    track.subtitle = "Choose or drop an instrument";
+    return track;
+  }
+
+  function ensurePatternHasBlankRackTrack(pattern = getPattern()) {
+    if (!pattern || getPatternTrackIds(pattern).length > 0) return;
+    const track = makeBlankRackTrack();
+    state.tracks.push(track);
+    pattern.trackIds = [track.id];
+    pattern.cells ||= {};
+    pattern.cells[track.id] = Array(STEP_COUNT).fill(false);
+    if (SOUND_VARIANTS[track.kind]) {
+      pattern.variants ||= {};
+      pattern.variants[track.id] = track.variant || "classic";
+    }
+  }
+
+  function makePatternComponentSnapshot(patternId, trackId) {
+    const source = getPattern(patternId);
+    const track = state.tracks.find((item) => item.id === trackId);
+    if (!source || !track || !getPatternTrackIds(source).includes(trackId)) return null;
+    return {
+      ...source,
+      id: makeId(),
+      name: `${source.name} · ${track.name}`,
+      trackIds: [trackId],
+      cells: { [trackId]: [...(source.cells?.[trackId] || track.cells)] },
+      variants: source.variants?.[trackId] ? { [trackId]: source.variants[trackId] } : {},
+      stepPianoNotes: source.stepPianoNotes?.[trackId]
+        ? { [trackId]: source.stepPianoNotes[trackId].map((note) => ({ ...note, id: makeId() })) }
+        : {},
+      arrangementCopy: true,
+    };
+  }
+
+  function makePatternSnapshot(id, name, color = getPatternColor(state.patterns.length), blank = false) {
+    const blankTrack = blank ? makeBlankRackTrack() : null;
+    if (blankTrack) state.tracks.push(blankTrack);
     const cells = {};
     const variants = {};
     state.tracks.forEach((track) => {
-      cells[track.id] = Array.from({ length: STEP_COUNT }, (_, index) => track.cells[index] === true);
+      cells[track.id] = Array.from({ length: STEP_COUNT }, (_, index) =>
+        !blankTrack && track.cells[index] === true);
       if (SOUND_VARIANTS[track.kind]) variants[track.id] = track.variant || "classic";
     });
+    if (blankTrack) cells[blankTrack.id] = Array(STEP_COUNT).fill(false);
     return {
       id,
       name,
       kind: "pattern",
       color,
       steps: state.steps,
-      trackIds: state.tracks.filter((track) => !track.libraryOnly && track.kind !== "drumkit").map((track) => track.id),
+      lengthMode: "auto",
+      trackIds: blank
+        ? [blankTrack.id]
+        : state.tracks.filter((track) => !track.libraryOnly && track.kind !== "drumkit").map((track) => track.id),
       cells,
       variants,
       gridResolution: "1/16",
@@ -724,6 +808,7 @@
       pattern.cells[track.id] = Array.from({ length: STEP_COUNT }, (_, index) => track.cells[index] === true);
       if (SOUND_VARIANTS[track.kind]) pattern.variants[track.id] = track.variant || "classic";
     });
+    updateAutoPatternLength(pattern, trackIds);
     if (pattern.segmentSourcePatternId) {
       if (previousSnapshot && previousSnapshot !== getPatternSegmentSnapshot(pattern)) pattern.segmentEdited = true;
       pattern.segmentSnapshot = getPatternSegmentSnapshot(pattern);

@@ -1,3 +1,5 @@
+  let arrangementBrushSession = null;
+
   function createTimelineLane(trackId, width) {
     const lane = document.createElement("div");
     lane.className = "timeline-lane";
@@ -5,6 +7,25 @@
     lane.style.width = `${width}px`;
     lane.style.setProperty("--bar-width", `${BAR_WIDTH}px`);
     lane.style.setProperty("--beat-width", `${BAR_WIDTH / 4}px`);
+    lane.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || state.editorTool !== "brush" || !state.selectedAsset ||
+        event.target.closest(".arrangement-cursor")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      state.suppressArrangementClick = true;
+      arrangementBrushSession = {
+        asset: { ...state.selectedAsset },
+        trackId,
+        pointerId: event.pointerId,
+        placed: new Set(),
+        destinations: new Map(),
+        stepBars: getBrushAssetLengthBars(state.selectedAsset),
+      };
+      placeArrangementBrushAsset(event, lane);
+      document.addEventListener("pointermove", continueArrangementBrush);
+      document.addEventListener("pointerup", finishArrangementBrush, { once: true });
+      document.addEventListener("pointercancel", finishArrangementBrush, { once: true });
+    }, true);
     lane.addEventListener("click", (event) => {
       if (state.suppressArrangementClick) {
         state.suppressArrangementClick = false;
@@ -31,6 +52,7 @@
         const transferTypes = Array.from(event.dataTransfer.types || []);
         const isCopy = event.dataTransfer.files.length ||
           transferTypes.includes("application/x-pulsegrid-pattern-source") ||
+          transferTypes.includes("application/x-pulsegrid-pattern-component") ||
           transferTypes.includes("application/x-pulsegrid-mel-source") ||
           transferTypes.includes("application/x-pulsegrid-audio-source") ||
           transferTypes.includes("application/x-pulsegrid-instrument-source");
@@ -77,6 +99,16 @@
           addAudioAssetClip(sourceTrackId, clipId, trackId, startBar, fullSource === true);
         } catch {
           showToast("That audio asset could not be added.");
+        }
+        return;
+      }
+      const patternComponent = event.dataTransfer?.getData("application/x-pulsegrid-pattern-component");
+      if (patternComponent) {
+        try {
+          const { patternId, trackId: sourceTrackId } = JSON.parse(patternComponent);
+          addPatternComponentClip(startBar, patternId, sourceTrackId);
+        } catch {
+          showToast("That pattern component could not be added.");
         }
         return;
       }
@@ -160,6 +192,113 @@
     });
     lane.append(cursor);
     return lane;
+  }
+
+  function getBrushAssetLengthBars(asset) {
+    if (asset.type === "pattern") return Math.max(0.25, (getPattern(asset.id)?.steps || 16) / 16);
+    if (asset.type === "pattern-component") {
+      return Math.max(0.25, (getPattern(asset.patternId)?.steps || 16) / 16);
+    }
+    if (asset.type === "mel") {
+      const mel = getMel(asset.id);
+      return mel ? Math.max(0.25, getMelLengthBars(mel)) : 1;
+    }
+    if (asset.type === "audio") {
+      const sourceTrack = state.arrangementTracks.find((track) => track.id === asset.sourceTrackId);
+      const clip = sourceTrack?.clips.find((item) => item.id === asset.clipId) ||
+        state.audioAssets.find((item) => item.id === asset.clipId);
+      return clip ? Math.max(0.25, getArrangementClipDuration("audio", clip)) : 1;
+    }
+    return 1;
+  }
+
+  function placeArrangementBrushAsset(event, lane) {
+    const session = arrangementBrushSession;
+    if (!session) return;
+    const bar = barAtPointer(event, lane);
+    const startBar = Math.max(0, Math.round(bar / session.stepBars) * session.stepBars);
+    const key = `${lane.dataset.trackId}:${startBar.toFixed(3)}`;
+    if (session.placed.has(key)) return;
+    session.placed.add(key);
+    if (session.asset.type === "pattern") {
+      const pattern = getPattern(session.asset.id);
+      if (!pattern) return;
+      let destinationId = session.destinations.get(lane.dataset.trackId);
+      if (!destinationId && lane.dataset.trackId.startsWith("pattern:")) {
+        destinationId = lane.dataset.trackId.slice("pattern:".length);
+      } else if (!destinationId) {
+        const destination = createPatternLaneCopy(pattern);
+        destination.insertAfterTrackId = getLastArrangementTrackId();
+        destinationId = destination.id;
+      }
+      session.destinations.set(lane.dataset.trackId, destinationId);
+      addPatternClip(startBar, pattern.id, destinationId);
+      return;
+    }
+    if (session.asset.type === "pattern-component") {
+      let destinationId = session.destinations.get(lane.dataset.trackId);
+      if (!destinationId) {
+        const component = createPatternComponentClip(startBar, session.asset.patternId, session.asset.trackId);
+        if (!component) return;
+        destinationId = component.id;
+        session.destinations.set(lane.dataset.trackId, destinationId);
+        renderArrangement();
+        return;
+      }
+      addPatternClip(startBar, destinationId, destinationId);
+      return;
+    }
+    if (session.asset.type === "mel") {
+      const mel = getMel(session.asset.id);
+      if (!mel) return;
+      let destinationId = session.destinations.get(lane.dataset.trackId);
+      let createdTrack = false;
+      if (!destinationId && lane.dataset.trackId.startsWith("mel:")) {
+        destinationId = lane.dataset.trackId.slice("mel:".length);
+      } else if (!destinationId) {
+        const destination = addMelTrack(mel.id, startBar);
+        destinationId = destination?.id;
+        createdTrack = Boolean(destination);
+      }
+      if (destinationId) {
+        session.destinations.set(lane.dataset.trackId, destinationId);
+        if (!createdTrack) addMelClip(mel.id, destinationId, startBar);
+      }
+      return;
+    }
+    if (session.asset.type === "audio") {
+      let destinationTrack = session.destinations.get(lane.dataset.trackId);
+      if (!destinationTrack && state.arrangementTracks.some((track) => track.id === lane.dataset.trackId)) {
+        destinationTrack = lane.dataset.trackId;
+      } else if (!destinationTrack) {
+        destinationTrack = createArrangementTrack(session.asset.name).id;
+      }
+      session.destinations.set(lane.dataset.trackId, destinationTrack);
+      addAudioAssetClip(
+        session.asset.sourceTrackId || "",
+        session.asset.clipId || session.asset.id,
+        destinationTrack,
+        startBar,
+        session.asset.fullSource === true,
+      );
+    }
+  }
+
+  function continueArrangementBrush(event) {
+    const session = arrangementBrushSession;
+    if (!session || event.pointerId !== session.pointerId) return;
+    const lane = document.elementFromPoint(event.clientX, event.clientY)?.closest(".timeline-lane");
+    if (lane) placeArrangementBrushAsset(event, lane);
+  }
+
+  function finishArrangementBrush() {
+    if (!arrangementBrushSession) return;
+    arrangementBrushSession = null;
+    document.removeEventListener("pointermove", continueArrangementBrush);
+    document.removeEventListener("pointercancel", finishArrangementBrush);
+    updateArrangementLength();
+    renderArrangement();
+    saveState();
   }
 
   function barAtPointer(event, lane) {

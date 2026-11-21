@@ -275,6 +275,10 @@
         item.setAttribute("aria-label", `${asset.name}, drag to Track View`);
         item.dataset.assetType = type.toLowerCase();
         item.dataset.assetId = asset.id;
+        item.classList.toggle(
+          "is-selected",
+          state.selectedAsset?.type === type.toLowerCase() && state.selectedAsset.id === asset.id,
+        );
         const name = document.createElement("span");
         name.className = "asset-source-name";
         name.textContent = asset.name;
@@ -282,6 +286,9 @@
         kind.className = "asset-source-kind";
         kind.textContent = type;
         item.append(name, kind);
+        item.addEventListener("click", () => {
+          setSelectedAsset({ type: type.toLowerCase(), id: asset.id, name: asset.name });
+        });
         item.addEventListener("dragstart", (event) => {
           if (!event.dataTransfer) return;
           event.dataTransfer.setData(dataType, JSON.stringify(getPayload(asset)));
@@ -308,6 +315,95 @@
       "application/x-pulsegrid-mel-source",
       (mel) => ({ melId: mel.id }),
     );
+    const patternBrowser = $("#pattern-asset-browser");
+    getPatternLibraryAssets().forEach((pattern) => {
+      const group = document.querySelector(`[data-pattern-component-group="${pattern.id}"]`);
+      if (group) return;
+      const details = document.createElement("details");
+      details.className = "pattern-component-group";
+      details.dataset.patternComponentGroup = pattern.id;
+      const summary = document.createElement("summary");
+      summary.textContent = pattern.name;
+      summary.setAttribute("draggable", "true");
+      summary.addEventListener("dragstart", (event) => {
+        event.dataTransfer?.setData("application/x-pulsegrid-pattern-source",
+          JSON.stringify({ patternId: pattern.id }));
+      });
+      summary.addEventListener("contextmenu", (event) => {
+        openAssetContextMenu("pattern", pattern.id, event);
+      });
+      details.append(summary);
+      getPatternTrackIds(pattern).forEach((trackId) => {
+        const sourceTrack = state.tracks.find((track) => track.id === trackId);
+        if (!sourceTrack) return;
+        const component = document.createElement("div");
+        component.className = "pattern-component-row";
+        component.draggable = true;
+        component.dataset.assetType = "pattern-component";
+        component.dataset.assetId = `${pattern.id}:${trackId}`;
+        component.textContent = sourceTrack.name;
+        component.addEventListener("dragstart", (event) => {
+          event.dataTransfer?.setData("application/x-pulsegrid-pattern-component",
+            JSON.stringify({ patternId: pattern.id, trackId }));
+        });
+        component.addEventListener("click", () => {
+          setSelectedAsset({
+            type: "pattern-component",
+            id: `${pattern.id}:${trackId}`,
+            patternId: pattern.id,
+            trackId,
+            name: sourceTrack.name,
+          });
+        });
+        details.append(component);
+      });
+      patternBrowser.append(details);
+    });
+  }
+
+  function setSelectedAsset(asset) {
+    state.selectedAsset = asset ? { ...asset } : null;
+    $("#selected-asset-name").textContent = asset?.name || "None";
+    document.querySelectorAll(".asset-source, .recording-source, .pattern-component-row").forEach((item) => {
+      const selected = asset && item.dataset.assetType === asset.type && item.dataset.assetId === asset.id;
+      item.classList.toggle("is-selected", Boolean(selected));
+    });
+    $("#selected-asset-menu").hidden = true;
+  }
+
+  function renderSelectedAssetMenu() {
+    const menu = $("#selected-asset-menu");
+    const items = [
+      ...getPatternLibraryAssets().map((asset) => ({ type: "pattern", id: asset.id, name: asset.name })),
+      ...state.mels.map((asset) => ({ type: "mel", id: asset.id, name: asset.name })),
+      ...state.audioAssets.map((asset) => ({
+        type: "audio", id: asset.id, clipId: asset.id, sourceTrackId: "", name: asset.name, assetOnly: true,
+      })),
+      ...state.arrangementTracks.flatMap((track) => track.clips.map((clip) => ({
+        type: "audio", id: clip.id, clipId: clip.id, sourceTrackId: track.id, name: clip.name || track.name,
+      }))),
+    ];
+    menu.replaceChildren();
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.setAttribute("role", "menuitem");
+    clear.textContent = "Clear selection";
+    clear.addEventListener("click", () => setSelectedAsset(null));
+    menu.append(clear);
+    if (!items.length) {
+      const empty = document.createElement("p");
+      empty.className = "selected-asset-empty";
+      empty.textContent = "No patterns, Mels, or audio assets yet.";
+      menu.append(empty);
+    }
+    items.forEach((asset) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.setAttribute("role", "menuitem");
+      button.textContent = `${asset.type.toUpperCase()} · ${asset.name}`;
+      button.addEventListener("click", () => setSelectedAsset(asset));
+      menu.append(button);
+    });
   }
 
   let assetContextMenuHome = null;
@@ -323,9 +419,9 @@
     }
     menu.dataset.assetType = type;
     menu.dataset.assetId = id;
+    $("#draw-pattern-components").hidden = type !== "pattern";
     menu.hidden = false;
-    menu.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - menu.offsetWidth - 8))}px`;
-    menu.style.top = `${Math.max(8, Math.min(event.clientY, window.innerHeight - menu.offsetHeight - 8))}px`;
+    positionContextMenuAtTarget(menu, event.currentTarget);
   }
 
   function closeAssetContextMenu() {
@@ -663,6 +759,12 @@
       item.className = "recording-source";
       item.type = "button";
       item.draggable = true;
+      item.dataset.assetType = "audio";
+      item.dataset.assetId = clip.id;
+      item.classList.toggle(
+        "is-selected",
+        state.selectedAsset?.type === "audio" && state.selectedAsset.id === clip.id,
+      );
       item.title = assetOnly
         ? `Drag ${clip.name} to Track View`
         : fullSource
@@ -678,6 +780,15 @@
       count.className = "recording-source-count";
       count.textContent = assetOnly ? "Audio" : track.name;
       item.append(color, name, count);
+      item.addEventListener("click", () => setSelectedAsset({
+        type: "audio",
+        id: clip.id,
+        clipId: clip.id,
+        sourceTrackId: track?.id || "",
+        fullSource,
+        assetOnly,
+        name: clip.name || track?.name || "Audio",
+      }));
       item.addEventListener("dragstart", (event) => {
         if (!event.dataTransfer) return;
         event.dataTransfer.setData("application/x-pulsegrid-audio-source", JSON.stringify({
@@ -852,6 +963,53 @@
     renderArrangement();
     saveState();
     showToast("Drum pattern added to the arrangement");
+  }
+
+  function addPatternComponentClip(startBar, patternId, trackId) {
+    if (!createPatternComponentClip(startBar, patternId, trackId)) return false;
+    updateArrangementLength();
+    renderArrangement();
+    saveState();
+    return true;
+  }
+
+  function createPatternComponentClip(startBar, patternId, trackId) {
+    const component = makePatternComponentSnapshot(patternId, trackId);
+    if (!component) {
+      showToast("That pattern component is no longer available.");
+      return null;
+    }
+    component.insertAfterTrackId = getLastArrangementTrackId();
+    state.patterns.push(component);
+    state.patternClips.push({
+      id: makeId(),
+      patternId: component.id,
+      trackId: component.id,
+      repeatCount: 1,
+      sourceOffsetBars: 0,
+      startBar: clampArrangementStart(startBar, component.steps / 16),
+    });
+    return component;
+  }
+
+  function drawPatternComponentsIntoTrack(patternId, startBar = state.arrangementCursor) {
+    const pattern = getPattern(patternId);
+    if (!pattern) return;
+    const trackIds = getPatternTrackIds(pattern);
+    if (!trackIds.length) {
+      showToast("This pattern has no instrument rows to draw.");
+      return;
+    }
+    let added = 0;
+    trackIds.forEach((trackId) => {
+      if (createPatternComponentClip(startBar, pattern.id, trackId)) added += 1;
+    });
+    if (added) {
+      updateArrangementLength();
+      renderArrangement();
+      saveState();
+      showToast(`Added ${added} ${pattern.name} component${added === 1 ? "" : "s"} to Track View`);
+    }
   }
 
   function addMelTrack(melId, startBar) {

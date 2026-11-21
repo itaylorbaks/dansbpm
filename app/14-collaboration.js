@@ -696,7 +696,7 @@
       }
       window.localStorage.setItem(getProjectStorageKey(state.projectId), JSON.stringify(snapshot));
       state.tracks = makeTracks();
-      const initialPattern = makePatternSnapshot(makeId(), "Pattern 1");
+      const initialPattern = makePatternSnapshot(makeId(), "Pattern 1", PATTERN_COLORS[0], true);
       state.patterns = [initialPattern];
       state.selectedPatternId = initialPattern.id;
       state.arrangementTracks = [];
@@ -704,7 +704,7 @@
       state.mels = [];
       state.melTracks = [];
       state.pianoNotes = [];
-      state.effectTracks = [];
+      state.effectTracks = makeDefaultMixerTracks();
       state.masterTrack = makeMixerBusTrack("mixer-master");
       state.selectedMelId = "";
       state.selectedPianoNoteId = null;
@@ -1659,10 +1659,6 @@
     });
     const selectedProject = projects.find((project) => project.id === selectedProjectId);
     const cloudNeedsDownload = projectNeedsCloudDownload(selectedProject);
-    $("#enter-project-button").disabled = !selectedProject ||
-      selectedProject.id === state.projectId && !cloudNeedsDownload;
-    $("#delete-project-button").disabled = !selectedProject;
-    $("#delete-project-button").title = "Permanently delete the selected project and its saved audio.";
   }
 
   function enterSelectedProject() {
@@ -1802,6 +1798,18 @@
       }
       if (!await saveProjectNow()) return;
     }
+    if (getCloudToken() && !await saveProjectNow()) return;
+    const previousProjectId = state.projectId;
+    if (getCloudToken()) {
+      try {
+        const previousSnapshotKey = getProjectStorageKey(previousProjectId);
+        window.localStorage.removeItem(previousSnapshotKey);
+        window.localStorage.removeItem(`${previousSnapshotKey}:dj`);
+        await deleteCachedProjectSnapshot(previousProjectId);
+      } catch (error) {
+        showToast(`The previous project was saved, but its local cache could not be cleared: ${error.message || "browser storage is unavailable"}`);
+      }
+    }
     if (cloudNeedsDownload) {
       if (project.localDirty) {
         showToast(`Save ${project.name}'s local changes to the cloud before opening it.`);
@@ -1816,7 +1824,6 @@
     }
     if (state.isPlaying) stopPlayback();
     stopAllWorkspacePlayers();
-    const previousProjectId = state.projectId;
     state.projectId = projectId;
     try {
       writeProjectCatalog();

@@ -1585,7 +1585,10 @@
     }
     state.view = view;
     updateFullscreenViewToggle();
-    state.workspaceHidden = false;
+    if (!force) {
+      state.workspaceHidden = view === "arrangement";
+      state.trackViewHidden = view !== "arrangement";
+    }
     state.lastInteractedViewArea = view === "arrangement" ? "track-view" : "workspace";
     sendCollaborationView();
     const showSequencer = view === "sequencer";
@@ -1595,7 +1598,7 @@
     $("#arrangement-heading").hidden = showSequencer || showPianoRoll || showMixer || showDJ;
     $("#arrangement-view").hidden = false;
     document.body.classList.toggle("is-beat-grid-open", showSequencer);
-    $("#sequencer-view").hidden = !showSequencer;
+    $("#sequencer-view").hidden = !showSequencer && !state.rackUndocked;
     $("#piano-roll-view").hidden = !showPianoRoll;
     $("#mixer-view").hidden = !showMixer;
     $("#dj-view").hidden = !showDJ;
@@ -1603,14 +1606,14 @@
     refreshDjVisualTimer();
     $("#sequencer-tab").classList.toggle("is-selected", showSequencer);
     $("#sequencer-tab").setAttribute("aria-selected", String(showSequencer));
-    $("#arrangement-tab").classList.toggle("is-selected", view === "arrangement");
-    $("#arrangement-tab").setAttribute("aria-selected", String(view === "arrangement"));
-    $("#piano-roll-tab").classList.toggle("is-selected", showPianoRoll);
-    $("#piano-roll-tab").setAttribute("aria-selected", String(showPianoRoll));
-    $("#mixer-tab").classList.toggle("is-selected", showMixer);
-    $("#dj-tab").classList.toggle("is-selected", showDJ);
-    $("#dj-tab").setAttribute("aria-selected", String(showDJ));
-    $("#mixer-tab").setAttribute("aria-selected", String(showMixer));
+    $("#arrangement-tab")?.classList.toggle("is-selected", view === "arrangement");
+    $("#arrangement-tab")?.setAttribute("aria-selected", String(view === "arrangement"));
+    $("#piano-roll-tab")?.classList.toggle("is-selected", showPianoRoll);
+    $("#piano-roll-tab")?.setAttribute("aria-selected", String(showPianoRoll));
+    $("#mixer-tab")?.classList.toggle("is-selected", showMixer);
+    $("#dj-tab")?.classList.toggle("is-selected", showDJ);
+    $("#dj-tab")?.setAttribute("aria-selected", String(showDJ));
+    $("#mixer-tab")?.setAttribute("aria-selected", String(showMixer));
     document.querySelectorAll(".workspace-open-button").forEach((button) => {
       button.classList.toggle("is-active", (button.id === "open-beat-grid-button" && showSequencer) || (button.id === "open-piano-roll-button" && showPianoRoll));
       button.setAttribute("aria-pressed", String((button.id === "open-beat-grid-button" && showSequencer) || (button.id === "open-piano-roll-button" && showPianoRoll)));

@@ -1,5 +1,6 @@
   let scaleSaveTimer = null;
   let pendingProjectTempoChange = null;
+  let bottomMixerResizePointerId = null;
 
   function scheduleScaleSave() {
     if (scaleSaveTimer !== null) window.clearTimeout(scaleSaveTimer);
@@ -7,6 +8,92 @@
       scaleSaveTimer = null;
       saveState();
     }, 250);
+  }
+
+  function updateTransportModeIndicator() {
+    const indicator = $("#play-mode-indicator");
+    const patternMode = state.transportMode === "sequencer";
+    indicator.textContent = patternMode ? "PATTERN" : "TRACK";
+    indicator.setAttribute("aria-label", `Playback mode: ${patternMode ? "Pattern" : "Track"}. Click to switch.`);
+    indicator.setAttribute("aria-pressed", String(patternMode));
+  }
+
+  function setTransportMode(mode) {
+    if (mode !== "arrangement" && mode !== "sequencer") return;
+    if (state.isStartingPlayback || state.isPlaying) stopPlayback(false, true);
+    state.transportMode = mode;
+    updateTransportModeIndicator();
+    saveState();
+    showToast(mode === "sequencer" ? "Pattern playback selected" : "Track playback selected");
+  }
+
+  function applyBottomMixerPanelSize() {
+    const panel = $("#bottom-mixer-panel");
+    const arrangement = $("#arrangement-view");
+    const main = panel.parentElement;
+    if (!document.body.classList.contains("is-bottom-mixer-open")) return;
+    const availableHeight = main.getBoundingClientRect().bottom - arrangement.getBoundingClientRect().top;
+    const height = Math.max(120, Math.round(availableHeight * state.bottomMixerRatio / 100));
+    panel.style.flex = `0 0 ${height}px`;
+    const resizer = $("#bottom-mixer-resizer");
+    resizer.setAttribute("aria-valuenow", String(state.bottomMixerRatio));
+  }
+
+  function setBottomMixerRatio(ratio, persist = true) {
+    state.bottomMixerRatio = Math.max(20, Math.min(80, Math.round(ratio)));
+    applyBottomMixerPanelSize();
+    if (persist) saveState();
+  }
+
+  function routeSelectedRackRowsToMixer(separateBuses) {
+    const pattern = getPattern();
+    const trackIds = [...state.selectedRackRows].filter((id) =>
+      pattern && getPatternTrackIds(pattern).includes(id));
+    if (!trackIds.length) {
+      showToast("Select one or more Rack rows before routing.");
+      return;
+    }
+    if (separateBuses) {
+      trackIds.forEach((trackId) => {
+        state.effectTracks.forEach((bus) => {
+          bus.routedTrackIds = bus.routedTrackIds.filter((id) => id !== trackId);
+        });
+        const trackName = state.tracks.find((track) => track.id === trackId)?.name || "Row";
+        const bus = makeMixerBusTrack("mixer-effects", {
+          id: makeId(),
+          name: `Rack ${trackName}`,
+          routedTrackIds: [trackId],
+        });
+        bus.routedTrackIds = [trackId];
+        state.effectTracks.push(bus);
+      });
+    } else {
+      let targetBus = state.effectTracks.find((bus) => bus.id === state.selectedMixerTrackId);
+      if (!targetBus) {
+        targetBus = state.effectTracks.find((bus) => !bus.routedTrackIds?.length);
+        if (!targetBus) {
+          let number = state.effectTracks.length + 1;
+          while (state.effectTracks.some((bus) => bus.name === `Effects ${number}`)) number += 1;
+          targetBus = makeMixerBusTrack("mixer-effects", {
+            id: makeId(),
+            name: `Effects ${number}`,
+          });
+          state.effectTracks.push(targetBus);
+        }
+        state.selectedMixerTrackId = targetBus.id;
+      }
+      state.effectTracks.forEach((bus) => {
+        bus.routedTrackIds = bus.routedTrackIds.filter((id) => !trackIds.includes(id));
+      });
+      targetBus.routedTrackIds.push(...trackIds);
+    }
+    rebuildMixerAudioRouting();
+    renderTracks();
+    renderMixer();
+    saveState();
+    showToast(separateBuses
+      ? `Routed ${trackIds.length} Rack row${trackIds.length === 1 ? "" : "s"} to separate Mixer tracks`
+      : `Routed ${trackIds.length} Rack row${trackIds.length === 1 ? "" : "s"} to the selected Mixer track`);
   }
 
   function getProjectTempoChangeItems() {
@@ -114,6 +201,83 @@
     pending.resolve(apply);
   }
 
+  let rackTabDrag = null;
+  let suppressRackTabClick = false;
+
+  function floatRackWindow(clientX, clientY) {
+    const floating = $("#rack-floating-window");
+    const rack = $("#sequencer-view");
+    if (!state.rackUndocked) {
+      state.rackUndocked = true;
+      $("#rack-floating-content").append(rack);
+      rack.hidden = false;
+      floating.hidden = false;
+      if (state.view === "sequencer") setWorkspaceView("arrangement");
+      else {
+        renderTracks();
+        renderPresets();
+        renderPatternSelectors();
+      }
+    }
+    const width = Math.min(860, window.innerWidth - 24);
+    const height = Math.min(560, window.innerHeight - 80);
+    floating.style.width = `${width}px`;
+    floating.style.height = `${height}px`;
+    floating.style.left = `${Math.max(8, Math.min(clientX - 100, window.innerWidth - width - 8))}px`;
+    floating.style.top = `${Math.max(8, Math.min(clientY - 16, window.innerHeight - height - 8))}px`;
+  }
+
+  function dockRackWindow() {
+    const rack = $("#sequencer-view");
+    state.rackUndocked = false;
+    $(".workspace-content").insertBefore(rack, $("#piano-roll-view"));
+    $("#rack-floating-window").hidden = true;
+    setWorkspaceView("sequencer");
+  }
+
+  function moveRackTab(event) {
+    if (!rackTabDrag || event.pointerId !== rackTabDrag.pointerId) return;
+    if (event.clientY - rackTabDrag.y < 24) return;
+    event.preventDefault();
+    suppressRackTabClick = true;
+    floatRackWindow(event.clientX, event.clientY);
+    rackTabDrag = null;
+    document.removeEventListener("pointermove", moveRackTab);
+  }
+
+  function endRackTabDrag() {
+    rackTabDrag = null;
+    document.removeEventListener("pointermove", moveRackTab);
+  }
+
+  function startFloatingRackMove(event) {
+    if (event.button !== 0 || event.target.closest("button")) return;
+    const floating = $("#rack-floating-window");
+    const start = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      left: floating.offsetLeft,
+      top: floating.offsetTop,
+    };
+    event.preventDefault();
+    const move = (moveEvent) => {
+      if (moveEvent.pointerId !== start.pointerId) return;
+      const maxLeft = Math.max(8, window.innerWidth - floating.offsetWidth - 8);
+      const maxTop = Math.max(8, window.innerHeight - floating.offsetHeight - 8);
+      floating.style.left = `${Math.max(8, Math.min(maxLeft, start.left + moveEvent.clientX - start.x))}px`;
+      floating.style.top = `${Math.max(8, Math.min(maxTop, start.top + moveEvent.clientY - start.y))}px`;
+    };
+    const finish = () => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", finish);
+      document.removeEventListener("pointercancel", finish);
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", finish);
+    document.addEventListener("pointercancel", finish);
+  }
+
   function bindEvents() {
     const workspaceArea = $("#workspace-area");
     const trackViewArea = $("#track-view-area");
@@ -133,15 +297,18 @@
     document.addEventListener("pointermove", updateStepSelectionDrag);
     document.addEventListener("pointerup", finishStepPaint);
     document.addEventListener("pointerup", finishStepSelectionDrag);
+    document.addEventListener("pointerup", () => { rackRowSelectionDragging = false; });
     document.addEventListener("pointercancel", finishStepPaint);
     document.addEventListener("pointercancel", finishStepSelectionDrag);
+    updateTransportModeIndicator();
     playButton.addEventListener("click", () => {
       if (state.keyboardRecordingCountdown) cancelKeyboardRecordingCountdown();
       if (mixerEffectPreview) stopMixerEffectPreview();
-      if (state.isStartingPlayback || state.isPlaying && state.playbackMode === "arrangement") stopPlayback(false, true);
+      const mode = state.transportMode;
+      if (state.isStartingPlayback || state.isPlaying && state.playbackMode === mode) stopPlayback(false, true);
       else {
         if (state.isPlaying) stopPlayback();
-        startPlayback("arrangement");
+        startPlayback(mode);
       }
     });
     Object.entries(WORKSPACE_PLAY_BUTTONS).forEach(([workspace, buttonId]) => {
@@ -210,8 +377,8 @@
       swingSlider.style.setProperty("--range-progress", `${state.swing / 45 * 100}%`);
       saveState();
     });
-    $("#decrease-pattern-bars").addEventListener("click", () => setLength(state.steps - 16));
-    $("#increase-pattern-bars").addEventListener("click", () => setLength(state.steps + 16));
+    $("#decrease-pattern-bars").addEventListener("click", () => setLength(state.steps - 16, "fixed"));
+    $("#increase-pattern-bars").addEventListener("click", () => setLength(state.steps + 16, "fixed"));
     $("#clear-button").addEventListener("click", clearPattern);
     $("#preload-pattern-select").addEventListener("change", (event) => {
       const preset = PRESETS.find((item) => item.id === event.target.value);
@@ -268,6 +435,12 @@
     $("#piano-chopper-dialog").addEventListener("click", (event) => {
       if (event.target === $("#piano-chopper-dialog")) $("#piano-chopper-dialog").close();
     });
+    $("#piano-note-chopper-close").addEventListener("click", () => $("#piano-note-chopper-dialog").close());
+    $("#piano-note-chopper-cancel").addEventListener("click", () => $("#piano-note-chopper-dialog").close());
+    $("#piano-note-chopper-apply").addEventListener("click", chopSelectedPianoNotes);
+    $("#piano-note-chopper-dialog").addEventListener("click", (event) => {
+      if (event.target === $("#piano-note-chopper-dialog")) $("#piano-note-chopper-dialog").close();
+    });
     $("#piano-autotune-button").addEventListener("click", tunePianoNotesToScale);
     $("#export-midi-button").addEventListener("click", exportMidi);
     $("#export-song-button").addEventListener("click", openSongExportMenu);
@@ -279,22 +452,138 @@
       if (event.target === $("#export-song-dialog")) $("#export-song-dialog").close();
     });
     $("#metronome-button").addEventListener("click", toggleMetronome);
+    document.querySelectorAll("[data-editor-tool]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.editorTool = button.dataset.editorTool;
+        document.querySelectorAll("[data-editor-tool]").forEach((item) => {
+          item.classList.toggle("is-selected", item === button);
+          item.setAttribute("aria-pressed", String(item === button));
+        });
+        if (button.dataset.editorTool === "slice") setArrangementSliceMode(true);
+        else setArrangementSliceMode(false);
+        showToast(`${button.textContent.trim()} tool selected`);
+      });
+    });
+    $("#toolbar-draw-button").addEventListener("click", () => {
+      state.pianoDrawMode = !state.pianoDrawMode;
+      $("#toolbar-draw-button").setAttribute("aria-pressed", String(state.pianoDrawMode));
+      $("#piano-draw-mode-button").setAttribute("aria-pressed", String(state.pianoDrawMode));
+      if (state.view === "piano-roll") renderPianoRoll();
+    });
+    $("#toolbar-note-lock").addEventListener("click", () => {
+      const locked = $("#toolbar-note-lock").getAttribute("aria-pressed") !== "true";
+      $("#toolbar-note-lock").setAttribute("aria-pressed", String(locked));
+      state.pianoNotesLocked = locked;
+      showToast(locked ? "Selected-note editing locked" : "Note editing unlocked");
+    });
+    $("#toolbar-quantize").addEventListener("click", quantizePianoNotes);
+    $("#toolbar-strum")?.addEventListener("click", () => {
+      strumSelectedPianoNotes();
+    });
+    $("#toolbar-chop").addEventListener("click", () => {
+      if (typeof openPianoAudioChopper === "function") openPianoAudioChopper();
+    });
+    $("#toolbar-flip").addEventListener("click", () => {
+      const choice = window.confirm("Reverse melody vertically? Cancel reverses horizontally.");
+      if (typeof flipPianoNotes === "function") flipPianoNotes(choice ? "vertical" : "horizontal");
+    });
+    $("#toolbar-stabs").addEventListener("click", shortenSelectedPianoNotesToStabs);
+    $("#toolbar-duplicate-right").addEventListener("click", duplicateSelectedPianoNotesRight);
+    $("#piano-note-mode").addEventListener("change", (event) => {
+      state.pianoNoteMode = event.target.value === "mono" ? "mono" : "stereo";
+      saveState();
+      showToast(`${state.pianoNoteMode === "mono" ? "Mono" : "Stereo"} note mode`);
+    });
+    $("#piano-velocity-toggle").addEventListener("click", () => {
+      const panel = $("#piano-velocity-panel");
+      panel.classList.toggle("is-collapsed");
+      const expanded = !panel.classList.contains("is-collapsed");
+      $("#piano-velocity-toggle").setAttribute("aria-expanded", String(expanded));
+      $("#piano-velocity-toggle").textContent = expanded ? "−" : "+";
+    });
+    $("#bottom-mixer-toggle").addEventListener("click", () => {
+      const open = document.body.classList.toggle("is-bottom-mixer-open");
+      $("#bottom-mixer-toggle").setAttribute("aria-expanded", String(open));
+      const panel = $("#bottom-mixer-panel");
+      if (open) {
+        const mixer = $("#mixer-view");
+        panel.append(mixer);
+        mixer.hidden = false;
+        renderMixer();
+        requestAnimationFrame(applyBottomMixerPanelSize);
+      } else {
+        const mixer = $("#mixer-view");
+        $(".arrangement-main").prepend(mixer);
+        setWorkspaceView(state.view === "mixer" ? "arrangement" : state.view);
+      }
+    });
+    const bottomMixerResizer = $("#bottom-mixer-resizer");
+    bottomMixerResizer.addEventListener("pointerdown", (event) => {
+      if (!document.body.classList.contains("is-bottom-mixer-open") || event.button !== 0) return;
+      bottomMixerResizePointerId = event.pointerId;
+      bottomMixerResizer.setPointerCapture(event.pointerId);
+      document.body.classList.add("is-resizing-bottom-mixer");
+      event.preventDefault();
+    });
+    bottomMixerResizer.addEventListener("pointermove", (event) => {
+      if (event.pointerId !== bottomMixerResizePointerId) return;
+      const main = $("#bottom-mixer-panel").parentElement;
+      const arrangement = $("#arrangement-view");
+      const availableHeight = main.getBoundingClientRect().bottom - arrangement.getBoundingClientRect().top;
+      if (availableHeight > 0) setBottomMixerRatio(
+        (main.getBoundingClientRect().bottom - event.clientY) / availableHeight * 100,
+        false,
+      );
+    });
+    const finishBottomMixerResize = (event) => {
+      if (event.pointerId !== bottomMixerResizePointerId) return;
+      bottomMixerResizePointerId = null;
+      document.body.classList.remove("is-resizing-bottom-mixer");
+      saveState();
+    };
+    bottomMixerResizer.addEventListener("pointerup", finishBottomMixerResize);
+    bottomMixerResizer.addEventListener("pointercancel", finishBottomMixerResize);
+    bottomMixerResizer.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+      event.preventDefault();
+      setBottomMixerRatio(state.bottomMixerRatio + (event.key === "ArrowUp" ? 4 : -4));
+    });
+    $("#play-mode-indicator").addEventListener("click", (event) => {
+      event.stopPropagation();
+      setTransportMode(state.transportMode === "arrangement" ? "sequencer" : "arrangement");
+    });
     $("#help-button").addEventListener("click", () => $("#help-dialog").showModal());
-    $("#sequencer-tab").addEventListener("click", () => setWorkspaceView("sequencer"));
-    $("#arrangement-tab").addEventListener("click", () => setWorkspaceView("arrangement"));
+    const rackTab = $("#sequencer-tab");
+    rackTab.addEventListener("click", () => {
+      if (suppressRackTabClick) {
+        suppressRackTabClick = false;
+        return;
+      }
+      setWorkspaceView("sequencer");
+    });
+    rackTab.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      rackTabDrag = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+      document.addEventListener("pointermove", moveRackTab);
+      document.addEventListener("pointerup", endRackTabDrag, { once: true });
+      document.addEventListener("pointercancel", endRackTabDrag, { once: true });
+    });
+    $("#rack-dock-button").addEventListener("click", dockRackWindow);
+    $("#rack-floating-header").addEventListener("pointerdown", startFloatingRackMove);
+    $("#arrangement-tab")?.addEventListener("click", () => setWorkspaceView("arrangement"));
     $("#piano-roll-tab").addEventListener("click", () => setWorkspaceView("piano-roll"));
     $("#step-piano-return").addEventListener("click", () => {
       closeStepInstrumentPianoRoll();
       setWorkspaceView("sequencer");
     });
     $("#mixer-tab").addEventListener("click", () => setWorkspaceView("mixer"));
-    $("#dj-tab").addEventListener("click", () => setWorkspaceView("dj"));
+    $("#dj-tab")?.addEventListener("click", () => setWorkspaceView("dj"));
     bindDjEvents();
     $("#add-effects-track").addEventListener("click", createEffectTrack);
     $("#hide-workspace-button").addEventListener("click", () => setViewVisibility(true, false));
     $("#show-workspace-button").addEventListener("click", () => setViewVisibility(false, false, "hide-workspace-button"));
     $("#hide-track-view-button").addEventListener("click", () => setViewVisibility(false, true));
-    $("#show-track-view-button").addEventListener("click", () => setViewVisibility(false, false, "hide-track-view-button"));
+    $("#show-track-view-button").addEventListener("click", () => setWorkspaceView("arrangement"));
     $("#workspace-fullscreen-button").addEventListener("click", toggleWorkspaceFullscreen);
     $("#track-view-fullscreen-button").addEventListener("click", toggleTrackViewFullscreen);
     document.querySelectorAll(".app-fullscreen-button").forEach((button) => {
@@ -470,6 +759,11 @@
     });
     $("#piano-scale-slider").addEventListener("change", saveState);
     $("#piano-roll-scroll").addEventListener("wheel", (event) => {
+      if (event.altKey && !event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        adjustSelectedPianoNoteVelocity(event.deltaY < 0 ? 0.05 : -0.05);
+        return;
+      }
       if (!event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
       setPianoRollScale(state.pianoScale * Math.exp(-event.deltaY * 0.002), event.clientX);
@@ -488,6 +782,10 @@
     $("#piano-roll-scroll").addEventListener("scroll", () => {
       updatePianoRulerViewport();
       updatePianoPlayhead();
+      $("#piano-velocity-bars").scrollLeft = $("#piano-roll-scroll").scrollLeft;
+    });
+    $("#piano-velocity-bars").addEventListener("scroll", () => {
+      $("#piano-roll-scroll").scrollLeft = $("#piano-velocity-bars").scrollLeft;
     });
     $("#piano-roll-view").addEventListener("scroll", updatePianoRulerViewport);
     window.addEventListener("scroll", updatePianoRulerViewport, true);
@@ -573,6 +871,11 @@
     };
     $("#rename-library-asset").addEventListener("click", () => handleLibraryAssetAction("rename"));
     $("#branch-library-asset").addEventListener("click", () => handleLibraryAssetAction("branch"));
+    $("#draw-pattern-components").addEventListener("click", () => {
+      const { assetType, assetId } = $("#asset-context-menu").dataset;
+      closeAssetContextMenu();
+      if (assetType === "pattern" && assetId) drawPatternComponentsIntoTrack(assetId);
+    });
     $("#add-empty-track-below").addEventListener("click", () => {
       const menu = $("#arrangement-track-context-menu");
       const parentTrackId = menu.dataset.trackId;
@@ -636,6 +939,36 @@
     }, { passive: false });
     $("#assets-button").addEventListener("click", () => openAssetLibrary());
     $("#sequencer-browser-button").addEventListener("click", () => openAssetLibrary());
+    const assetLibrarySearch = $("#asset-library-search-input");
+    assetLibrarySearch.addEventListener("input", () => {
+      const query = assetLibrarySearch.value.trim().toLowerCase();
+      document.querySelectorAll("#source-browser-dialog .asset-source, #source-browser-dialog .recording-source, #source-browser-dialog .instrument-source").forEach((item) => {
+        item.hidden = Boolean(query) && !item.textContent.toLowerCase().includes(query);
+      });
+    });
+    const selectedAssetIndicator = $("#selected-asset-indicator");
+    const selectedAssetMenu = $("#selected-asset-menu");
+    selectedAssetIndicator.addEventListener("click", () => {
+      const shouldOpen = selectedAssetMenu.hidden;
+      if (shouldOpen) renderSelectedAssetMenu();
+      selectedAssetMenu.hidden = !shouldOpen;
+    });
+    document.addEventListener("pointerdown", (event) => {
+      if (!event.target.closest("#selected-asset-indicator, #selected-asset-menu")) {
+        selectedAssetMenu.hidden = true;
+      }
+    });
+    $("#pattern-length-auto").addEventListener("click", () => {
+      const pattern = getPattern();
+      if (!pattern) return;
+      pattern.lengthMode = "auto";
+      updateAutoPatternLength(pattern);
+      renderPatternLengthControls();
+      renderTracks();
+      renderArrangement();
+      saveState();
+      showToast("Pattern length set to Auto");
+    });
     const soundSearchInput = $("#sound-library-search-input");
     soundSearchInput.addEventListener("input", () => {
       stepInstrumentPendingId = null;
@@ -735,14 +1068,29 @@
       closeMixerEffectContextMenu();
       if (track && effectId) removeMixerEffect(track, effectId);
     });
+    $("#mixer-track-context-menu").addEventListener("click", (event) => {
+      const button = event.target instanceof Element
+        ? event.target.closest("[data-mixer-track-action]")
+        : null;
+      const menu = $("#mixer-track-context-menu");
+      if (!button) return;
+      const { trackId } = menu.dataset;
+      menu.hidden = true;
+      if (trackId) applyMixerTrackContextAction(trackId, button.dataset.mixerTrackAction);
+    });
     document.addEventListener("pointerdown", (event) => {
       const menu = $("#mixer-effect-context-menu");
       if (!menu.hidden && event.target instanceof Node && !menu.contains(event.target)) {
         closeMixerEffectContextMenu();
       }
+      const trackMenu = $("#mixer-track-context-menu");
+      if (!trackMenu.hidden && event.target instanceof Node && !trackMenu.contains(event.target)) {
+        trackMenu.hidden = true;
+      }
     }, true);
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") closeMixerEffectContextMenu();
+      if (event.key === "Escape") $("#mixer-track-context-menu").hidden = true;
     });
     $("#mixer-effect-dialog").addEventListener("close", () => {
       if ($("#mixer-effect-dialog").open) return;
@@ -765,6 +1113,15 @@
     });
     $("#mixer-routing-dialog").addEventListener("click", (event) => {
       if (event.target === $("#mixer-routing-dialog")) $("#mixer-routing-dialog").close();
+    });
+    $("#rack-row-context-menu").addEventListener("click", (event) => {
+      const button = event.target instanceof Element ? event.target.closest("[data-rack-action]") : null;
+      if (!button) return;
+      const menu = $("#rack-row-context-menu");
+      const trackId = menu.dataset.trackId;
+      const action = button.dataset.rackAction;
+      applyRackRowMenuAction(trackId, action);
+      menu.hidden = true;
     });
     $("#source-browser-button").addEventListener("click", () => openTrackAssetLibrary());
     $("#source-browser-close").addEventListener("click", () => {
@@ -813,12 +1170,58 @@
       renderProjectList();
       $("#project-dialog").showModal();
     });
+    $("#project-name").addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      const nameElement = $("#project-name-text");
+      if (!nameElement) return;
+      nameElement.contentEditable = "true";
+      nameElement.focus();
+      const range = document.createRange();
+      range.selectNodeContents(nameElement);
+      range.collapse(false);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    });
+    $("#project-name-text").addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      event.currentTarget.blur();
+    });
+    $("#project-name-text").addEventListener("blur", async (event) => {
+      const nameElement = event.currentTarget;
+      nameElement.contentEditable = "false";
+      const trimmed = nameElement.textContent?.trim();
+      if (!trimmed) {
+        updateProjectNameLabel();
+        return;
+      }
+      const project = state.projects.find((item) =>
+        item.id === state.projectId && item.ownerId === state.currentUser);
+      if (!project || project.name === trimmed) {
+        updateProjectNameLabel();
+        return;
+      }
+      const previousName = project.name;
+      project.name = trimmed;
+      state.projectName = trimmed;
+      updateProjectNameLabel();
+      try {
+        writeProjectCatalog();
+        if (project.cloudBacked) Object.assign(project, await renameCloudProject(project));
+        writeProjectCatalog();
+        renderProjectList();
+      } catch (error) {
+        project.name = previousName;
+        state.projectName = previousName;
+        updateProjectNameLabel();
+        writeProjectCatalog();
+        showToast(`Could not rename project: ${error.message || "storage is unavailable"}`);
+      }
+    });
     $("#project-dialog-close").addEventListener("click", () => $("#project-dialog").close());
     $("#save-project-button").addEventListener("click", () => { void saveProjectNow(); });
-    $("#enter-project-button").addEventListener("click", enterSelectedProject);
-    $("#delete-project-button").addEventListener("click", () => { void deleteSelectedProject(); });
     $("#top-save-project-button").addEventListener("click", () => { void saveProjectNow(); });
-    $("#rename-project-button").addEventListener("click", () => { void renameProject(); });
     $("#new-project-button").addEventListener("click", () => { void createProject(); });
     $("#import-project-button").addEventListener("click", () => $("#project-import-input").click());
     $("#project-import-input").addEventListener("change", async (event) => {
@@ -830,6 +1233,32 @@
       }
     });
     $("#switch-user-button").addEventListener("click", () => { void switchUser(); });
+    $("#sound-library-button").addEventListener("click", () => {
+      $("#project-dialog").close();
+      openAssetLibrary();
+    });
+    $("#project-dialog").addEventListener("keydown", (event) => {
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+      if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+        event.preventDefault();
+        const projects = getCurrentUserProjects();
+        if (!projects.length) return;
+        const currentIndex = projects.findIndex((project) => project.id === selectedProjectId);
+        const direction = event.key === "ArrowUp" ? -1 : 1;
+        const nextIndex = currentIndex < 0
+          ? (direction > 0 ? 0 : projects.length - 1)
+          : (currentIndex + direction + projects.length) % projects.length;
+        selectedProjectId = projects[nextIndex].id;
+        renderProjectList();
+        $(`#project-list .project-list-item.is-selected`)?.scrollIntoView({ block: "nearest" });
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        enterSelectedProject();
+      } else if (event.key === "Delete") {
+        event.preventDefault();
+        void deleteSelectedProject();
+      }
+    });
     bindCloudAccountSettings();
     $("#collaboration-dialog-close").addEventListener("click", () => $("#collaboration-dialog").close());
     $("#collaboration-join-room").addEventListener("click", () => { void startCollaborationRoom("join"); });
@@ -881,10 +1310,10 @@
       [...state.tracks, ...state.arrangementTracks, ...state.melTracks, ...state.patterns,
         ...state.effectTracks, state.masterTrack].forEach(disconnectTrackAudio);
       state.masterTrack = makeMixerBusTrack("mixer-master");
-      state.effectTracks = [];
+      state.effectTracks = makeDefaultMixerTracks();
       state.tracks = makeTracks();
       state.steps = 16;
-      state.patterns = [makePatternSnapshot(makeId(), "Pattern 1", PATTERN_COLORS[0])];
+      state.patterns = [makePatternSnapshot(makeId(), "Pattern 1", PATTERN_COLORS[0], true)];
       state.selectedPatternId = state.patterns[0].id;
       renderPatternSelectors();
       state.patternClips = [];
@@ -919,7 +1348,7 @@
       state.arrangementSnap = true;
       state.workspaceRatio = 50;
       state.sequencerScale = 1;
-      state.workspaceHidden = false;
+      state.workspaceHidden = true;
       state.trackViewHidden = false;
       state.bpm = 124;
       updateMixerTempoEffects();
@@ -956,7 +1385,82 @@
       }
       const dialogOpen = $("#help-dialog").open || $("#project-dialog").open || $("#source-browser-dialog").open ||
         $("#step-instrument-dialog").open || $("#step-track-mix-dialog").open || $("#audio-tempo-dialog").open ||
-        vstDialog?.open;
+        $("#piano-note-chopper-dialog").open || vstDialog?.open;
+      if (!isTyping && !dialogOpen && !event.repeat && event.shiftKey && !event.ctrlKey &&
+        !event.metaKey && event.altKey && state.view === "mixer" &&
+        $("#mixer-track-context-menu").hidden && event.key.toLowerCase() === "r") {
+        event.preventDefault();
+        renderSelectedMixerTrack();
+        return;
+      }
+      if (!isTyping && !dialogOpen && !event.repeat && state.view === "piano-roll") {
+        const key = event.key.toLowerCase();
+        let handled = false;
+        if ((event.ctrlKey || event.metaKey) && !event.altKey) {
+          if (key === "b") {
+            duplicateSelectedPianoNotesRight();
+            handled = true;
+          } else if (key === "q") {
+            quantizePianoNotes();
+            handled = true;
+          } else if (key === "l") {
+            lengthenSelectedPianoNotesToNext();
+            handled = true;
+          } else if (key === "d") {
+            state.selectedPianoNoteId = null;
+            state.selectedPianoNoteIds.clear();
+            renderPianoRoll();
+            handled = true;
+          }
+        } else if (event.altKey && !event.ctrlKey && !event.metaKey) {
+          if (key === "s") {
+            strumSelectedPianoNotes();
+            handled = true;
+          } else if (key === "u") {
+            openPianoNoteChopper();
+            handled = true;
+          } else if (key === "y") {
+            const vertical = window.confirm("Reverse vertically? Cancel reverses horizontally.");
+            flipPianoNotes(vertical ? "vertical" : "horizontal");
+            handled = true;
+          }
+        } else if (event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && key === "d") {
+          shortenSelectedPianoNotesToStabs();
+          handled = true;
+        }
+        if (handled) {
+          event.preventDefault();
+          return;
+        }
+      }
+      if (!isTyping && !dialogOpen && !event.repeat && state.view === "sequencer" &&
+        (event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === "l") {
+        event.preventDefault();
+        routeSelectedRackRowsToMixer(event.shiftKey);
+        return;
+      }
+      const rackMenu = $("#rack-row-context-menu");
+      if (!isTyping && !dialogOpen && !rackMenu.hidden) {
+        const action = ({ "2": "fill2", "4": "fill4", "8": "fill8", d: "delete", a: "automation" })[
+          event.key.toLowerCase()
+        ];
+        if (action) {
+          event.preventDefault();
+          rackMenu.hidden = true;
+          applyRackRowMenuAction(rackMenu.dataset.trackId, action);
+          return;
+        }
+        const mixerTrackMenu = $("#mixer-track-context-menu");
+        if (!isTyping && !dialogOpen && !mixerTrackMenu.hidden) {
+          const action = ({ r: "reset", e: "clear" })[event.key.toLowerCase()];
+          if (action) {
+            event.preventDefault();
+            mixerTrackMenu.hidden = true;
+            applyMixerTrackContextAction(mixerTrackMenu.dataset.trackId, action);
+            return;
+          }
+        }
+      }
       if (!isTextEntry && !dialogOpen && matchesConfiguredShortcut(event, "redo")) {
         event.preventDefault();
         if (!event.repeat) redoCurrentView();
@@ -1013,7 +1517,20 @@
       }
       if ((!isTyping || pianoRollSelectAll) && !dialogOpen && !event.repeat) {
         const clipboardView = getClipboardEditorView();
-        if ((matchesConfiguredShortcut(event, "select-all") || matchesLegacyShiftShortcut(event, "select-all") ||
+        const rackClipboardAction = !isTyping && clipboardView === "sequencer" &&
+          state.selectedRackRows.size > 0 && (event.ctrlKey || event.metaKey) && !event.altKey
+          ? event.key.toLowerCase()
+          : "";
+        if (rackClipboardAction === "c") {
+          event.preventDefault();
+          copySelectedRackRowContents();
+        } else if (rackClipboardAction === "x") {
+          event.preventDefault();
+          clearSelectedRackRowContents();
+        } else if (rackClipboardAction === "v") {
+          event.preventDefault();
+          pasteRackRowContents();
+        } else if ((matchesConfiguredShortcut(event, "select-all") || matchesLegacyShiftShortcut(event, "select-all") ||
           matchesConfiguredShortcut(event, "select-all-editor") ||
           matchesLegacyShiftShortcut(event, "select-all-editor")) &&
           ["arrangement", "sequencer", "piano-roll", "mixer"].includes(clipboardView)) {
@@ -1052,7 +1569,7 @@
         if (key === "ArrowLeft" || key === "ArrowRight") {
           event.preventDefault();
           nudgeSelectedPianoNotes(key === "ArrowRight" ? 1 : -1, 0, event.shiftKey);
-        } else if (key === "ArrowUp" || key === "ArrowDown") {
+        } else if (event.shiftKey && (key === "ArrowUp" || key === "ArrowDown")) {
           event.preventDefault();
           nudgeSelectedPianoNotes(0, key === "ArrowUp" ? 1 : -1);
         }
@@ -1091,11 +1608,11 @@
           : state.trackViewHidden;
         if (workspaceExpanded) {
           toggleCurrentWorkspacePlayback();
-        } else if (state.isPlaying && state.playbackMode === "arrangement") {
+        } else if (state.isPlaying && state.playbackMode === state.transportMode) {
           stopPlayback(false, true);
         } else {
           if (state.isPlaying) stopPlayback();
-          startPlayback("arrangement");
+          startPlayback(state.transportMode);
         }
       }
       if (!isTyping && !dialogOpen && (event.key === "Delete" || event.key === "Backspace")) {
@@ -1121,7 +1638,7 @@
     loadEffectPresets();
     loadSoundFavorites();
     state.tracks = makeTracks();
-    const initialPattern = makePatternSnapshot(makeId(), "Pattern 1");
+    const initialPattern = makePatternSnapshot(makeId(), "Pattern 1", PATTERN_COLORS[0], true);
     state.patterns = [initialPattern];
     state.selectedPatternId = initialPattern.id;
     initializeProjects();
@@ -1164,6 +1681,7 @@
       }
       restoreState(cachedSnapshot);
     }
+    ensurePatternHasBlankRackTrack();
     restoreDjState(cachedSnapshot);
     restoreDansBpmSynthPatch();
     ensureMels();
@@ -1180,6 +1698,7 @@
     renderMelOptions();
     state.arrangementCursor = Math.min(state.arrangementCursor, state.arrangementBars - 0.001);
     setWorkspaceView(state.view, true);
+    if (state.view === "arrangement") openTrackAssetLibrary();
     seedUndoHistory();
     $("#login-screen").hidden = Boolean(state.currentUser);
     $("#active-user-label").textContent = getCurrentUserName();

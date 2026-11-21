@@ -9,7 +9,8 @@
     const snapButton = $("#arrangement-snap-button");
     snapButton.textContent = `SNAP ${state.arrangementSnap ? "ON" : "OFF"}`;
     snapButton.setAttribute("aria-pressed", String(state.arrangementSnap));
-    $("#arrangement-tab-count").textContent = String(Math.max(
+    const arrangementTabCount = $("#arrangement-tab-count");
+    if (arrangementTabCount) arrangementTabCount.textContent = String(Math.max(
       1,
       state.arrangementTracks.length + state.melTracks.length + state.patternClips.length,
     ));
@@ -51,7 +52,6 @@
 
     const arrangedPatternIds = new Set(state.patternClips.map((clip) => clip.trackId || clip.patternId));
     const patternTracks = state.patterns.filter((pattern) => arrangedPatternIds.has(pattern.id));
-    const hasTimelineTracks = patternTracks.length > 0 || state.melTracks.length > 0 || state.arrangementTracks.length > 0;
     patternTracks.forEach((pattern) => {
       const label = document.createElement("div");
       label.className = `arrangement-label${state.selectedMixerTrackId === pattern.id ? " is-track-selected" : ""}`;
@@ -246,28 +246,33 @@
     labels.replaceChildren(...orderedLabels);
     content.replaceChildren(timelineRuler, ...orderedLanes);
 
+    const availableTracks = Math.max(0, 12 - orderedRows.length);
+    for (let index = 0; index < availableTracks; index += 1) {
+      const trackNumber = orderedRows.length + index + 1;
+      const trackId = `empty-track-${trackNumber}`;
+      const label = document.createElement("div");
+      label.className = "arrangement-label arrangement-empty-track";
+      label.dataset.trackId = trackId;
+      label.innerHTML = '<span class="track-color"></span><div class="arrangement-label-info"><div class="arrangement-label-name"></div><div class="arrangement-label-type">Empty · drop an item</div></div>';
+      label.querySelector(".arrangement-label-name").textContent = `Track ${trackNumber}`;
+      labels.append(label);
+      content.append(createTimelineLane(trackId, width));
+    }
+
     const dropLabel = document.createElement("div");
-    const dropLane = createTimelineLane(hasTimelineTracks ? "new-track" : DEFAULT_ARRANGEMENT_TRACK_ID, width);
+    const dropLane = createTimelineLane("new-track", width);
     dropLane.classList.add("new-track-drop-lane");
     const dropHint = document.createElement("span");
-    if (hasTimelineTracks) {
-      dropLabel.className = "arrangement-label new-track-drop-label";
-      dropLabel.textContent = "Drop item for a new track";
-      dropHint.textContent = "DROP AN ITEM HERE TO CREATE A TRACK";
-    } else {
-      dropLabel.className = "arrangement-label default-track-label";
-      dropLabel.dataset.trackId = DEFAULT_ARRANGEMENT_TRACK_ID;
-      dropLabel.style.setProperty("--track-color", TRACK_COLORS[0]);
-      dropLabel.innerHTML = '<span class="track-color"></span><div class="arrangement-label-info"><div class="arrangement-label-name">Track 1</div><div class="arrangement-label-type">Drop an item to start</div></div>';
-      dropLabel.addEventListener("click", () => selectArrangementTrack(DEFAULT_ARRANGEMENT_TRACK_ID));
-      dropHint.textContent = "DROP AN ITEM HERE TO START TRACK 1";
-    }
+    dropLabel.className = "arrangement-label new-track-drop-label";
+    dropLabel.textContent = "＋ New track";
+    dropHint.textContent = "DROP AN ITEM HERE TO CREATE A TRACK";
     labels.append(dropLabel);
     dropLane.append(dropHint);
     content.append(dropLane);
-    $("#arrangement-track-count").textContent = String(hasTimelineTracks
-      ? patternTracks.length + state.melTracks.length + state.arrangementTracks.length
-      : 1).padStart(2, "0");
+    $("#arrangement-track-count").textContent = String(Math.max(
+      12,
+      patternTracks.length + state.melTracks.length + state.arrangementTracks.length,
+    )).padStart(2, "0");
     updateArrangementLoopUI();
     updateArrangementCursorMarker();
     updateArrangementSelection();
@@ -688,6 +693,13 @@
       const row = document.createElement("section");
       row.className = `mixer-track-row${track.id === state.selectedMixerTrackId ? " is-selected" : ""}`;
       row.dataset.trackId = track.id;
+      row.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        const menu = $("#mixer-track-context-menu");
+        menu.dataset.trackId = track.id;
+        menu.hidden = false;
+        positionContextMenuAtTarget(menu, row);
+      });
       const title = document.createElement("button");
       title.className = "mixer-track-title";
       title.type = "button";
@@ -1205,10 +1217,29 @@
     menu.dataset.trackId = track.id;
     menu.dataset.effectId = effectId;
     menu.hidden = false;
-    const width = 190;
-    const height = 38;
-    menu.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - width - 8))}px`;
-    menu.style.top = `${Math.max(8, Math.min(event.clientY, window.innerHeight - height - 8))}px`;
+    positionContextMenuAtTarget(menu, event.currentTarget);
+  }
+
+  function applyMixerTrackContextAction(trackId, action) {
+    const track = getMixerTracks().find(({ track: item }) => item.id === trackId)?.track;
+    if (!track) return;
+    if (action === "save-preset") {
+      saveEffectTrackPreset(track);
+      return;
+    }
+    track.effects = makeDefaultEffects();
+    track.effectSettings = makeDefaultEffectSettings();
+    track.effectChain = [];
+    if (action === "reset") {
+      track.volume = 1;
+      track.pan = 0;
+      track.muted = false;
+      track.solo = false;
+    }
+    refreshMixerEffectTrack(track);
+    updateTrackGains();
+    renderMixer();
+    saveState();
   }
 
   function refreshMixerEffectTrack(track) {

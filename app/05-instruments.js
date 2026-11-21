@@ -4,6 +4,7 @@
   let activeInstrumentPreview = null;
   let instrumentPreviewSequence = 0;
   let instrumentPreviewSourceCollector = null;
+  let rackRowSelectionDragging = false;
 
   function getVstSourceTrack(trackOrId) {
     const track = typeof trackOrId === "string"
@@ -312,11 +313,7 @@
     menu.dataset.soundId = soundId;
     menu.dataset.trackId = track.id;
     menu.hidden = false;
-    const bounds = dialog?.getBoundingClientRect() || {
-      left: 0, right: window.innerWidth, top: 0, bottom: window.innerHeight,
-    };
-    menu.style.left = `${Math.max(bounds.left + 8, Math.min(event.clientX, bounds.right - menu.offsetWidth - 8))}px`;
-    menu.style.top = `${Math.max(bounds.top + 8, Math.min(event.clientY, bounds.bottom - menu.offsetHeight - 8))}px`;
+    positionContextMenuAtTarget(menu, event.currentTarget);
   }
 
   async function applyStepInstrumentSelection() {
@@ -1298,7 +1295,9 @@
     captureCurrentPattern();
     const source = getPattern();
     if (!source) return;
-    const trackIds = [...getPatternTrackIds(source)];
+    const blankTrack = makeBlankRackTrack();
+    state.tracks.push(blankTrack);
+    const trackIds = [blankTrack.id];
     const pattern = {
       id: makeId(),
       name: getNextPatternName(),
@@ -1306,8 +1305,8 @@
       color: getPatternColor(state.patterns.length),
       steps: source.steps,
       trackIds,
-      cells: Object.fromEntries(trackIds.map((trackId) => [trackId, Array(STEP_COUNT).fill(false)])),
-      variants: { ...source.variants },
+      cells: { [blankTrack.id]: Array(STEP_COUNT).fill(false) },
+      variants: SOUND_VARIANTS[blankTrack.kind] ? { [blankTrack.id]: blankTrack.variant || "classic" } : {},
       automation: normalizeTrackAutomation(),
       automationOpen: false,
       gridResolution: getPatternGridResolution(source),
@@ -1369,6 +1368,181 @@
     }
   }
 
+  function openRackRowContextMenu(event, track) {
+    event.preventDefault();
+    event.stopPropagation();
+    const menu = $("#rack-row-context-menu");
+    menu.dataset.trackId = track.id;
+    menu.hidden = false;
+    positionContextMenuAtTarget(menu, event.currentTarget);
+  }
+
+  function applyRackRowMenuAction(trackId, action) {
+    const track = state.tracks.find((item) => item.id === trackId);
+    if (!track) return;
+    if (action === "piano-roll") {
+      openStepInstrumentPianoRoll(track.id);
+    } else if (action === "rename") {
+      const name = window.prompt("Rename Rack row", track.name)?.trim();
+      if (name) {
+        track.name = name;
+        renderTracks();
+        saveState();
+      }
+    } else if (action === "color") {
+      const color = window.prompt("Enter a row color in #RRGGBB format", track.color)?.trim();
+      if (color && /^#[\da-f]{6}$/i.test(color)) {
+        track.color = color;
+        renderTracks();
+        saveState();
+      } else if (color) {
+        showToast("Enter a valid six-digit hex color.");
+      }
+    } else if (action === "sample") {
+      openStepInstrumentPicker(track.id);
+    } else if (action === "clone") {
+      const pattern = getPattern();
+      if (!pattern) return;
+      const clone = makePatternInstrumentLayer(track, {
+        id: makeId(),
+        name: `${track.name} copy`,
+        cells: [...track.cells],
+      });
+      state.tracks.push(clone);
+      const trackIds = getPatternTrackIds(pattern);
+      const index = trackIds.indexOf(track.id);
+      trackIds.splice(index + 1, 0, clone.id);
+      pattern.trackIds = trackIds;
+      pattern.cells[clone.id] = [...track.cells];
+      if (pattern.stepPianoNotes?.[track.id]) {
+        pattern.stepPianoNotes[clone.id] = pattern.stepPianoNotes[track.id].map((note) => ({
+          ...note,
+          id: makeId(),
+          trackId: clone.id,
+        }));
+      }
+      renderTracks();
+      renderPatternSelectors();
+      saveState();
+    } else if (action.startsWith("fill")) {
+      const interval = Number(action.slice(4));
+      const pattern = getPattern();
+      if (!pattern) return;
+      const stepCount = getGridStepCount(pattern);
+      for (let step = 0; step < stepCount; step += interval) {
+        track.cells[step] = true;
+        updatePatternStepPianoCell(pattern, track, step, true);
+      }
+      pattern.cells[track.id] = [...track.cells];
+      renderTracks();
+      renderArrangement();
+      saveState();
+    } else if (action === "automation") {
+      track.automation ||= normalizeTrackAutomation();
+      track.automationOpen = true;
+      renderTracks();
+      renderArrangement();
+      saveState();
+    } else if (action === "delete") {
+      removePatternInstrument(track);
+    } else if (action === "remove") {
+      const pattern = getPattern();
+      if (!pattern) return;
+      const blank = makeBlankRackTrack();
+      state.tracks.push(blank);
+      pattern.trackIds = getPatternTrackIds(pattern).map((id) => id === track.id ? blank.id : id);
+      pattern.cells ||= {};
+      pattern.cells[blank.id] = Array(STEP_COUNT).fill(false);
+      delete pattern.cells[track.id];
+      if (pattern.stepPianoNotes) {
+        delete pattern.stepPianoNotes[track.id];
+        pattern.stepPianoNotes[blank.id] = [];
+      }
+      if (pattern.variants) delete pattern.variants[track.id];
+      if (SOUND_VARIANTS[blank.kind]) {
+        pattern.variants ||= {};
+        pattern.variants[blank.id] = blank.variant || "classic";
+      }
+      state.selectedRackRows.delete(track.id);
+      state.selectedRackRows.add(blank.id);
+      renderTracks();
+      renderPatternSelectors();
+      renderArrangement();
+      saveState();
+    }
+  }
+
+  function getSelectedRackRow() {
+    const pattern = getPattern();
+    const trackId = [...state.selectedRackRows].find((id) =>
+      pattern && getPatternTrackIds(pattern).includes(id));
+    return trackId ? state.tracks.find((track) => track.id === trackId) : null;
+  }
+
+  function updateRackRowSelectionIndicators() {
+    document.querySelectorAll(".track-row").forEach((row) => {
+      const selected = state.selectedRackRows.has(row.dataset.trackId);
+      row.classList.toggle("is-rack-selected", selected);
+      row.querySelector(".track-selection-indicator")?.classList.toggle("is-selected", selected);
+    });
+  }
+
+  function copySelectedRackRowContents() {
+    const pattern = getPattern();
+    const track = getSelectedRackRow();
+    if (!pattern || !track) return false;
+    captureCurrentPattern();
+    state.rackRowClipboard = {
+      cells: [...(pattern.cells?.[track.id] || track.cells)],
+      notes: (pattern.stepPianoNotes?.[track.id] || []).map((note) => ({ ...note })),
+      variant: pattern.variants?.[track.id] || track.variant,
+    };
+    showToast(`Copied ${track.name} row contents`);
+    return true;
+  }
+
+  function clearSelectedRackRowContents() {
+    const pattern = getPattern();
+    const track = getSelectedRackRow();
+    if (!pattern || !track) return false;
+    const cells = Array(STEP_COUNT).fill(false);
+    track.cells = cells;
+    pattern.cells[track.id] = [...cells];
+    if (pattern.stepPianoNotes) pattern.stepPianoNotes[track.id] = [];
+    renderTracks();
+    renderPianoRoll();
+    renderArrangement();
+    saveState();
+    return true;
+  }
+
+  function pasteRackRowContents() {
+    const pattern = getPattern();
+    const track = getSelectedRackRow();
+    const clipboard = state.rackRowClipboard;
+    if (!pattern || !track || !clipboard) return false;
+    const cells = Array.from({ length: STEP_COUNT }, (_, index) => clipboard.cells[index] === true);
+    track.cells = cells;
+    pattern.cells[track.id] = [...cells];
+    if (clipboard.variant && SOUND_VARIANTS[track.kind]?.some((item) => item.id === clipboard.variant)) {
+      pattern.variants ||= {};
+      track.variant = clipboard.variant;
+      pattern.variants[track.id] = clipboard.variant;
+    }
+    pattern.stepPianoNotes ||= {};
+    pattern.stepPianoNotes[track.id] = clipboard.notes.map((note) => ({
+      ...note,
+      id: makeId(),
+      trackId: track.id,
+    }));
+    renderTracks();
+    renderPianoRoll();
+    renderArrangement();
+    saveState();
+    showToast(`Pasted row contents to ${track.name}`);
+    return true;
+  }
+
   function renderTracks() {
     trackList.innerHTML = "";
     const includedTrackIds = new Set(getPatternTrackIds(getPattern()));
@@ -1419,6 +1593,40 @@
 
       const meta = document.createElement("div");
       meta.className = "track-meta";
+      const selectionIndicator = document.createElement("button");
+      selectionIndicator.type = "button";
+      selectionIndicator.className = `track-selection-indicator${state.selectedRackRows.has(track.id) ? " is-selected" : ""}`;
+      selectionIndicator.setAttribute("aria-label", `Select ${track.name} row`);
+      selectionIndicator.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) return;
+        rackRowSelectionDragging = true;
+        if (event.shiftKey) state.selectedRackRows.add(track.id);
+        else {
+          state.selectedRackRows.clear();
+          state.selectedRackRows.add(track.id);
+        }
+        updateRackRowSelectionIndicators();
+      });
+      selectionIndicator.addEventListener("pointerenter", () => {
+        if (!rackRowSelectionDragging) return;
+        state.selectedRackRows.add(track.id);
+        updateRackRowSelectionIndicators();
+      });
+      selectionIndicator.addEventListener("click", (event) => {
+        if (event.detail !== 0) return;
+        event.stopPropagation();
+        if (event.shiftKey) state.selectedRackRows.add(track.id);
+        else if (state.selectedRackRows.has(track.id)) state.selectedRackRows.delete(track.id);
+        else {
+          state.selectedRackRows.clear();
+          state.selectedRackRows.add(track.id);
+        }
+        updateRackRowSelectionIndicators();
+      });
+      const mixerNumber = document.createElement("span");
+      mixerNumber.className = "rack-mixer-number";
+      const assignedMixerIndex = state.effectTracks.findIndex((bus) => bus.routedTrackIds.includes(track.id));
+      mixerNumber.textContent = String(assignedMixerIndex < 0 ? 1 : assignedMixerIndex + 2).padStart(2, "0");
       const color = document.createElement("span");
       color.className = "track-color";
       color.setAttribute("aria-hidden", "true");
@@ -1429,6 +1637,7 @@
       const nameText = document.createElement("span");
       nameText.className = "track-name-text";
       nameText.textContent = track.name;
+      nameText.addEventListener("contextmenu", (event) => openRackRowContextMenu(event, track));
       const chooseInstrument = document.createElement("button");
       chooseInstrument.className = "track-instrument-picker";
       chooseInstrument.type = "button";
@@ -1454,7 +1663,21 @@
       info.append(name, subtitle);
       const controls = document.createElement("div");
       controls.className = "track-controls";
+      const volume = document.createElement("input");
+      volume.className = "track-volume-slider";
+      volume.type = "range";
+      volume.min = "0";
+      volume.max = "100";
+      volume.value = String(Math.round(track.volume * 100));
+      volume.setAttribute("aria-label", `${track.name} volume`);
+      volume.addEventListener("input", () => {
+        track.volume = Number(volume.value) / 100;
+        updateTrackGains();
+        syncQuickMixerControls(track);
+      });
+      volume.addEventListener("change", saveState);
       controls.append(
+        volume,
         makeTrackButton("mute", "Mute track", track),
         makeTrackButton("solo", "Solo track", track),
         makeTrackButton("sample", track.sample ? "Replace loaded sample" : "Load an audio sample", track),
@@ -1462,7 +1685,7 @@
         makeTrackButton("mix", `Open ${track.name} mix`, track),
       );
       if (track.kind === "sample" && !track.sourceId) controls.append(makeTrackButton("remove", "Remove imported drum sound", track));
-      meta.append(color, info, controls);
+      meta.append(selectionIndicator, mixerNumber, color, info, controls);
 
       const grid = document.createElement("div");
       grid.className = "steps-grid";
@@ -1811,24 +2034,29 @@
     showToast(`${preset.title} pattern loaded`);
   }
 
-  function setLength(steps) {
+  function setLength(steps, lengthMode = null) {
     state.steps = normalizePatternSteps(steps);
     state.liveRecordedHits.clear();
     const activePattern = getPattern();
     if (activePattern) {
       activePattern.steps = state.steps;
+      if (lengthMode) activePattern.lengthMode = lengthMode;
       Object.entries(activePattern.stepPianoNotes || {}).forEach(([trackId, notes]) => {
         const totalTicks = activePattern.steps * 2;
         activePattern.stepPianoNotes[trackId] = notes
           .filter((note) => note.startTick < totalTicks)
           .map((note) => ({ ...note, durationTicks: Math.min(note.durationTicks, totalTicks - note.startTick) }));
-        const ticksPerStep = getGridTicksPerStep(activePattern);
-        const cells = Array(STEP_COUNT).fill(false);
-        activePattern.stepPianoNotes[trackId].forEach((note) => { cells[Math.floor(note.startTick / ticksPerStep)] = true; });
-        activePattern.cells[trackId] = cells;
-        const track = state.tracks.find((item) => item.id === trackId);
-        if (track) track.cells = [...cells];
       });
+      if (activePattern.lengthMode === "fixed") {
+        const stepCount = getGridStepCount(activePattern);
+        getPatternTrackIds(activePattern).forEach((trackId) => {
+          const cells = Array.from({ length: STEP_COUNT }, (_, index) =>
+            index < stepCount && activePattern.cells?.[trackId]?.[index] === true);
+          activePattern.cells[trackId] = cells;
+          const track = state.tracks.find((item) => item.id === trackId);
+          if (track) track.cells = [...cells];
+        });
+      }
     }
     state.patternClips.forEach((clip) => {
       if (getPattern(clip.patternId)) {

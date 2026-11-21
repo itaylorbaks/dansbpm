@@ -2212,7 +2212,7 @@
     }
     menu.dataset.trackId = trackId;
     menu.hidden = false;
-    menu.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - menu.offsetWidth - 8))}px`;
-    menu.style.top = `${Math.max(8, Math.min(event.clientY, window.innerHeight - menu.offsetHeight - 8))}px`;
+    const anchor = targetedClip || targetElement?.closest(".arrangement-label") || event.currentTarget;
+    positionContextMenuAtTarget(menu, anchor);
   }
 

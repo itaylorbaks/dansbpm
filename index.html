@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#111214" />
     <title>DansBPM — Browser DAW</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -22,8 +23,8 @@
           <span>dans<span class="brand-light">bpm</span></span>
         </a>
         <span class="topbar-divider"></span>
-        <button class="project-name" id="project-name" type="button" title="Open project menu" aria-haspopup="dialog">
-          New Proj 1 <span aria-hidden="true">⌄</span>
+        <button class="project-name" id="project-name" type="button" title="Open project menu; right-click to rename" aria-haspopup="dialog">
+          <span id="project-name-text">New Proj 1</span> <span id="project-name-chevron" aria-hidden="true">⌄</span>
         </button>
         <div class="save-state"><span class="save-dot"></span><span id="save-state">All changes saved</span></div>
         <div class="topbar-actions">
@@ -68,6 +69,7 @@
             </button>
             <button class="transport-button play-button" id="play-button" type="button" aria-label="Play">
               <span class="play-icon"></span>
+              <span class="play-mode-indicator" id="play-mode-indicator" title="Click to switch Track / Pattern playback">TRACK</span>
             </button>
             <span class="transport-divider"></span>
             <button class="tempo-control" id="tempo-control" type="button" title="Click to edit tempo">
@@ -111,6 +113,30 @@
               <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 3h4l4 14H4L8 3Z" /><path d="m10 8 3-2" /><path d="M10 14h.01" /></svg>
             </button>
           </div>
+          <section class="main-toolbar" id="main-toolbar" aria-label="Editor toolbar">
+            <div class="toolbar-tool-grid">
+              <button class="toolbar-tool is-selected" type="button" data-editor-tool="select" title="Select tool" aria-pressed="true">↖<span>Select</span></button>
+              <button class="toolbar-tool" type="button" data-editor-tool="brush" title="Brush tool" aria-pressed="false">▧<span>Brush</span></button>
+              <button class="toolbar-tool" type="button" data-editor-tool="slice" title="Slice tool" aria-pressed="false">✂<span>Slice</span></button>
+              <button class="toolbar-tool" type="button" id="toolbar-draw-button" title="Draw notes" aria-pressed="false">●<span>Draw</span></button>
+              <button class="toolbar-tool" type="button" id="toolbar-note-lock" title="Lock selected notes" aria-pressed="false">▣<span>Lock</span></button>
+              <details class="toolbar-overflow">
+                <summary title="More tools">···</summary>
+                <div class="toolbar-overflow-menu">
+                  <button type="button" id="toolbar-quantize">Quantize</button>
+                  <button type="button" id="toolbar-strum">Strumizer</button>
+                  <button type="button" id="toolbar-chop">Chopper</button>
+                  <button type="button" id="toolbar-flip">Flip / reverse</button>
+                  <button type="button" id="toolbar-stabs">Shorten to stabs</button>
+                  <button type="button" id="toolbar-duplicate-right">Duplicate right</button>
+                </div>
+              </details>
+            </div>
+            <button class="selected-asset-indicator" id="selected-asset-indicator" type="button" aria-haspopup="menu">
+              Selected: <strong id="selected-asset-name">None</strong> ▾
+            </button>
+            <div class="selected-asset-menu" id="selected-asset-menu" role="menu" hidden></div>
+          </section>
         </section>
 
         <div class="workspace-tabs" role="tablist" aria-label="Workspace">
@@ -118,25 +144,27 @@
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h2v2H3zm6 0h2v2H9zm6 0h2v2h-2zM3 11h2v2H3zm6 0h2v2H9zm6 0h2v2h-2z" /></svg>
             Rack
           </button>
-          <button class="workspace-tab is-selected" id="arrangement-tab" type="button" role="tab" aria-selected="true" aria-controls="arrangement-view">
-            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4h14M3 8h9M3 12h14M3 16h9" /><path d="M14 6v4m-2-2h4M10 14v4m-2-2h4" /></svg>
-            Arrangement <span class="tab-count" id="arrangement-tab-count">0</span>
-          </button>
           <button class="workspace-tab" id="piano-roll-tab" type="button" role="tab" aria-selected="false" aria-controls="piano-roll-view">
             Piano Roll
           </button>
           <button class="workspace-tab" id="mixer-tab" type="button" role="tab" aria-selected="false" aria-controls="mixer-view">
             Mixer
           </button>
-          <button class="workspace-tab" id="dj-tab" type="button" role="tab" aria-selected="false" aria-controls="dj-view">
-            DJ View
-          </button>
         </div>
 
-        <section class="arrangement-workspace" id="arrangement-view" role="tabpanel" aria-labelledby="arrangement-tab">
+        <button class="bottom-mixer-toggle" id="bottom-mixer-toggle" type="button" aria-expanded="false">MIXER  <span aria-hidden="true">⌃</span></button>
+        <section class="rack-floating-window" id="rack-floating-window" aria-label="Floating Rack" hidden>
+          <header class="rack-floating-header" id="rack-floating-header">
+            <span>RACK</span>
+            <button class="quiet-button" id="rack-dock-button" type="button" title="Dock Rack">Dock</button>
+          </header>
+          <div class="rack-floating-content" id="rack-floating-content"></div>
+        </section>
+
+        <section class="arrangement-workspace" id="arrangement-view" role="region" aria-label="Track View">
           <div class="arrangement-heading" id="arrangement-heading">
             <div class="arrangement-title">
-              <h1>Arrangement</h1>
+              <h1>Track View</h1>
             </div>
           </div>
 
@@ -160,7 +188,7 @@
                           <span class="fullscreen-indicator"><span>POS</span><output data-fullscreen-indicator-value="position">00:00.000</output></span>
                           <span class="fullscreen-indicator"><span>SW</span><output data-fullscreen-indicator-value="swing">0%</output></span>
                         </div>
-                        <button class="quiet-button fullscreen-view-toggle" type="button" aria-label="Switch workspace view" title="Switch workspace view">Arrangement</button>
+                        <button class="quiet-button fullscreen-view-toggle" type="button" aria-label="Switch workspace view" title="Switch workspace view">Track View</button>
                         <button class="quiet-button app-fullscreen-button" type="button" aria-label="Expand all views to fullscreen" title="Fullscreen" aria-pressed="false">
                           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4" /></svg>
                         </button>
@@ -202,6 +230,7 @@
                           <div class="length-control step-length-control" role="group" aria-label="Rack length">
                             <span class="control-caption">LENGTH</span>
                             <div class="segmented-control">
+                              <button class="length-button" id="pattern-length-auto" type="button" aria-pressed="true" title="Pattern length follows its last note">AUTO</button>
                               <button class="length-button" id="decrease-pattern-bars" type="button" aria-label="Remove one bar from Rack">−</button>
                               <span class="length-value" id="pattern-bars-value">1 BAR</span>
                               <button class="length-button" id="increase-pattern-bars" type="button" aria-label="Add one bar to Rack">+</button>
@@ -355,6 +384,13 @@
                             </select>
                           </label>
                           <label class="pattern-select-control">
+                            <span>NOTE MODE</span>
+                            <select id="piano-note-mode" aria-label="Piano roll note mode">
+                              <option value="stereo">Stereo</option>
+                              <option value="mono">Mono</option>
+                            </select>
+                          </label>
+                          <label class="pattern-select-control">
                             <span>BARS</span>
                             <select id="piano-bars-select" aria-label="Piano roll length">
                               <option value="1">1 BAR</option>
@@ -394,6 +430,10 @@
                         <div class="piano-roll-editor">
                           <div class="piano-roll-grid" id="piano-roll-grid" aria-label="Piano roll note grid"></div>
                         </div>
+                      </div>
+                      <div class="piano-velocity-panel" id="piano-velocity-panel">
+                        <div class="piano-velocity-heading"><span>VELOCITY</span><button type="button" id="piano-velocity-toggle" aria-expanded="true">−</button></div>
+                        <div class="piano-velocity-bars" id="piano-velocity-bars" aria-label="Adjust note velocity"></div>
                       </div>
                       <div class="piano-roll-footer">Transcribe as Instrument to create MIDI notes, or Audio pitch to keep the original sound and edit detected pitches. Right-click a note for fine-tuning; Chop audio makes movable slices.</div>
                       <div class="piano-note-context-menu" id="piano-note-context-menu" role="group" aria-label="Selected note controls" hidden>
@@ -679,26 +719,6 @@
                         <div class="timeline-content" id="timeline-content"></div>
                       </div>
                     </div>
-                    <div class="quick-action-divider" id="quick-action-divider" role="separator" aria-label="Resize Quick View and Track View" aria-orientation="vertical" aria-valuenow="290" tabindex="0" hidden></div>
-                    <aside class="quick-action-panel" id="quick-action-panel" aria-label="Quick Action" hidden>
-                      <div class="quick-action-heading">
-                        <button class="quick-action-drag-handle" id="quick-action-drag-handle" type="button" aria-label="Drag Quick View to float or click to toggle floating" title="Drag to float Quick View">⠿</button>
-                        <span class="quick-action-title">QUICK ACTION</span>
-                        <button class="quiet-button workspace-play-button quick-action-play-button" id="quick-action-play-button" type="button" aria-label="Play Quick Action" aria-pressed="false" hidden><span class="play-icon" aria-hidden="true"></span></button>
-                        <select id="quick-action-view-select" aria-label="Quick Action view">
-                          <option value="mixer">Mixer</option>
-                          <option value="sequencer">Rack</option>
-                          <option value="piano-roll">Piano Roll</option>
-                          <option value="none">Remove Quick View</option>
-                        </select>
-                        <button class="quick-action-dock-button" id="quick-action-dock-button" type="button" hidden>Dock</button>
-                      </div>
-                      <div class="quick-action-content" id="quick-action-content"></div>
-                      <div class="quick-action-resize-handle quick-action-resize-left" data-resize-edge="left" role="separator" aria-label="Resize Quick View width" aria-orientation="vertical"></div>
-                      <div class="quick-action-resize-handle quick-action-resize-right" data-resize-edge="right" role="separator" aria-label="Resize Quick View width" aria-orientation="vertical"></div>
-                      <div class="quick-action-resize-handle quick-action-resize-top" data-resize-edge="top" role="separator" aria-label="Resize Quick View height" aria-orientation="horizontal"></div>
-                      <div class="quick-action-resize-handle quick-action-resize-bottom" data-resize-edge="bottom" role="separator" aria-label="Resize Quick View height" aria-orientation="horizontal"></div>
-                    </aside>
                   </div>
                 </section>
               </div>
@@ -708,6 +728,10 @@
               <span>Double-click audio clips to edit <span class="hint-divider">·</span> Upper-right handle repeats a clip or slice; lower-right trims/extends <span class="hint-divider">·</span> <kbd>P</kbd> place <span class="hint-divider">·</span> <kbd>S</kbd> split <span class="hint-divider">·</span> <kbd>T</kbd> slice tool <span class="hint-divider">·</span> <kbd>DELETE</kbd> remove</span>
             </div>
           </div>
+        </section>
+
+        <section id="bottom-mixer-panel" aria-label="Bottom mixer">
+          <div class="bottom-mixer-resizer" id="bottom-mixer-resizer" role="separator" aria-orientation="horizontal" aria-valuemin="20" aria-valuemax="80" aria-valuenow="36" tabindex="0"></div>
         </section>
 
         <div class="arrangement-track-context-menu" id="arrangement-track-context-menu" role="menu" hidden>
@@ -722,9 +746,28 @@
         <div class="arrangement-track-context-menu" id="asset-context-menu" role="menu" hidden>
           <button type="button" id="rename-library-asset" role="menuitem">Rename asset</button>
           <button type="button" id="branch-library-asset" role="menuitem">Branch asset</button>
+          <button type="button" id="draw-pattern-components" role="menuitem" hidden>Draw components into Track View</button>
+        </div>
+        <div class="arrangement-track-context-menu" id="rack-row-context-menu" role="menu" hidden>
+          <button type="button" data-rack-action="piano-roll">Piano Roll</button>
+          <button type="button" data-rack-action="rename">Rename</button>
+          <button type="button" data-rack-action="color">Change Color</button>
+          <button type="button" data-rack-action="sample">Load Sample</button>
+          <button type="button" data-rack-action="clone">Clone</button>
+          <button type="button" data-rack-action="fill2">Fill Each 2</button>
+          <button type="button" data-rack-action="fill4">Fill Each 4</button>
+          <button type="button" data-rack-action="fill8">Fill Each 8</button>
+          <button type="button" data-rack-action="automation">Create Automation</button>
+          <button type="button" data-rack-action="delete">Delete Row</button>
+          <button type="button" data-rack-action="remove">Remove Instrument</button>
         </div>
         <div class="mixer-effect-context-menu" id="mixer-effect-context-menu" role="menu" hidden>
           <button type="button" id="remove-mixer-effect-context" role="menuitem">Remove effect</button>
+        </div>
+        <div class="mixer-effect-context-menu" id="mixer-track-context-menu" role="menu" hidden>
+          <button type="button" data-mixer-track-action="reset" role="menuitem">Reset track</button>
+          <button type="button" data-mixer-track-action="clear" role="menuitem">Clear effects</button>
+          <button type="button" data-mixer-track-action="save-preset" role="menuitem">Save settings as preset</button>
         </div>
 
         <dialog class="audio-clip-edit-dialog" id="audio-clip-edit-dialog" aria-labelledby="audio-clip-edit-title">
@@ -803,6 +846,9 @@
         <dialog class="source-browser-dialog" id="source-browser-dialog" aria-label="Asset library">
           <aside class="source-sidebar">
             <div class="source-sidebar-heading">ASSET LIBRARY <button id="source-browser-close" type="button" aria-label="Close asset library">×</button></div>
+            <div class="asset-library-search">
+              <input id="asset-library-search-input" type="search" placeholder="Search patterns, Mels, sounds…" aria-label="Search asset library">
+            </div>
             <div class="source-section-label">PATTERNS <span id="pattern-asset-count">0</span></div>
             <div class="asset-browser" id="pattern-asset-browser"></div>
             <div class="source-section-label">MELS <span id="mel-asset-count">0</span></div>
@@ -943,6 +989,31 @@
         <div class="piano-chopper-actions">
           <button class="quiet-button" id="piano-chopper-cancel" type="button">Cancel</button>
           <button class="quiet-button workspace-play-button" id="piano-chopper-apply" type="button">Create slices</button>
+        </div>
+      </dialog>
+      <dialog class="piano-chopper-dialog" id="piano-note-chopper-dialog" aria-labelledby="piano-note-chopper-title">
+        <div class="project-dialog-heading">
+          <div>
+            <div class="eyebrow">PIANO ROLL</div>
+            <h2 id="piano-note-chopper-title">Chop selected notes</h2>
+          </div>
+          <button class="dialog-close" id="piano-note-chopper-close" type="button" aria-label="Close note chopper">×</button>
+        </div>
+        <label class="piano-chopper-control">
+          <span>Slices per note</span>
+          <select id="piano-note-chopper-division">
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4" selected>4</option>
+            <option value="6">6</option>
+            <option value="8">8</option>
+            <option value="16">16</option>
+          </select>
+        </label>
+        <p class="piano-chopper-help">Each selected note is replaced with equal-length notes that preserve its pitch and velocity.</p>
+        <div class="piano-chopper-actions">
+          <button class="quiet-button" id="piano-note-chopper-cancel" type="button">Cancel</button>
+          <button class="quiet-button workspace-play-button" id="piano-note-chopper-apply" type="button">Chop notes</button>
         </div>
       </dialog>
       <dialog class="settings-dialog" id="settings-dialog" aria-label="Settings">
@@ -1213,17 +1284,14 @@
         </div>
         <div class="project-dialog-actions">
           <button class="quiet-button" id="save-project-button" type="button">Save now</button>
-          <button class="quiet-button" id="enter-project-button" type="button">Enter selected</button>
-          <button class="quiet-button" id="delete-project-button" type="button">Delete selected</button>
-          <button class="quiet-button" id="rename-project-button" type="button">Rename</button>
           <button class="quiet-button" id="new-project-button" type="button">＋ New project</button>
           <button class="quiet-button" id="import-project-button" type="button">Import project</button>
           <button class="quiet-button" id="account-button" type="button">Account</button>
-          <button class="quiet-button" id="switch-user-button" type="button">Switch user</button>
+          <button class="quiet-button" id="sound-library-button" type="button">Sound Library</button>
         </div>
         <div class="project-list" id="project-list" aria-label="Saved projects"></div>
       </dialog>
-      <dialog class="project-dialog" id="account-dialog" aria-label="Account settings">
+      <dialog class="project-dialog account-dialog" id="account-dialog" aria-label="Account settings">
         <div class="project-dialog-heading">
           <div>
             <div class="eyebrow">CLOUD ACCOUNT</div>
@@ -1244,6 +1312,10 @@
           <input id="account-confirm-password" type="password" aria-label="Confirm new password" minlength="8" maxlength="256" autocomplete="new-password" placeholder="Confirm new password" required />
           <button class="quiet-button" type="submit">Update password</button>
         </form>
+        <section class="settings-section">
+          <h3>User session</h3>
+          <button class="quiet-button" id="switch-user-button" type="button">Switch user</button>
+        </section>
         <section class="settings-section">
           <h3>Delete account</h3>
           <p class="login-note">This permanently deletes the cloud account and all its cloud projects. Cached project copies on this browser will also be removed; other browsers may retain local copies.</p>
@@ -1328,6 +1400,6 @@
       <button class="continue-as-guest" id="continue-as-guest" type="button">Continue as Guest</button>
     </section>
     <script src="assets/vendor/lame.min.js"></script>
-    <script src="app.js?v=6a37c081129b"></script>
+    <script src="app.js?v=44642c050deb"></script>
   </body>
 </html>

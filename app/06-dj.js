@@ -2079,8 +2079,9 @@
           const eventKey = `pattern-piano:${clip.id}:${trackId}:${Math.round(elapsedSource * PIANO_TICKS_PER_BAR)}:${note.id}`;
           if (deck.songEvents.has(eventKey) || !isInLookAhead(time)) return;
           const clipEnd = (windowEnd - noteStart) * tempoScale * secondsPerBar;
+          const durationTicks = getPianoNotePlaybackDurationTicks(notes, note, windowEnd * PIANO_TICKS_PER_BAR);
           const duration = Math.min(
-            note.durationTicks * getSchedulerTickDuration() * tempoScale / deck.songRate,
+            durationTicks * getSchedulerTickDuration() * tempoScale / deck.songRate,
             clipEnd,
           );
           if (duration > 0) {
@@ -3183,7 +3184,8 @@
           const key = `${state.arrangementLoopIteration}:${clip.id}:piano:${trackId}:${Math.round(relativePosition * PIANO_TICKS_PER_BAR)}:${note.id}`;
           if (state.scheduledArrangementSteps.has(key)) return;
           const clipEnd = (windowEnd - noteStart) * tempoScale * secondsPerBar;
-          const noteDuration = Math.min(note.durationTicks * getSchedulerTickDuration() * tempoScale, clipEnd);
+          const durationTicks = getPianoNotePlaybackDurationTicks(notes, note, windowEnd * PIANO_TICKS_PER_BAR);
+          const noteDuration = Math.min(durationTicks * getSchedulerTickDuration() * tempoScale, clipEnd);
           if (noteDuration > 0) {
             scheduleArrangementVoice(() =>
               playPianoNote(track, when, note.midi, noteDuration, note.velocity ?? 0.8,
@@ -3284,7 +3286,9 @@
       const firstLoop = Math.max(0, Math.floor((now - startTime) / loopSeconds));
       notes.forEach((note) => {
         const noteOffset = note.startTick / PIANO_TICKS_PER_BAR * secondsPerBar;
-        const duration = note.durationTicks / PIANO_TICKS_PER_BAR * secondsPerBar;
+        const durationTicks = getPianoNotePlaybackDurationTicks(notes, note, totalTicks);
+        const duration = durationTicks / PIANO_TICKS_PER_BAR * secondsPerBar;
+        if (durationTicks <= 0) return;
         for (let loop = firstLoop; loop <= firstLoop + 1; loop += 1) {
           const key = `${note.id}:${loop}`;
           if (scheduledNotes.has(key)) continue;
@@ -3318,7 +3322,11 @@
           : firstPassEndTime + (cycle - 1) * cycleDuration +
             (note.startTick - rangeStartTick) / PIANO_TICKS_PER_BAR * secondsPerBar;
         if (when < now || when >= now + lookAhead) continue;
-        const durationTicks = Math.min(note.durationTicks, rangeEndTick - note.startTick);
+        const durationTicks = Math.min(
+          getPianoNotePlaybackDurationTicks(notes, note, rangeEndTick),
+          rangeEndTick - note.startTick,
+        );
+        if (durationTicks <= 0) continue;
         playPianoNote(instrument, when, note.midi,
           durationTicks / PIANO_TICKS_PER_BAR * secondsPerBar, note.velocity ?? 0.8, instrument, null, note);
         scheduledNotes.add(key);

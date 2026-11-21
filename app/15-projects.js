@@ -423,6 +423,7 @@
             return true;
           })
           .map((track) => makeMixerBusTrack("mixer-effects", track));
+        if (!state.effectTracks.length) state.effectTracks = makeDefaultMixerTracks();
       }
       if (Number.isFinite(saved.bpm)) state.bpm = Math.max(60, Math.min(180, roundBpm(saved.bpm)));
       updateMixerTempoEffects();
@@ -448,6 +449,9 @@
       }
       if (typeof saved.arrangementSnap === "boolean") state.arrangementSnap = saved.arrangementSnap;
       if (Number.isFinite(saved.workspaceRatio)) state.workspaceRatio = Math.max(20, Math.min(80, Math.round(saved.workspaceRatio)));
+      if (Number.isFinite(saved.bottomMixerRatio)) {
+        state.bottomMixerRatio = Math.max(20, Math.min(80, Math.round(saved.bottomMixerRatio)));
+      }
       if (typeof saved.workspaceHidden === "boolean") state.workspaceHidden = saved.workspaceHidden;
       if (typeof saved.trackViewHidden === "boolean") state.trackViewHidden = saved.trackViewHidden;
       if (state.workspaceHidden && state.trackViewHidden) state.trackViewHidden = false;
@@ -611,6 +615,7 @@
               insertAfterTrackId: typeof pattern.insertAfterTrackId === "string" ? pattern.insertAfterTrackId : null,
               color: isPatternColor(pattern.color) ? pattern.color : getPatternColor(index),
               steps: patternSteps,
+              lengthMode: pattern.lengthMode === "fixed" ? "fixed" : "auto",
               trackIds: Array.isArray(pattern.trackIds)
                 ? [...new Set(pattern.trackIds.filter((trackId) => state.tracks.some((track) => track.id === trackId)))]
                 : state.tracks.filter((track) => !track.libraryOnly).map((track) => track.id),
@@ -738,6 +743,12 @@
           .map(([soundId, edits]) => [soundId, normalizeSoundProcessingEdits(edits)]));
       }
       if (Number.isInteger(saved.pianoNoteLength) && [1, 2, 4, 8].includes(saved.pianoNoteLength)) state.pianoNoteLength = saved.pianoNoteLength;
+      if (saved.pianoNoteMode === "mono" || saved.pianoNoteMode === "stereo") state.pianoNoteMode = saved.pianoNoteMode;
+      if (saved.transportMode === "sequencer" || saved.transportMode === "arrangement") {
+        state.transportMode = saved.transportMode;
+      }
+      if (saved.personalAssetFolders && typeof saved.personalAssetFolders === "object") state.personalAssetFolders = saved.personalAssetFolders;
+      if (Array.isArray(saved.personalAssets)) state.personalAssets = saved.personalAssets;
       if (typeof saved.selectedPianoTrackId === "string" && state.tracks.some((track) => track.id === saved.selectedPianoTrackId)) {
         state.selectedPianoTrackId = saved.selectedPianoTrackId;
       }
@@ -937,7 +948,38 @@
     if (!$("#export-song-dialog").open) $("#export-song-dialog").showModal();
   }
 
-  async function exportArrangementAudio(format = "wav") {
+  function getMixerTrackRenderIds(trackId) {
+    const selected = getMixerTracks().find(({ track }) => track.id === trackId)?.track;
+    if (!selected || selected === state.masterTrack) return null;
+    const included = new Set([state.masterTrack.id, selected.id]);
+    if (selected.kind === "mixer-effects") {
+      (selected.routedTrackIds || []).forEach((id) => included.add(id));
+    } else {
+      const bus = state.effectTracks.find((item) => item.routedTrackIds?.includes(selected.id));
+      if (bus) included.add(bus.id);
+      if (state.patterns.includes(selected)) {
+        state.patternClips.filter((clip) => (clip.trackId || clip.patternId) === selected.id)
+          .forEach((clip) => {
+            const pattern = getPattern(clip.patternId);
+            if (pattern) getPatternTrackIds(pattern).forEach((id) => included.add(id));
+          });
+      }
+    }
+    state.patterns.filter((pattern) => included.has(pattern.id))
+      .forEach((pattern) => getPatternTrackIds(pattern).forEach((id) => included.add(id)));
+    return included;
+  }
+
+  async function renderSelectedMixerTrack() {
+    const selected = getMixerTracks().find(({ track }) => track.id === state.selectedMixerTrackId)?.track;
+    if (!selected) {
+      showToast("Select a Mixer track to render.");
+      return;
+    }
+    await exportArrangementAudio("wav", selected.id);
+  }
+
+  async function exportArrangementAudio(format = "wav", mixerTrackId = null) {
     if (state.isExporting) return;
     if (state.mediaRecorder?.state === "recording") {
       showToast("Stop microphone recording before exporting the song.");
@@ -961,12 +1003,21 @@
       return;
     }
 
+    const renderTrack = mixerTrackId
+      ? getMixerTracks().find(({ track }) => track.id === mixerTrackId)?.track
+      : null;
+    if (mixerTrackId && !renderTrack) {
+      showToast("The selected Mixer track is no longer available.");
+      return;
+    }
+    const isolationTrackIds = mixerTrackId ? getMixerTrackRenderIds(mixerTrackId) : null;
+    const exportLabel = renderTrack ? `${renderTrack.arrangementName || renderTrack.name} track` : "song";
     const button = $(`#export-song-${format}-button`);
     state.isExporting = true;
     button.disabled = true;
     document.body.classList.add("is-exporting");
     $("#export-song-dialog").close();
-    showToast(`Preparing samples for ${format.toUpperCase()} export…`);
+    showToast(`Preparing samples for ${exportLabel} export…`);
     try {
       await ensureAudio();
       await loadLibrarySamplesForPlayback("arrangement");
@@ -996,7 +1047,7 @@
     const previousSourceGains = allTracks.map((track) => track.sourceGains);
     const previousSidechainInputs = allTracks.map((track) => track.sidechainInputNode);
     const previousSidechainSources = allTracks.map((track) => track.sidechainSourceNode);
-    showToast(`Rendering your song to ${format.toUpperCase()}…`);
+    showToast(`Rendering ${exportLabel} to ${format.toUpperCase()}…`);
     try {
       const context = new OfflineAudioContext(2, Math.ceil(duration * sampleRate), sampleRate);
       state.audioContext = context;
@@ -1025,6 +1076,7 @@
         const isArrangementTrack = track.kind === "pattern" || track.kind === "mel" ||
           state.arrangementTracks.includes(track);
         const isSilent = track.muted ||
+          (isolationTrackIds && !isolationTrackIds.has(track.id)) ||
           (isArrangementTrack && hasArrangementSolo && !track.solo) ||
           (!isBus && !isArrangementTrack && hasSolo && !track.solo) ||
           (state.arrangementTracks.includes(track) && hasSolo && !track.solo);
@@ -1091,8 +1143,9 @@
                 ? getStepDuration() * tempoScale * (state.swing / 100) : 0);
             if (startTime >= duration) return;
             const clipEndDuration = (windowEnd - noteStart) * tempoScale * secondsPerBar;
+            const durationTicks = getPianoNotePlaybackDurationTicks(notes, note, windowEnd * PIANO_TICKS_PER_BAR);
             const noteDuration = Math.min(
-              note.durationTicks * getSchedulerTickDuration() * tempoScale,
+              durationTicks * getSchedulerTickDuration() * tempoScale,
               clipEndDuration,
               duration - startTime,
             );
@@ -1129,8 +1182,11 @@
       const rendered = await context.startRendering();
       const extension = format === "mp3" ? "mp3" : "wav";
       const audioFile = format === "mp3" ? await encodeMp3(rendered) : encodeWav(rendered);
-      downloadBlob(audioFile, `dansbpm-song.${extension}`);
-      showToast(`Song exported as ${format.toUpperCase()}`);
+      const baseName = renderTrack
+        ? (renderTrack.arrangementName || renderTrack.name).replace(/[^a-z0-9_-]+/gi, "-").replace(/^-|-$/g, "")
+        : "dansbpm-song";
+      downloadBlob(audioFile, `${baseName || "mixer-track"}.${extension}`);
+      showToast(`${renderTrack ? "Mixer track" : "Song"} exported as ${format.toUpperCase()}`);
     } catch (error) {
       showToast(`Could not export the song: ${error.message || "render failed"}`);
     } finally {

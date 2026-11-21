@@ -108,9 +108,12 @@
     $("#settings-contrast").value = String(userSettings.contrast);
     $("#settings-contrast-value").textContent = `${userSettings.contrast}%`;
     $("#settings-density").value = userSettings.density;
-    $("#settings-quick-action-enabled").checked = userSettings.quickActionEnabled;
-    $("#settings-quick-action-view").value = userSettings.quickActionView;
-    $("#quick-action-view-select").value = userSettings.quickActionView;
+    const settingsQuickActionEnabled = $("#settings-quick-action-enabled");
+    if (settingsQuickActionEnabled) settingsQuickActionEnabled.checked = false;
+    const settingsQuickActionView = $("#settings-quick-action-view");
+    if (settingsQuickActionView) settingsQuickActionView.value = userSettings.quickActionView;
+    const quickActionViewSelect = $("#quick-action-view-select");
+    if (quickActionViewSelect) quickActionViewSelect.value = userSettings.quickActionView;
     $("#settings-recording-mode").value = userSettings.recordingMode;
     $("#settings-input-monitoring").checked = userSettings.inputMonitoring;
     renderSettingsShortcuts();
@@ -195,13 +198,18 @@
     $("#settings-quick-action-view").addEventListener("change", (event) => {
       setQuickActionView(event.target.value);
     });
-    $("#quick-action-view-select").addEventListener("change", (event) => {
-      setQuickActionView(event.target.value);
-    });
-    $("#quick-action-play-button").addEventListener("click", (event) => {
-      const workspace = event.currentTarget.dataset.workspacePlay;
-      if (workspace) toggleQuickActionPlayback(workspace);
-    });
+    if (quickActionViewSelect) {
+      quickActionViewSelect.addEventListener("change", (event) => {
+        setQuickActionView(event.target.value);
+      });
+    }
+    const quickActionPlayButton = $("#quick-action-play-button");
+    if (quickActionPlayButton) {
+      quickActionPlayButton.addEventListener("click", (event) => {
+        const workspace = event.currentTarget.dataset.workspacePlay;
+        if (workspace) toggleQuickActionPlayback(workspace);
+      });
+    }
     bindQuickActionPanelInteractions();
     $("#settings-recording-track").addEventListener("change", (event) => {
       userSettings.recordingTrackId = event.target.value;
@@ -231,6 +239,8 @@
         const layout = button.dataset.blueprintLayout;
         if (!["workspace-top", "track-top", "side-by-side"].includes(layout)) return;
         userSettings.blueprintLayout = layout;
+        state.workspaceHidden = false;
+        state.trackViewHidden = false;
         updateBlueprintLayoutButtons();
         renderViewLayout();
         persistUserSettings();
@@ -325,14 +335,17 @@
   function setQuickActionView(view) {
     if (view === "none") {
       userSettings.quickActionEnabled = false;
-      $("#settings-quick-action-enabled").checked = false;
+      const settingsEnabled = $("#settings-quick-action-enabled");
+      if (settingsEnabled) settingsEnabled.checked = false;
       renderQuickActionPanel();
       persistUserSettings();
       return;
     }
     userSettings.quickActionView = ["mixer", "sequencer", "piano-roll"].includes(view) ? view : "mixer";
-    $("#settings-quick-action-view").value = userSettings.quickActionView;
-    $("#quick-action-view-select").value = userSettings.quickActionView;
+    const settingsView = $("#settings-quick-action-view");
+    if (settingsView) settingsView.value = userSettings.quickActionView;
+    const quickActionViewSelect = $("#quick-action-view-select");
+    if (quickActionViewSelect) quickActionViewSelect.value = userSettings.quickActionView;
     renderQuickActionPanel();
     persistUserSettings();
   }
@@ -392,6 +405,7 @@
     const dragHandle = $("#quick-action-drag-handle");
     const dockButton = $("#quick-action-dock-button");
     const divider = $("#quick-action-divider");
+    if (!panel || !dragHandle || !dockButton || !divider) return;
     dragHandle.addEventListener("click", () => {
       if (quickActionDragClickSuppressed) {
         quickActionDragClickSuppressed = false;
@@ -532,7 +546,7 @@
     if (!panel || !parent || panel.classList.contains("is-floating")) return;
     const vertical = window.getComputedStyle(parent).flexDirection !== "column";
     const divider = $("#quick-action-divider");
-    divider.setAttribute("aria-orientation", vertical ? "vertical" : "horizontal");
+    if (divider) divider.setAttribute("aria-orientation", vertical ? "vertical" : "horizontal");
     if (vertical) {
       quickActionDockedWidth = Math.max(190, Math.min(quickActionDockedWidth, parent.clientWidth * 0.62));
       panel.style.removeProperty("height");
@@ -779,8 +793,12 @@
   function renderQuickActionPanel() {
     const panel = $("#quick-action-panel");
     const content = $("#quick-action-content");
-    if (!panel || !content) return;
-    panel.hidden = !userSettings.quickActionEnabled;
+    if (!panel || !content) {
+      const divider = $("#quick-action-divider");
+      if (divider) divider.hidden = true;
+      return;
+    }
+    panel.hidden = true;
     syncQuickActionDockedSize();
     $("#quick-action-divider").hidden = !userSettings.quickActionEnabled || panel.classList.contains("is-floating");
     $("#quick-action-dock-button").hidden = !panel.classList.contains("is-floating");
@@ -964,8 +982,8 @@
     addQuickActionSelect(toolbar, "Step size",
       ["1/4", "1/8", "1/16", "1/32", "1/64"].map((item) => [item, item]),
       getPatternGridResolution(pattern), setPatternGridResolution);
-    addQuickActionButton(toolbar, "− Bar", () => setLength(state.steps - 16), "Remove one Rack bar");
-    addQuickActionButton(toolbar, "+ Bar", () => setLength(state.steps + 16), "Add one Rack bar");
+    addQuickActionButton(toolbar, "− Bar", () => setLength(state.steps - 16, "fixed"), "Remove one Rack bar");
+    addQuickActionButton(toolbar, "+ Bar", () => setLength(state.steps + 16, "fixed"), "Add one Rack bar");
     const scale = document.createElement("input");
     scale.className = "quick-action-menu-range";
     scale.type = "range";

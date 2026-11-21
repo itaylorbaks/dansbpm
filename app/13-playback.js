@@ -994,8 +994,8 @@
     if (state.isPlaying || state.isStartingPlayback || state.isExporting) return;
     const requestId = ++state.playbackRequestId;
     state.isStartingPlayback = true;
-    playButton.classList.toggle("is-playing", mode === "arrangement");
-    playButton.setAttribute("aria-label", "Pause Track View");
+    playButton.classList.add("is-playing");
+    playButton.setAttribute("aria-label", mode === "sequencer" ? "Pause Pattern" : "Pause Track View");
     try {
       await ensureAudio();
       if (requestId !== state.playbackRequestId) return;
@@ -1076,8 +1076,8 @@
         }
       }, 25);
       syncMixerMeters();
-      playButton.classList.toggle("is-playing", arrangementPlayback);
-      playButton.setAttribute("aria-label", arrangementPlayback ? "Pause Track View" : "Play Track View");
+      playButton.classList.add("is-playing");
+      playButton.setAttribute("aria-label", mode === "sequencer" ? "Pause Pattern" : "Pause Track View");
       $("#now-playing").classList.add("is-live");
       $("#now-playing").innerHTML = `<span class="live-dot"></span>${arrangementPlayback ? "TRACK VIEW PLAYING" : "KEY RECORDING"}`;
     } catch (error) {
@@ -1126,7 +1126,14 @@
             const key = `audio-mel:${track.id}:${clip.id}:${loop}:${note.id}`;
             if (state.scheduledPianoNotes.has(key) || noteEndBar <= startBar) return;
             const audibleStartBar = Math.max(startBar, noteStartBar);
-            const audibleEndBar = Math.min(noteEndBar, clipEndBar);
+            const monoTicks = getPianoNotePlaybackDurationTicks(
+              editedMel.notes, note, editedMel.bars * PIANO_TICKS_PER_BAR,
+            );
+            const noteBarLength = note.durationTicks / PIANO_TICKS_PER_BAR;
+            const monoEndBar = noteStartBar + (noteBarLength > 0
+              ? (noteEndBar - noteStartBar) * monoTicks / note.durationTicks
+              : 0);
+            const audibleEndBar = Math.min(noteEndBar, clipEndBar, monoEndBar);
             if (audibleEndBar <= audibleStartBar) return;
             const elapsedSeconds = (audibleStartBar - noteStartBar) * secondsPerBar;
             const duration = (audibleEndBar - audibleStartBar) * secondsPerBar;
@@ -1203,7 +1210,13 @@
           if (noteEndBar <= startBar) return;
           const audibleStartBar = Math.max(startBar, noteStartBar);
           const when = startTime + (audibleStartBar - startBar) * secondsPerBar;
-          const duration = Math.max(0, Math.min(noteEndBar, arrangementEndBar) - audibleStartBar) * secondsPerBar;
+          const monoTicks = getPianoNotePlaybackDurationTicks(mel.notes, note, mel.bars * PIANO_TICKS_PER_BAR);
+          const noteBarLength = note.durationTicks / PIANO_TICKS_PER_BAR;
+          const monoEndBar = noteStartBar + (noteBarLength > 0
+            ? (noteEndBar - noteStartBar) * monoTicks / note.durationTicks
+            : 0);
+          const duration = Math.max(0, Math.min(noteEndBar, arrangementEndBar, monoEndBar) -
+            audibleStartBar) * secondsPerBar;
           if (duration > 0) {
             scheduleArrangementVoice(() =>
               playPianoNote(instrument, when, note.midi, duration, note.velocity ?? 0.8, melTrack, null, note));
@@ -1558,7 +1571,9 @@
   }
 
   function updateProjectNameLabel() {
-    $("#project-name").firstChild.textContent = `${state.projectName} `;
+    const name = $("#project-name-text");
+    if (name) name.textContent = state.projectName;
+    else $("#project-name").firstChild.textContent = `${state.projectName} `;
   }
 
   function initializeProjects() {
@@ -1807,6 +1822,10 @@
       pianoScaleRoot: state.pianoScaleRoot,
       pianoScaleType: state.pianoScaleType,
       pianoScaleLock: state.pianoScaleLock,
+      pianoNoteMode: state.pianoNoteMode,
+      transportMode: state.transportMode,
+      personalAssetFolders: state.personalAssetFolders,
+      personalAssets: state.personalAssets,
       soundDurationEdits: { ...state.soundDurationEdits },
       soundReverseEdits: { ...state.soundReverseEdits },
       soundProcessingEdits: Object.fromEntries(Object.entries(state.soundProcessingEdits).map(([soundId, edits]) =>
@@ -1820,6 +1839,7 @@
       arrangementLoopEndBar: state.arrangementLoopEndBar,
       arrangementSnap: state.arrangementSnap,
       workspaceRatio: state.workspaceRatio,
+      bottomMixerRatio: state.bottomMixerRatio,
       sequencerScale: state.sequencerScale,
       workspaceHidden: state.workspaceHidden,
       trackViewHidden: state.trackViewHidden,
