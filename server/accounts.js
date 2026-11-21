@@ -119,6 +119,7 @@ export function createAccountApi({
   let accounts = {};
   let sessionKey;
   let ready;
+  let driveAccountStoreReady = false;
   let persistQueue = Promise.resolve();
   const driveAccountTasks = new Map();
 
@@ -230,6 +231,7 @@ export function createAccountApi({
               ["file-store-migrated", "true"],
             );
           }
+          await loadDriveAccountStore();
           return;
         }
 
@@ -244,9 +246,37 @@ export function createAccountApi({
         } catch (error) {
           if (error.code !== "ENOENT") throw error;
         }
+        await loadDriveAccountStore();
       })();
     }
     await ready;
+  }
+
+  async function loadDriveAccountStore() {
+    if (!driveStorage) return;
+    const stored = await driveStorage.readAccountStore();
+    if (!stored) {
+      driveAccountStoreReady = true;
+      await persistAccounts();
+      return;
+    }
+
+    let saved;
+    try {
+      saved = JSON.parse(stored.toString("utf8"));
+    } catch {
+      throw new Error("The Google Drive account store is not valid JSON.");
+    }
+    if (!saved || typeof saved !== "object" || Array.isArray(saved) ||
+      saved.version !== 1 || !saved.accounts || typeof saved.accounts !== "object" ||
+      Array.isArray(saved.accounts) ||
+      typeof saved.sessionKey !== "string" || !/^[a-f0-9]{64}$/i.test(saved.sessionKey)) {
+      throw new Error("The Google Drive account store has an invalid format.");
+    }
+    accounts = saved.accounts;
+    normalizeAccountNames();
+    sessionKey = Buffer.from(saved.sessionKey, "hex");
+    driveAccountStoreReady = true;
   }
 
   function normalizeAccountNames() {
@@ -279,32 +309,41 @@ export function createAccountApi({
     const snapshot = Object.values(accounts).map((account) => structuredClone(account));
     const write = persistQueue.then(async () => {
       if (!databasePool) {
-        await writeAtomically(accountsPath, JSON.stringify(accounts));
-        return;
-      }
-      const client = await databasePool.connect();
-      try {
-        await client.query("BEGIN");
-        for (const account of snapshot) {
+        await writeAtomically(accountsPath, JSON.stringify(Object.fromEntries(
+          snapshot.map((account) => [account.id, account]),
+        )));
+      } else {
+        const client = await databasePool.connect();
+        try {
+          await client.query("BEGIN");
+          for (const account of snapshot) {
+            await client.query(
+              `INSERT INTO dansbpm_accounts (account_id, normalized_name, account_data)
+               VALUES ($1, $2, $3::jsonb)
+               ON CONFLICT (account_id) DO UPDATE SET
+                 normalized_name = EXCLUDED.normalized_name,
+                 account_data = EXCLUDED.account_data`,
+              [account.id, account.normalizedName, JSON.stringify(account)],
+            );
+          }
           await client.query(
-            `INSERT INTO dansbpm_accounts (account_id, normalized_name, account_data)
-             VALUES ($1, $2, $3::jsonb)
-             ON CONFLICT (account_id) DO UPDATE SET
-               normalized_name = EXCLUDED.normalized_name,
-               account_data = EXCLUDED.account_data`,
-            [account.id, account.normalizedName, JSON.stringify(account)],
+            "DELETE FROM dansbpm_accounts WHERE NOT (account_id = ANY($1::text[]))",
+            [snapshot.map((account) => account.id)],
           );
+          await client.query("COMMIT");
+        } catch (error) {
+          await client.query("ROLLBACK");
+          throw error;
+        } finally {
+          client.release();
         }
-        await client.query(
-          "DELETE FROM dansbpm_accounts WHERE NOT (account_id = ANY($1::text[]))",
-          [snapshot.map((account) => account.id)],
-        );
-        await client.query("COMMIT");
-      } catch (error) {
-        await client.query("ROLLBACK");
-        throw error;
-      } finally {
-        client.release();
+      }
+      if (driveStorage && driveAccountStoreReady) {
+        await driveStorage.writeAccountStore(Buffer.from(JSON.stringify({
+          version: 1,
+          sessionKey: sessionKey.toString("hex"),
+          accounts: Object.fromEntries(snapshot.map((account) => [account.id, account])),
+        })));
       }
     });
     persistQueue = write.catch(() => {});

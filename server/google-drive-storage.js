@@ -2,6 +2,8 @@ const DRIVE_API_URL = "https://www.googleapis.com/drive/v3";
 const DRIVE_UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
+const ACCOUNT_DATA_FOLDER_NAME = "DansBPM account data";
+const ACCOUNT_DATA_FILE_NAME = "accounts.json";
 
 function escapeQueryValue(value) {
   return value.replaceAll("\\", "\\\\").replaceAll("'", "\\'");
@@ -105,7 +107,7 @@ export function createGoogleDriveStorage({
     return files;
   }
 
-  async function uploadMedia(url, metadata, data) {
+  async function uploadMedia(url, metadata, data, contentType = "application/gzip") {
     const sessionUrl = new URL(url);
     sessionUrl.searchParams.set("uploadType", "resumable");
     sessionUrl.searchParams.set("fields", "id");
@@ -119,7 +121,7 @@ export function createGoogleDriveStorage({
     const upload = await driveRequest(uploadUrl, {
       method: "PUT",
       headers: {
-        "content-type": "application/gzip",
+        "content-type": contentType,
         "content-length": String(data.length),
         "content-range": `bytes 0-${data.length - 1}/${data.length}`,
       },
@@ -129,21 +131,75 @@ export function createGoogleDriveStorage({
     return upload.status === 204 ? null : upload.json();
   }
 
-  async function createAccountFolder(accountId) {
-    const name = `DansBPM account ${accountId}`;
-    const query = `'${escapeQueryValue(rootFolderId)}' in parents and name = '${escapeQueryValue(name)}' and mimeType = '${FOLDER_MIME_TYPE}' and trashed = false`;
+  async function findFolder(parentId, name) {
+    const query = `'${escapeQueryValue(parentId)}' in parents and name = '${escapeQueryValue(name)}' and mimeType = '${FOLDER_MIME_TYPE}' and trashed = false`;
     const existing = (await listFiles(query)).find((file) => file.name === name);
-    if (existing) return existing.id;
+    return existing?.id || null;
+  }
+
+  async function createFolder(parentId, name) {
     const response = await driveRequest(`${DRIVE_API_URL}/files?supportsAllDrives=true&fields=id`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name, mimeType: FOLDER_MIME_TYPE, parents: [rootFolderId] }),
+      body: JSON.stringify({ name, mimeType: FOLDER_MIME_TYPE, parents: [parentId] }),
     });
     const folder = await response.json();
     if (typeof folder.id !== "string" || !folder.id) {
-      throw new Error("Google Drive did not return the account folder ID.");
+      throw new Error("Google Drive did not return the folder ID.");
     }
     return folder.id;
+  }
+
+  async function findOrCreateFolder(parentId, name) {
+    return await findFolder(parentId, name) || await createFolder(parentId, name);
+  }
+
+  async function createAccountFolder(accountId) {
+    const name = `DansBPM account ${accountId}`;
+    return findOrCreateFolder(rootFolderId, name);
+  }
+
+  async function findAccountDataFolder() {
+    return findFolder(rootFolderId, ACCOUNT_DATA_FOLDER_NAME);
+  }
+
+  async function getAccountDataFile(folderId) {
+    const query = `'${escapeQueryValue(folderId)}' in parents and name = '${ACCOUNT_DATA_FILE_NAME}' and mimeType = 'application/json' and trashed = false`;
+    return (await listFiles(query)).find((file) => file.name === ACCOUNT_DATA_FILE_NAME) || null;
+  }
+
+  async function readAccountStore() {
+    const folderId = await findAccountDataFolder();
+    if (!folderId) return null;
+    const file = await getAccountDataFile(folderId);
+    if (!file) return null;
+    const response = await driveRequest(
+      `${DRIVE_API_URL}/files/${encodeURIComponent(file.id)}?alt=media&supportsAllDrives=true`,
+    );
+    return Buffer.from(await response.arrayBuffer());
+  }
+
+  async function writeAccountStore(data) {
+    const folderId = await findOrCreateFolder(rootFolderId, ACCOUNT_DATA_FOLDER_NAME);
+    const file = await getAccountDataFile(folderId);
+    if (file) {
+      await uploadMedia(
+        `${DRIVE_UPLOAD_URL}/files/${encodeURIComponent(file.id)}?supportsAllDrives=true`,
+        null,
+        data,
+        "application/json",
+      );
+      return;
+    }
+    const response = await uploadMedia(
+      `${DRIVE_UPLOAD_URL}/files?supportsAllDrives=true`,
+      { name: ACCOUNT_DATA_FILE_NAME, mimeType: "application/json", parents: [folderId] },
+      data,
+      "application/json",
+    );
+    if (typeof response?.id !== "string" || !response.id) {
+      throw new Error("Google Drive did not return the account store file ID.");
+    }
   }
 
   async function createProjectFile(folderId, fileName, data) {
@@ -174,6 +230,8 @@ export function createGoogleDriveStorage({
 
   return {
     createAccountFolder,
+    readAccountStore,
+    writeAccountStore,
     createProjectFile,
     async getProjectFile(fileId) {
       const response = await driveRequest(

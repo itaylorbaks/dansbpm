@@ -433,7 +433,14 @@ test("Google Drive-backed projects stay compressed off-server and are removed wi
   const folders = new Map();
   const files = new Map();
   let nextFileId = 0;
+  let accountStore = null;
   const driveStorage = {
+    async readAccountStore() {
+      return accountStore;
+    },
+    async writeAccountStore(data) {
+      accountStore = Buffer.from(data);
+    },
     async createAccountFolder(accountId) {
       const id = `folder-${accountId}`;
       folders.set(id, new Set());
@@ -531,13 +538,85 @@ test("Google Drive-backed projects stay compressed off-server and are removed wi
     body: JSON.stringify({ password: "correct horse battery" }),
   });
   assert.equal(folders.size, 0);
+  assert.deepEqual(JSON.parse(accountStore.toString("utf8")).accounts, {});
+});
+
+test("account records and session key migrate to Google Drive and survive a fresh server", async (t) => {
+  const legacyDataDirectory = await mkdtemp(join(tmpdir(), "dansbpm-account-migration-"));
+  const freshDataDirectory = await mkdtemp(join(tmpdir(), "dansbpm-account-drive-"));
+  let accountStore = null;
+  const driveStorage = {
+    async readAccountStore() {
+      return accountStore;
+    },
+    async writeAccountStore(data) {
+      accountStore = Buffer.from(data);
+    },
+    async createAccountFolder(accountId) {
+      return `folder-${accountId}`;
+    },
+  };
+  let app = await openServer({ dataDirectory: legacyDataDirectory });
+  t.after(async () => {
+    await app.close();
+    await rm(legacyDataDirectory, { recursive: true, force: true });
+    await rm(freshDataDirectory, { recursive: true, force: true });
+  });
+  const request = (path, options = {}) => fetch(`${app.httpUrl}${path}`, {
+    ...options,
+    headers: {
+      origin: "http://localhost",
+      ...(options.headers || {}),
+    },
+  });
+  const registration = await request("/api/register", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Migrated user", password: "correct horse battery" }),
+  });
+  assert.equal(registration.status, 201);
+  const originalSession = await registration.json();
+  await app.close();
+
+  app = await openServer({ dataDirectory: legacyDataDirectory, driveStorage });
+  const migrationLogin = await request("/api/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Migrated user", password: "correct horse battery" }),
+  });
+  assert.equal(migrationLogin.status, 200);
+  const migratedData = JSON.parse(accountStore.toString("utf8"));
+  assert.equal(migratedData.accounts[originalSession.account.id].name, "Migrated user");
+  assert.equal(typeof migratedData.accounts[originalSession.account.id].passwordHash, "string");
+  assert.equal(accountStore.includes(Buffer.from("correct horse battery")), false);
+  await app.close();
+
+  app = await openServer({ dataDirectory: freshDataDirectory, driveStorage });
+  const preservedSession = await request("/api/projects", {
+    headers: { authorization: `Bearer ${originalSession.token}` },
+  });
+  assert.equal(preservedSession.status, 200);
+  const freshLogin = await request("/api/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Migrated user", password: "correct horse battery" }),
+  });
+  assert.equal(freshLogin.status, 200);
+  assert.equal((await freshLogin.json()).account.id, originalSession.account.id);
 });
 
 test("existing cloud project bundles migrate to Google Drive on the next sign-in", async (t) => {
   const dataDirectory = await mkdtemp(join(tmpdir(), "dansbpm-drive-migration-test-"));
   const folders = new Map();
   const files = new Map();
+  let accountStore = null;
   const driveStorage = {
+    async readAccountStore() {
+      return accountStore;
+    },
+    async writeAccountStore(data) {
+      accountStore = Buffer.from(data);
+    },
     async createAccountFolder(accountId) {
       const id = `folder-${accountId}`;
       folders.set(id, new Set());
