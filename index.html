@@ -140,6 +140,9 @@
         </section>
 
         <div class="workspace-tabs" role="tablist" aria-label="Workspace">
+          <button class="workspace-tab" id="arrangement-tab" type="button" role="tab" aria-selected="false" aria-controls="track-view-area">
+            Track
+          </button>
           <button class="workspace-tab" id="sequencer-tab" type="button" role="tab" aria-selected="false" aria-controls="sequencer-view">
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h2v2H3zm6 0h2v2H9zm6 0h2v2h-2zM3 11h2v2H3zm6 0h2v2H9zm6 0h2v2h-2z" /></svg>
             Rack
@@ -162,12 +165,6 @@
         </section>
 
         <section class="arrangement-workspace" id="arrangement-view" role="region" aria-label="Track View">
-          <div class="arrangement-heading" id="arrangement-heading">
-            <div class="arrangement-title">
-              <h1>Track View</h1>
-            </div>
-          </div>
-
           <div class="arrangement-card" id="arrangement-card">
             <div class="arrangement-layout">
               <div class="arrangement-main" id="arrangement-main">
@@ -670,7 +667,7 @@
                 </div>
                 <section class="track-view-area" id="track-view-area" aria-label="Track view">
                   <div class="track-view-heading">
-                    <span>TRACK VIEW</span>
+                    <span class="track-view-title">Track View</span>
                     <div class="track-view-controls">
                       <span class="collaboration-lock-status" id="track-view-lock-status" hidden></span>
                       <button class="quiet-button collaboration-workspace-action" data-collaboration-scope="track-view" data-collaboration-action="edit" type="button" hidden>Edit</button>
@@ -722,10 +719,6 @@
                   </div>
                 </section>
               </div>
-            </div>
-            <div class="arrangement-footer">
-              <span><span class="legend-swatch"></span>DRUM PATTERN <span class="audio-legend"></span>AUDIO CLIP <span class="mel-legend"></span>MEL</span>
-              <span>Double-click audio clips to edit <span class="hint-divider">·</span> Upper-right handle repeats a clip or slice; lower-right trims/extends <span class="hint-divider">·</span> <kbd>P</kbd> place <span class="hint-divider">·</span> <kbd>S</kbd> split <span class="hint-divider">·</span> <kbd>T</kbd> slice tool <span class="hint-divider">·</span> <kbd>DELETE</kbd> remove</span>
             </div>
           </div>
         </section>
@@ -850,6 +843,7 @@
               <input id="asset-library-search-input" type="search" placeholder="Search patterns, Mels, sounds…" aria-label="Search asset library">
             </div>
             <div class="source-section-label">PATTERNS <span id="pattern-asset-count">0</span></div>
+            <button class="source-add-button" id="asset-library-new-pattern-button" type="button">＋ Create pattern</button>
             <div class="asset-browser" id="pattern-asset-browser"></div>
             <div class="source-section-label">MELS <span id="mel-asset-count">0</span></div>
             <div class="asset-browser" id="mel-asset-browser"></div>
@@ -1400,6 +1394,6 @@
       <button class="continue-as-guest" id="continue-as-guest" type="button">Continue as Guest</button>
     </section>
     <script src="assets/vendor/lame.min.js"></script>
-    <script src="app.js?v=44642c050deb"></script>
+    <script src="app.js?v=75e2f4b126e5"></script>
   </body>
 </html>

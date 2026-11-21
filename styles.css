@@ -604,6 +604,13 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .asset-source-name { overflow: hidden; flex: 1; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .asset-source-kind { flex: 0 0 auto; color: #77787e; font-family: var(--mono); font-size: 7px; text-transform: uppercase; }
 .asset-source-empty { padding: 4px; color: #68696f; font-size: 9px; }
+.pattern-component-group { display: flex; flex-direction: column; gap: 2px; }
+.pattern-component-group > summary { list-style: none; }
+.pattern-component-group > summary::-webkit-details-marker { display: none; }
+.pattern-component-group > summary::before { width: 0; height: 0; flex: 0 0 auto; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 5px solid #8a8b90; content: ""; transition: transform .12s ease; }
+.pattern-component-group[open] > summary::before { transform: rotate(90deg); }
+.pattern-component-row { margin-left: 12px; padding: 5px 5px 5px 9px; border-left: 1px solid #34353a; color: #aeb0b1; font-size: 9px; cursor: grab; }
+.pattern-component-row:hover { background: #242529; color: #f0f1ec; }
 .recordings-section-label { margin-top: 17px; }
 .recordings-section-label span { color: #9a9ba0; }
 .recording-browser { display: flex; flex-direction: column; gap: 3px; }

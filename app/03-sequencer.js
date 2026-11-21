@@ -725,7 +725,7 @@
       name,
       cells: [],
     });
-    track.subtitle = "Choose or drop an instrument";
+    track.subtitle = "No instrument";
     return track;
   }
 

@@ -1277,6 +1277,7 @@
     renderTracks();
     renderPresets();
     renderPatternSelectors();
+    renderArrangementAssetBrowser();
     updateArrangementLength();
     renderArrangement();
     updateCollaborationLockUi();
@@ -1324,6 +1325,7 @@
     }
     renderPresets();
     renderPatternSelectors();
+    renderArrangementAssetBrowser();
     updateArrangementLength();
     renderArrangement();
     saveState();
@@ -1637,7 +1639,6 @@
       const nameText = document.createElement("span");
       nameText.className = "track-name-text";
       nameText.textContent = track.name;
-      nameText.addEventListener("contextmenu", (event) => openRackRowContextMenu(event, track));
       const chooseInstrument = document.createElement("button");
       chooseInstrument.className = "track-instrument-picker";
       chooseInstrument.type = "button";
@@ -1660,6 +1661,7 @@
       subtitle.className = `track-subtitle${track.sample ? " has-sample" : ""}`;
       subtitle.title = track.sample?.name || track.subtitle;
       subtitle.textContent = track.sample?.name || track.subtitle;
+      info.addEventListener("contextmenu", (event) => openRackRowContextMenu(event, track));
       info.append(name, subtitle);
       const controls = document.createElement("div");
       controls.className = "track-controls";

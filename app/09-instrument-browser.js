@@ -299,39 +299,46 @@
         browser.append(item);
       });
     };
-    renderList(
-      "pattern-asset-browser",
-      "pattern-asset-count",
-      getPatternLibraryAssets(),
-      "Pattern",
-      "application/x-pulsegrid-pattern-source",
-      (pattern) => ({ patternId: pattern.id }),
-    );
-    renderList(
-      "mel-asset-browser",
-      "mel-asset-count",
-      state.mels,
-      "Mel",
-      "application/x-pulsegrid-mel-source",
-      (mel) => ({ melId: mel.id }),
-    );
+    const patterns = getPatternLibraryAssets();
     const patternBrowser = $("#pattern-asset-browser");
-    getPatternLibraryAssets().forEach((pattern) => {
-      const group = document.querySelector(`[data-pattern-component-group="${pattern.id}"]`);
-      if (group) return;
+    patternBrowser.replaceChildren();
+    patternBrowser.setAttribute("role", "list");
+    $("#pattern-asset-count").textContent = String(patterns.length);
+    if (!patterns.length) {
+      const empty = document.createElement("div");
+      empty.className = "asset-source-empty";
+      empty.textContent = "No saved patterns yet";
+      patternBrowser.append(empty);
+    }
+    patterns.forEach((pattern) => {
       const details = document.createElement("details");
       details.className = "pattern-component-group";
-      details.dataset.patternComponentGroup = pattern.id;
       const summary = document.createElement("summary");
-      summary.textContent = pattern.name;
-      summary.setAttribute("draggable", "true");
+      summary.className = "asset-source pattern-asset-summary";
+      summary.dataset.assetType = "pattern";
+      summary.dataset.assetId = pattern.id;
+      summary.setAttribute("aria-label", `${pattern.name}, drag to Track View or expand components`);
+      summary.draggable = true;
+      summary.classList.toggle(
+        "is-selected",
+        state.selectedAsset?.type === "pattern" && state.selectedAsset.id === pattern.id,
+      );
+      const name = document.createElement("span");
+      name.className = "asset-source-name";
+      name.textContent = pattern.name;
+      const kind = document.createElement("span");
+      kind.className = "asset-source-kind";
+      kind.textContent = "Pattern";
+      summary.append(name, kind);
+      summary.addEventListener("click", () => {
+        setSelectedAsset({ type: "pattern", id: pattern.id, name: pattern.name });
+      });
       summary.addEventListener("dragstart", (event) => {
         event.dataTransfer?.setData("application/x-pulsegrid-pattern-source",
           JSON.stringify({ patternId: pattern.id }));
       });
-      summary.addEventListener("contextmenu", (event) => {
-        openAssetContextMenu("pattern", pattern.id, event);
-      });
+      summary.addEventListener("contextmenu", (event) =>
+        openAssetContextMenu("pattern", pattern.id, event));
       details.append(summary);
       getPatternTrackIds(pattern).forEach((trackId) => {
         const sourceTrack = state.tracks.find((track) => track.id === trackId);
@@ -359,6 +366,14 @@
       });
       patternBrowser.append(details);
     });
+    renderList(
+      "mel-asset-browser",
+      "mel-asset-count",
+      state.mels,
+      "Mel",
+      "application/x-pulsegrid-mel-source",
+      (mel) => ({ melId: mel.id }),
+    );
   }
 
   function setSelectedAsset(asset) {

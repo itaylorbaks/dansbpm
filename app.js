@@ -8178,7 +8178,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       name,
       cells: [],
     });
-    track.subtitle = "Choose or drop an instrument";
+    track.subtitle = "No instrument";
     return track;
   }
 
@@ -11155,7 +11155,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=44642c050deb");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=75e2f4b126e5");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -13183,6 +13183,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderTracks();
     renderPresets();
     renderPatternSelectors();
+    renderArrangementAssetBrowser();
     updateArrangementLength();
     renderArrangement();
     updateCollaborationLockUi();
@@ -13230,6 +13231,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     }
     renderPresets();
     renderPatternSelectors();
+    renderArrangementAssetBrowser();
     updateArrangementLength();
     renderArrangement();
     saveState();
@@ -13543,7 +13545,6 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       const nameText = document.createElement("span");
       nameText.className = "track-name-text";
       nameText.textContent = track.name;
-      nameText.addEventListener("contextmenu", (event) => openRackRowContextMenu(event, track));
       const chooseInstrument = document.createElement("button");
       chooseInstrument.className = "track-instrument-picker";
       chooseInstrument.type = "button";
@@ -13566,6 +13567,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       subtitle.className = `track-subtitle${track.sample ? " has-sample" : ""}`;
       subtitle.title = track.sample?.name || track.subtitle;
       subtitle.textContent = track.sample?.name || track.subtitle;
+      info.addEventListener("contextmenu", (event) => openRackRowContextMenu(event, track));
       info.append(name, subtitle);
       const controls = document.createElement("div");
       controls.className = "track-controls";
@@ -23145,39 +23147,46 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         browser.append(item);
       });
     };
-    renderList(
-      "pattern-asset-browser",
-      "pattern-asset-count",
-      getPatternLibraryAssets(),
-      "Pattern",
-      "application/x-pulsegrid-pattern-source",
-      (pattern) => ({ patternId: pattern.id }),
-    );
-    renderList(
-      "mel-asset-browser",
-      "mel-asset-count",
-      state.mels,
-      "Mel",
-      "application/x-pulsegrid-mel-source",
-      (mel) => ({ melId: mel.id }),
-    );
+    const patterns = getPatternLibraryAssets();
     const patternBrowser = $("#pattern-asset-browser");
-    getPatternLibraryAssets().forEach((pattern) => {
-      const group = document.querySelector(`[data-pattern-component-group="${pattern.id}"]`);
-      if (group) return;
+    patternBrowser.replaceChildren();
+    patternBrowser.setAttribute("role", "list");
+    $("#pattern-asset-count").textContent = String(patterns.length);
+    if (!patterns.length) {
+      const empty = document.createElement("div");
+      empty.className = "asset-source-empty";
+      empty.textContent = "No saved patterns yet";
+      patternBrowser.append(empty);
+    }
+    patterns.forEach((pattern) => {
       const details = document.createElement("details");
       details.className = "pattern-component-group";
-      details.dataset.patternComponentGroup = pattern.id;
       const summary = document.createElement("summary");
-      summary.textContent = pattern.name;
-      summary.setAttribute("draggable", "true");
+      summary.className = "asset-source pattern-asset-summary";
+      summary.dataset.assetType = "pattern";
+      summary.dataset.assetId = pattern.id;
+      summary.setAttribute("aria-label", `${pattern.name}, drag to Track View or expand components`);
+      summary.draggable = true;
+      summary.classList.toggle(
+        "is-selected",
+        state.selectedAsset?.type === "pattern" && state.selectedAsset.id === pattern.id,
+      );
+      const name = document.createElement("span");
+      name.className = "asset-source-name";
+      name.textContent = pattern.name;
+      const kind = document.createElement("span");
+      kind.className = "asset-source-kind";
+      kind.textContent = "Pattern";
+      summary.append(name, kind);
+      summary.addEventListener("click", () => {
+        setSelectedAsset({ type: "pattern", id: pattern.id, name: pattern.name });
+      });
       summary.addEventListener("dragstart", (event) => {
         event.dataTransfer?.setData("application/x-pulsegrid-pattern-source",
           JSON.stringify({ patternId: pattern.id }));
       });
-      summary.addEventListener("contextmenu", (event) => {
-        openAssetContextMenu("pattern", pattern.id, event);
-      });
+      summary.addEventListener("contextmenu", (event) =>
+        openAssetContextMenu("pattern", pattern.id, event));
       details.append(summary);
       getPatternTrackIds(pattern).forEach((trackId) => {
         const sourceTrack = state.tracks.find((track) => track.id === trackId);
@@ -23205,6 +23214,14 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       });
       patternBrowser.append(details);
     });
+    renderList(
+      "mel-asset-browser",
+      "mel-asset-count",
+      state.mels,
+      "Mel",
+      "application/x-pulsegrid-mel-source",
+      (mel) => ({ melId: mel.id }),
+    );
   }
 
   function setSelectedAsset(asset) {
@@ -26684,7 +26701,6 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     const showPianoRoll = view === "piano-roll";
     const showMixer = view === "mixer";
     const showDJ = view === "dj";
-    $("#arrangement-heading").hidden = showSequencer || showPianoRoll || showMixer || showDJ;
     $("#arrangement-view").hidden = false;
     document.body.classList.toggle("is-beat-grid-open", showSequencer);
     $("#sequencer-view").hidden = !showSequencer && !state.rackUndocked;
@@ -36012,6 +36028,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     });
     $("#rename-pattern-sequencer-button").addEventListener("click", renamePattern);
     $("#new-pattern-sequencer-button").addEventListener("click", () => createPattern());
+    $("#asset-library-new-pattern-button").addEventListener("click", () => createPattern());
     $("#grid-resolution-select").addEventListener("change", (event) => {
       setPatternGridResolution(event.target.value);
     });

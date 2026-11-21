@@ -924,6 +924,7 @@
     });
     $("#rename-pattern-sequencer-button").addEventListener("click", renamePattern);
     $("#new-pattern-sequencer-button").addEventListener("click", () => createPattern());
+    $("#asset-library-new-pattern-button").addEventListener("click", () => createPattern());
     $("#grid-resolution-select").addEventListener("change", (event) => {
       setPatternGridResolution(event.target.value);
     });
