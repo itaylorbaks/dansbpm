@@ -1456,7 +1456,7 @@
       } else if (event.key === "Enter") {
         event.preventDefault();
         enterSelectedProject();
-      } else if (event.key === "Delete") {
+      } else if (event.key === "Delete" || event.key === "Backspace") {
         event.preventDefault();
         void deleteSelectedProject();
       }

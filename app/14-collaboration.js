@@ -1738,6 +1738,11 @@
       if (isCurrentProject) {
         if (state.isPlaying) stopPlayback();
         stopAllWorkspacePlayers();
+        try {
+          window.sessionStorage.setItem(OPEN_PROJECTS_KEY, "true");
+        } catch (error) {
+          showToast(`Project deleted, but the project menu could not be reopened: ${error.message || "session storage is unavailable"}`);
+        }
         window.location.reload();
         return;
       }

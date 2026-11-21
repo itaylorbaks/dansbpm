@@ -11157,7 +11157,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=1e383fa43522");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=a33b1a4df74c");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -31597,6 +31597,11 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       if (isCurrentProject) {
         if (state.isPlaying) stopPlayback();
         stopAllWorkspacePlayers();
+        try {
+          window.sessionStorage.setItem(OPEN_PROJECTS_KEY, "true");
+        } catch (error) {
+          showToast(`Project deleted, but the project menu could not be reopened: ${error.message || "session storage is unavailable"}`);
+        }
         window.location.reload();
         return;
       }
@@ -36629,7 +36634,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       } else if (event.key === "Enter") {
         event.preventDefault();
         enterSelectedProject();
-      } else if (event.key === "Delete") {
+      } else if (event.key === "Delete" || event.key === "Backspace") {
         event.preventDefault();
         void deleteSelectedProject();
       }
