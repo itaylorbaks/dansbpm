@@ -219,6 +219,7 @@
 
   let rackTabDrag = null;
   let suppressRackTabClick = false;
+  let rackAssetLibraryAutoFloated = false;
   let pianoRollTabDrag = null;
   let suppressPianoRollTabClick = false;
 
@@ -255,11 +256,42 @@
   }
 
   function dockRackWindow() {
+    if (rackAssetLibraryAutoFloated && $("#source-browser-dialog").open) {
+      rackAssetLibraryAutoFloated = false;
+      $("#source-browser-dialog").close();
+    }
     const rack = $("#sequencer-view");
     state.rackUndocked = false;
     $(".workspace-content").insertBefore(rack, $("#piano-roll-view"));
     $("#rack-floating-window").hidden = true;
+    $("#rack-floating-window").style.removeProperty("min-width");
+    $("#rack-floating-window").style.removeProperty("width");
     setWorkspaceView("sequencer");
+  }
+
+  function openRackAssetLibrary() {
+    const gap = 8;
+    const panelWidth = Math.min(320, Math.max(180, Math.floor(window.innerWidth * 0.32)));
+    if (!state.rackUndocked) {
+      rackAssetLibraryAutoFloated = true;
+      floatRackWindow(panelWidth + 108, 80);
+    }
+
+    const rackWindow = $("#rack-floating-window");
+    const rackWidth = Math.max(1, Math.min(860, window.innerWidth - panelWidth - gap * 3));
+    rackWindow.style.minWidth = `${Math.min(360, rackWidth)}px`;
+    rackWindow.style.width = `${rackWidth}px`;
+    fitFloatingRackWindow();
+    rackWindow.style.left = `${panelWidth + gap * 2}px`;
+    rackWindow.style.top = `${Math.max(8, Math.min(
+      rackWindow.offsetTop,
+      window.innerHeight - rackWindow.offsetHeight - 8,
+    ))}px`;
+
+    openAssetLibrary();
+    const assetLibrary = $("#source-browser-dialog");
+    assetLibrary.style.left = `${gap}px`;
+    assetLibrary.style.width = `${panelWidth}px`;
   }
 
   function moveRackTab(event) {
@@ -1296,6 +1328,12 @@
       closeAssetContextMenu();
       closeSoundDurationMenu();
       restoreAssetLibraryDialogPosition();
+      $("#source-browser-dialog").style.removeProperty("left");
+      $("#source-browser-dialog").style.removeProperty("width");
+      if (rackAssetLibraryAutoFloated) {
+        rackAssetLibraryAutoFloated = false;
+        if (state.rackUndocked) dockRackWindow();
+      }
     });
     $("#empty-import-button").addEventListener("click", () => requestRecordingImport());
     $("#side-add-recording").addEventListener("click", requestAudioAssetImport);

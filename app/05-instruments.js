@@ -314,6 +314,11 @@
     menu.dataset.trackId = track.id;
     menu.hidden = false;
     positionContextMenuAtTarget(menu, event.currentTarget);
+    const targetBounds = event.currentTarget.getBoundingClientRect();
+    menu.style.top = `${Math.max(8, Math.min(
+      targetBounds.top,
+      window.innerHeight - menu.offsetHeight - 8,
+    ))}px`;
   }
 
   async function applyStepInstrumentSelection() {
@@ -1763,7 +1768,7 @@
     addInstrument.title = "Browse the Asset Library or drop an instrument here";
     addInstrument.setAttribute("aria-haspopup", "dialog");
     addInstrument.setAttribute("aria-controls", "source-browser-dialog");
-    addInstrument.addEventListener("click", () => openAssetLibrary());
+    addInstrument.addEventListener("click", () => openRackAssetLibrary());
     addInstrument.addEventListener("dragover", (event) => {
       if (!Array.from(event.dataTransfer?.types || []).includes("application/x-pulsegrid-instrument-source")) return;
       event.preventDefault();
