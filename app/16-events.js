@@ -13,7 +13,7 @@
   function updateTransportModeIndicator() {
     const indicator = $("#play-mode-indicator");
     const patternMode = state.transportMode === "sequencer";
-    indicator.textContent = patternMode ? "PATTERN" : "TRACK";
+    indicator.textContent = patternMode ? "PAT" : "TRACK";
     indicator.setAttribute("aria-label", `Playback mode: ${patternMode ? "Pattern" : "Track"}. Click to switch.`);
     indicator.setAttribute("aria-pressed", String(patternMode));
   }
@@ -949,7 +949,17 @@
     });
     $("#rename-pattern-sequencer-button").addEventListener("click", renamePattern);
     $("#new-pattern-sequencer-button").addEventListener("click", () => createPattern());
-    $("#asset-library-new-pattern-button").addEventListener("click", () => createPattern());
+    $("#asset-library-new-pattern-button").addEventListener("click", () => {
+      const pattern = createPattern();
+      if (!pattern) return;
+      const assetLibrary = $("#source-browser-dialog");
+      if (assetLibrary.open) assetLibrary.close();
+      if (state.rackUndocked) {
+        $("#rack-floating-window").hidden = false;
+        return;
+      }
+      floatRackWindow(window.innerWidth / 2, window.innerHeight / 3);
+    });
     $("#grid-resolution-select").addEventListener("change", (event) => {
       setPatternGridResolution(event.target.value);
     });

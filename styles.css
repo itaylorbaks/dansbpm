@@ -149,9 +149,13 @@ body.is-exporting .app-shell { cursor: wait; opacity: .7; pointer-events: none; 
 
 .transport-panel { height: 66px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--stroke-soft); }
 .transport-left, .transport-right { height: 100%; display: flex; align-items: center; }
+.transport-play-control { height: 36px; display: flex; }
 .transport-button { width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid var(--stroke); background: #1c1d20; cursor: pointer; }
 .stop-button { border-radius: 8px 0 0 8px; border-right: 0; }
-.play-button { width: 43px; border-radius: 0 8px 8px 0; background: var(--accent); border-color: var(--accent); color: #171a0f; }
+.play-mode-indicator { width: 43px; border-left: 0; border-right: 0; border-radius: 0; background: #292a2e; color: #b6b7bd; font: 7px var(--mono); letter-spacing: .3px; }
+.play-mode-indicator:hover { background: #34353a; color: #f0f1ec; }
+.play-mode-indicator[aria-pressed="true"] { color: var(--accent); }
+.play-button { width: 36px; border-radius: 0 8px 8px 0; background: var(--accent); border-color: var(--accent); color: #171a0f; }
 .play-button:hover { background: #dfff7b; }
 .play-button.is-playing { background: #c2ea58; }
 .stop-icon { width: 9px; height: 9px; border-radius: 1px; background: #b7b8bd; }
