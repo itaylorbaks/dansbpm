@@ -1436,6 +1436,7 @@ body:has(#arrangement-view:not([hidden])) .workspace-tabs {
 .pattern-select-control > span { color: #77787e; font-family: var(--mono); font-size: 7px; letter-spacing: .35px; }
 .pattern-select-control select { max-width: 112px; border: 0; background: transparent; color: #d3d4d0; font-size: 9px; }
 .pattern-select-control select:focus-visible { outline-offset: 0; }
+#sequencer-pattern-drag-source { max-width: 120px; overflow: hidden; white-space: nowrap; }
 .scale-control { display: flex; height: 30px; align-items: center; gap: 5px; border: 1px solid var(--stroke); border-radius: 5px; background: #1a1b1e; padding: 0 6px; }
 .scale-control > span { color: #77787e; font-family: var(--mono); font-size: 7px; letter-spacing: .35px; }
 .scale-control input { width: 58px; height: 14px; margin: 0; accent-color: var(--accent); }

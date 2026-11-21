@@ -892,6 +892,11 @@
     });
     select.value = state.selectedPatternId;
     const selected = getPattern();
+    const dragSource = $("#sequencer-pattern-drag-source");
+    dragSource.disabled = !selected;
+    dragSource.style.setProperty("--pattern-color", selected?.color || "var(--accent)");
+    $("#sequencer-pattern-drag-title").textContent = selected?.name || "Pattern";
+    dragSource.title = `Drag ${selected?.name || "pattern"} to Track View`;
     $("#grid-resolution-select").value = getPatternGridResolution(selected);
   }
 

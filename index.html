@@ -182,10 +182,11 @@
                         </div>
                         <div class="sequencer-actions" id="sequencer-actions">
                           <button class="quiet-button workspace-play-button" id="sequencer-workspace-play-button" type="button" aria-label="Play Rack workspace" aria-pressed="false"><span class="play-icon" aria-hidden="true"></span><span class="workspace-play-label">Play</span></button>
-                          <label class="pattern-select-control">
+                          <div class="pattern-select-control" role="group" aria-label="Pattern selection">
                             <span>PATTERN</span>
                             <select id="sequencer-pattern-select" aria-label="Select pattern to edit"></select>
-                          </label>
+                            <button class="quiet-button pattern-drag-source" id="sequencer-pattern-drag-source" type="button" draggable="true" aria-label="Drag selected pattern to Track View"><span id="sequencer-pattern-drag-title"></span><span aria-hidden="true">⠿</span></button>
+                          </div>
                           <button class="quiet-button" id="rename-pattern-sequencer-button" type="button">Rename</button>
                           <button class="quiet-button" id="new-pattern-sequencer-button" type="button">＋ New</button>
                           <label class="pattern-select-control">
@@ -1327,6 +1328,6 @@
       <button class="continue-as-guest" id="continue-as-guest" type="button">Continue as Guest</button>
     </section>
     <script src="assets/vendor/lame.min.js"></script>
-    <script src="app.js?v=858c90c6f4b2"></script>
+    <script src="app.js?v=6a37c081129b"></script>
   </body>
 </html>
