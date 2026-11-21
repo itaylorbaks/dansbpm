@@ -1384,6 +1384,8 @@
     if (!track) return;
     if (action === "piano-roll") {
       openStepInstrumentPianoRoll(track.id);
+    } else if (action === "edit-sound") {
+      openStepTrackMix(track);
     } else if (action === "rename") {
       const name = window.prompt("Rename Rack row", track.name)?.trim();
       if (name) {
@@ -1440,10 +1442,10 @@
       renderArrangement();
       saveState();
     } else if (action === "automation") {
-      track.automation ||= normalizeTrackAutomation();
+      track.automation = normalizeTrackAutomation(track.automation);
       track.automationOpen = true;
-      renderTracks();
-      renderArrangement();
+      if (state.view === "arrangement" && !state.workspaceHidden) renderArrangement();
+      else setWorkspaceView("arrangement");
       saveState();
     } else if (action === "delete") {
       removePatternInstrument(track);
@@ -1639,16 +1641,7 @@
       nameText.className = "track-name-text";
       nameText.textContent = track.name;
       nameText.title = track.name;
-      const chooseInstrument = document.createElement("button");
-      chooseInstrument.className = "track-instrument-picker";
-      chooseInstrument.type = "button";
-      chooseInstrument.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 7.5 5 5 5-5" /></svg>';
-      chooseInstrument.setAttribute("aria-label", `Choose instrument for ${track.name}`);
-      chooseInstrument.setAttribute("aria-haspopup", "dialog");
-      chooseInstrument.setAttribute("aria-controls", "step-instrument-dialog");
-      chooseInstrument.title = "Choose row instrument";
-      chooseInstrument.addEventListener("click", () => openStepInstrumentPicker(track.id));
-      name.append(nameText, chooseInstrument);
+      name.append(nameText);
       const liveKey = liveKeys?.get(track.id);
       if (liveKey) {
         const keyHint = document.createElement("kbd");
@@ -1684,7 +1677,6 @@
         makeTrackButton("solo", "Solo track", track),
         makeTrackButton("sample", track.sample ? "Replace loaded sample" : "Load an audio sample", track),
         makeTrackButton("remove-from-pattern", "Remove instrument from this pattern", track),
-        makeTrackButton("mix", `Open ${track.name} mix`, track),
       );
       if (track.kind === "sample" && !track.sourceId) controls.append(makeTrackButton("remove", "Remove imported drum sound", track));
       meta.append(selectionIndicator, mixerNumber, color, info, controls);
@@ -1972,18 +1964,6 @@
     button.type = "button";
     button.setAttribute("aria-label", label);
     button.setAttribute("title", label);
-    if (type === "mix") {
-      button.classList.add("track-mix-button");
-      const vst = getVstSourceTrack(track);
-      button.textContent = vst ? `Mix - ${vst.name}` : "MIX";
-      button.classList.toggle("is-vst", Boolean(vst));
-      button.setAttribute("aria-label", vst ? `Open ${vst.name} editor` : label);
-      button.title = vst ? `${vst.name} VST editor` : label;
-      button.setAttribute("aria-haspopup", "dialog");
-      button.setAttribute("aria-controls", vst ? "dansbpm-synth-dialog" : "step-track-mix-dialog");
-      button.addEventListener("click", () => openStepTrackMix(track));
-      return button;
-    }
     if (type === "sample") {
       button.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12" /></svg>';
       button.addEventListener("click", () => {

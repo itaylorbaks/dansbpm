@@ -11157,7 +11157,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=f8705b9d626c");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=df0013956e5c");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -13292,6 +13292,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     if (!track) return;
     if (action === "piano-roll") {
       openStepInstrumentPianoRoll(track.id);
+    } else if (action === "edit-sound") {
+      openStepTrackMix(track);
     } else if (action === "rename") {
       const name = window.prompt("Rename Rack row", track.name)?.trim();
       if (name) {
@@ -13348,10 +13350,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       renderArrangement();
       saveState();
     } else if (action === "automation") {
-      track.automation ||= normalizeTrackAutomation();
+      track.automation = normalizeTrackAutomation(track.automation);
       track.automationOpen = true;
-      renderTracks();
-      renderArrangement();
+      if (state.view === "arrangement" && !state.workspaceHidden) renderArrangement();
+      else setWorkspaceView("arrangement");
       saveState();
     } else if (action === "delete") {
       removePatternInstrument(track);
@@ -13547,16 +13549,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       nameText.className = "track-name-text";
       nameText.textContent = track.name;
       nameText.title = track.name;
-      const chooseInstrument = document.createElement("button");
-      chooseInstrument.className = "track-instrument-picker";
-      chooseInstrument.type = "button";
-      chooseInstrument.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 7.5 5 5 5-5" /></svg>';
-      chooseInstrument.setAttribute("aria-label", `Choose instrument for ${track.name}`);
-      chooseInstrument.setAttribute("aria-haspopup", "dialog");
-      chooseInstrument.setAttribute("aria-controls", "step-instrument-dialog");
-      chooseInstrument.title = "Choose row instrument";
-      chooseInstrument.addEventListener("click", () => openStepInstrumentPicker(track.id));
-      name.append(nameText, chooseInstrument);
+      name.append(nameText);
       const liveKey = liveKeys?.get(track.id);
       if (liveKey) {
         const keyHint = document.createElement("kbd");
@@ -13592,7 +13585,6 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         makeTrackButton("solo", "Solo track", track),
         makeTrackButton("sample", track.sample ? "Replace loaded sample" : "Load an audio sample", track),
         makeTrackButton("remove-from-pattern", "Remove instrument from this pattern", track),
-        makeTrackButton("mix", `Open ${track.name} mix`, track),
       );
       if (track.kind === "sample" && !track.sourceId) controls.append(makeTrackButton("remove", "Remove imported drum sound", track));
       meta.append(selectionIndicator, mixerNumber, color, info, controls);
@@ -13880,18 +13872,6 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     button.type = "button";
     button.setAttribute("aria-label", label);
     button.setAttribute("title", label);
-    if (type === "mix") {
-      button.classList.add("track-mix-button");
-      const vst = getVstSourceTrack(track);
-      button.textContent = vst ? `Mix - ${vst.name}` : "MIX";
-      button.classList.toggle("is-vst", Boolean(vst));
-      button.setAttribute("aria-label", vst ? `Open ${vst.name} editor` : label);
-      button.title = vst ? `${vst.name} VST editor` : label;
-      button.setAttribute("aria-haspopup", "dialog");
-      button.setAttribute("aria-controls", vst ? "dansbpm-synth-dialog" : "step-track-mix-dialog");
-      button.addEventListener("click", () => openStepTrackMix(track));
-      return button;
-    }
     if (type === "sample") {
       button.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12" /></svg>';
       button.addEventListener("click", () => {
@@ -20253,7 +20233,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     content.append(ruler);
 
     const arrangedPatternIds = new Set(state.patternClips.map((clip) => clip.trackId || clip.patternId));
-    const patternTracks = state.patterns.filter((pattern) => arrangedPatternIds.has(pattern.id));
+    const patternTracks = state.patterns.filter((pattern) =>
+      arrangedPatternIds.has(pattern.id) || getPatternTrackIds(pattern).some((trackId) =>
+        state.tracks.find((track) => track.id === trackId)?.automationOpen));
+    const rackAutomationRows = [];
     patternTracks.forEach((pattern) => {
       const label = document.createElement("div");
       label.className = `arrangement-label${state.selectedMixerTrackId === pattern.id ? " is-track-selected" : ""}`;
@@ -20278,6 +20261,22 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         .forEach((clip) => lane.append(createPatternClip(clip)));
       content.append(lane);
       appendAutomationRows(pattern, width, labels, content, automationLabelsByTrackId, automationLanesByTrackId);
+      getPatternTrackIds(pattern).forEach((trackId) => {
+        const rackTrack = state.tracks.find((track) => track.id === trackId);
+        if (!rackTrack?.automationOpen) return;
+        const rowId = `rack-automation:${pattern.id}:${rackTrack.id}`;
+        appendAutomationRows(
+          rackTrack,
+          width,
+          labels,
+          content,
+          automationLabelsByTrackId,
+          automationLanesByTrackId,
+          rowId,
+          `${rackTrack.name} · `,
+        );
+        rackAutomationRows.push({ id: rowId, type: "rack-automation", insertAfterTrackId: pattern.id });
+      });
     });
 
     state.melTracks.forEach((track) => {
@@ -20402,9 +20401,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     });
 
     const rows = [
-      ...patternTracks.map((track) => ({
-        id: track.id, type: "pattern", insertAfterTrackId: track.insertAfterTrackId,
-      })),
+      ...patternTracks.flatMap((track) => [
+        { id: track.id, type: "pattern", insertAfterTrackId: track.insertAfterTrackId },
+        ...rackAutomationRows.filter((row) => row.insertAfterTrackId === track.id),
+      ]),
       ...state.melTracks.map((track) => ({
         id: track.id, type: "mel", insertAfterTrackId: track.insertAfterTrackId,
       })),
@@ -20448,9 +20448,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     labels.replaceChildren(...orderedLabels);
     content.replaceChildren(timelineRuler, ...orderedLanes);
 
-    const availableTracks = Math.max(0, 12 - orderedRows.length);
+    const visibleTrackCount = orderedRows.filter((row) => row.type !== "rack-automation").length;
+    const availableTracks = Math.max(0, 12 - visibleTrackCount);
     for (let index = 0; index < availableTracks; index += 1) {
-      const trackNumber = orderedRows.length + index + 1;
+      const trackNumber = visibleTrackCount + index + 1;
       const trackId = `empty-track-${trackNumber}`;
       const label = document.createElement("div");
       label.className = "arrangement-label arrangement-empty-track";
@@ -20500,19 +20501,28 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     return button;
   }
 
-  function appendAutomationRows(track, width, labels, content, labelsByTrack, lanesByTrack) {
+  function appendAutomationRows(
+    track,
+    width,
+    labels,
+    content,
+    labelsByTrack,
+    lanesByTrack,
+    rowId = track.id,
+    labelPrefix = "",
+  ) {
     if (!track.automationOpen) return;
     const properties = ["volume", "pan"];
     const automationLabels = properties.map((property) => {
       const label = document.createElement("div");
       label.className = "automation-label";
-      label.textContent = property === "volume" ? "VOL AUTOMATION" : "PAN AUTOMATION";
+      label.textContent = `${labelPrefix}${property === "volume" ? "VOL AUTOMATION" : "PAN AUTOMATION"}`;
       label.style.setProperty("--track-color", track.color || "var(--accent)");
       return label;
     });
     const automationLanes = properties.map((property) => createArrangementAutomationLane(track, property, width));
-    labelsByTrack.set(track.id, automationLabels);
-    lanesByTrack.set(track.id, automationLanes);
+    labelsByTrack.set(rowId, automationLabels);
+    lanesByTrack.set(rowId, automationLanes);
     automationLabels.forEach((label) => labels.append(label));
     automationLanes.forEach((lane) => content.append(lane));
   }
@@ -29237,7 +29247,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   }
 
   function scheduleArrangementAutomation(startTime, startBar, endBar) {
-    const tracks = [...state.patterns, ...state.melTracks, ...state.arrangementTracks];
+    const tracks = [...state.patterns, ...state.tracks, ...state.melTracks, ...state.arrangementTracks];
     const secondsPerBar = 240 / state.bpm;
     tracks.forEach((track) => {
       const automation = normalizeTrackAutomation(track.automation);
@@ -29322,7 +29332,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     }
     if (state.audioContext) {
       const now = state.audioContext.currentTime;
-      [...state.patterns, ...state.melTracks, ...state.arrangementTracks].forEach((track) => {
+      [...state.patterns, ...state.tracks, ...state.melTracks, ...state.arrangementTracks].forEach((track) => {
         track.gainNode?.gain.cancelScheduledValues(now);
         track.automationGainNode?.gain.cancelScheduledValues(now);
         track.automationGainNode?.gain.setValueAtTime(1, now);
@@ -29720,6 +29730,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         cells: track.libraryOnly ? undefined : track.cells,
         volume: track.volume,
         pan: track.pan,
+        automation: normalizeTrackAutomation(track.automation),
+        automationOpen: track.automationOpen === true,
         muted: track.muted,
         solo: track.solo,
         variant: track.variant,
@@ -32259,6 +32271,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
           }
           if (Number.isFinite(savedTrack.volume)) track.volume = Math.max(0, Math.min(1, savedTrack.volume));
           if (Number.isFinite(savedTrack.pan)) track.pan = Math.max(-1, Math.min(1, savedTrack.pan));
+          track.automation = normalizeTrackAutomation(savedTrack.automation);
+          track.automationOpen = typeof savedTrack.automationOpen === "boolean"
+            ? savedTrack.automationOpen
+            : hasTrackAutomation(savedTrack.automation);
           if (Number.isFinite(savedTrack.pitch)) track.pitch = Math.max(-12, Math.min(12, savedTrack.pitch));
           if (Number.isFinite(savedTrack.swing)) track.swing = Math.max(0, Math.min(45, savedTrack.swing));
           if (savedTrack.audioMetadata) track.audioMetadata = normalizeAudioMetadata(savedTrack.audioMetadata);

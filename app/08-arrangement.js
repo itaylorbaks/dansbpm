@@ -51,7 +51,10 @@
     content.append(ruler);
 
     const arrangedPatternIds = new Set(state.patternClips.map((clip) => clip.trackId || clip.patternId));
-    const patternTracks = state.patterns.filter((pattern) => arrangedPatternIds.has(pattern.id));
+    const patternTracks = state.patterns.filter((pattern) =>
+      arrangedPatternIds.has(pattern.id) || getPatternTrackIds(pattern).some((trackId) =>
+        state.tracks.find((track) => track.id === trackId)?.automationOpen));
+    const rackAutomationRows = [];
     patternTracks.forEach((pattern) => {
       const label = document.createElement("div");
       label.className = `arrangement-label${state.selectedMixerTrackId === pattern.id ? " is-track-selected" : ""}`;
@@ -76,6 +79,22 @@
         .forEach((clip) => lane.append(createPatternClip(clip)));
       content.append(lane);
       appendAutomationRows(pattern, width, labels, content, automationLabelsByTrackId, automationLanesByTrackId);
+      getPatternTrackIds(pattern).forEach((trackId) => {
+        const rackTrack = state.tracks.find((track) => track.id === trackId);
+        if (!rackTrack?.automationOpen) return;
+        const rowId = `rack-automation:${pattern.id}:${rackTrack.id}`;
+        appendAutomationRows(
+          rackTrack,
+          width,
+          labels,
+          content,
+          automationLabelsByTrackId,
+          automationLanesByTrackId,
+          rowId,
+          `${rackTrack.name} · `,
+        );
+        rackAutomationRows.push({ id: rowId, type: "rack-automation", insertAfterTrackId: pattern.id });
+      });
     });
 
     state.melTracks.forEach((track) => {
@@ -200,9 +219,10 @@
     });
 
     const rows = [
-      ...patternTracks.map((track) => ({
-        id: track.id, type: "pattern", insertAfterTrackId: track.insertAfterTrackId,
-      })),
+      ...patternTracks.flatMap((track) => [
+        { id: track.id, type: "pattern", insertAfterTrackId: track.insertAfterTrackId },
+        ...rackAutomationRows.filter((row) => row.insertAfterTrackId === track.id),
+      ]),
       ...state.melTracks.map((track) => ({
         id: track.id, type: "mel", insertAfterTrackId: track.insertAfterTrackId,
       })),
@@ -246,9 +266,10 @@
     labels.replaceChildren(...orderedLabels);
     content.replaceChildren(timelineRuler, ...orderedLanes);
 
-    const availableTracks = Math.max(0, 12 - orderedRows.length);
+    const visibleTrackCount = orderedRows.filter((row) => row.type !== "rack-automation").length;
+    const availableTracks = Math.max(0, 12 - visibleTrackCount);
     for (let index = 0; index < availableTracks; index += 1) {
-      const trackNumber = orderedRows.length + index + 1;
+      const trackNumber = visibleTrackCount + index + 1;
       const trackId = `empty-track-${trackNumber}`;
       const label = document.createElement("div");
       label.className = "arrangement-label arrangement-empty-track";
@@ -298,19 +319,28 @@
     return button;
   }
 
-  function appendAutomationRows(track, width, labels, content, labelsByTrack, lanesByTrack) {
+  function appendAutomationRows(
+    track,
+    width,
+    labels,
+    content,
+    labelsByTrack,
+    lanesByTrack,
+    rowId = track.id,
+    labelPrefix = "",
+  ) {
     if (!track.automationOpen) return;
     const properties = ["volume", "pan"];
     const automationLabels = properties.map((property) => {
       const label = document.createElement("div");
       label.className = "automation-label";
-      label.textContent = property === "volume" ? "VOL AUTOMATION" : "PAN AUTOMATION";
+      label.textContent = `${labelPrefix}${property === "volume" ? "VOL AUTOMATION" : "PAN AUTOMATION"}`;
       label.style.setProperty("--track-color", track.color || "var(--accent)");
       return label;
     });
     const automationLanes = properties.map((property) => createArrangementAutomationLane(track, property, width));
-    labelsByTrack.set(track.id, automationLabels);
-    lanesByTrack.set(track.id, automationLanes);
+    labelsByTrack.set(rowId, automationLabels);
+    lanesByTrack.set(rowId, automationLanes);
     automationLabels.forEach((label) => labels.append(label));
     automationLanes.forEach((lane) => content.append(lane));
   }

@@ -1245,7 +1245,7 @@
   }
 
   function scheduleArrangementAutomation(startTime, startBar, endBar) {
-    const tracks = [...state.patterns, ...state.melTracks, ...state.arrangementTracks];
+    const tracks = [...state.patterns, ...state.tracks, ...state.melTracks, ...state.arrangementTracks];
     const secondsPerBar = 240 / state.bpm;
     tracks.forEach((track) => {
       const automation = normalizeTrackAutomation(track.automation);
@@ -1330,7 +1330,7 @@
     }
     if (state.audioContext) {
       const now = state.audioContext.currentTime;
-      [...state.patterns, ...state.melTracks, ...state.arrangementTracks].forEach((track) => {
+      [...state.patterns, ...state.tracks, ...state.melTracks, ...state.arrangementTracks].forEach((track) => {
         track.gainNode?.gain.cancelScheduledValues(now);
         track.automationGainNode?.gain.cancelScheduledValues(now);
         track.automationGainNode?.gain.setValueAtTime(1, now);
@@ -1728,6 +1728,8 @@
         cells: track.libraryOnly ? undefined : track.cells,
         volume: track.volume,
         pan: track.pan,
+        automation: normalizeTrackAutomation(track.automation),
+        automationOpen: track.automationOpen === true,
         muted: track.muted,
         solo: track.solo,
         variant: track.variant,
