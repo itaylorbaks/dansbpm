@@ -681,6 +681,10 @@
   function renderMixer() {
     const root = $("#mixer-content");
     const channels = getMixerTracks();
+    const expandedLibraryGroups = new Set(
+      [...root.querySelectorAll(".mixer-effects-library details[open]")]
+        .map((group) => group.dataset.mixerLibraryGroup),
+    );
     root.replaceChildren();
     channels.forEach(({ track }) => ensureTrackMixerState(track));
     if (!channels.some(({ track }) => track.id === state.selectedMixerTrackId)) {
@@ -795,17 +799,18 @@
     library.className = "mixer-effects-library";
     const libraryTitle = document.createElement("h2");
     const masterSelected = state.selectedMixerTrackId === state.masterTrack.id;
-    libraryTitle.textContent = "Available Presets";
+    libraryTitle.textContent = "Mixer tools";
     const libraryHint = document.createElement("p");
-    libraryHint.textContent = masterSelected
-      ? "Drag a preset onto a track or use Apply; individual effects can be dragged onto tracks."
-      : "Drag a preset onto a track or use Apply. Presets replace that track's effect chain.";
+    libraryHint.textContent = "Choose a category or drag an effect onto a lane.";
     const effectList = document.createElement("div");
     effectList.className = "mixer-effects-library-list";
-    const presetGroup = document.createElement("section");
+    const presetGroup = document.createElement("details");
     presetGroup.className = "mixer-effect-category mixer-included-presets";
-    const presetHeading = document.createElement("h3");
-    presetHeading.textContent = "Included presets";
+    presetGroup.dataset.mixerLibraryGroup = "presets";
+    presetGroup.open = expandedLibraryGroups.has("presets");
+    const presetHeading = document.createElement("summary");
+    presetHeading.className = "mixer-effect-category-heading";
+    presetHeading.textContent = "Presets";
     const presetCards = document.createElement("div");
     presetCards.className = "mixer-preset-list";
     MIXER_PRESETS.forEach((preset) => {
@@ -843,14 +848,21 @@
     });
     presetGroup.append(presetHeading, presetCards);
     effectList.append(presetGroup);
-    const effectsHeading = document.createElement("h3");
-    effectsHeading.className = "mixer-individual-effects-heading";
-    effectsHeading.textContent = "Individual effects";
-    effectList.append(effectsHeading);
+    const pluginsGroup = document.createElement("details");
+    pluginsGroup.className = "mixer-plugin-dropdown";
+    pluginsGroup.dataset.mixerLibraryGroup = "plugins";
+    pluginsGroup.open = expandedLibraryGroups.has("plugins");
+    const pluginsHeading = document.createElement("summary");
+    pluginsHeading.className = "mixer-effect-category-heading";
+    pluginsHeading.textContent = "Effect plugins";
+    pluginsGroup.append(pluginsHeading);
     EFFECT_CATEGORIES.forEach((category) => {
-      const group = document.createElement("section");
+      const group = document.createElement("details");
       group.className = "mixer-effect-category";
-      const heading = document.createElement("h3");
+      group.dataset.mixerLibraryGroup = `category:${category.name}`;
+      group.open = expandedLibraryGroups.has(group.dataset.mixerLibraryGroup);
+      const heading = document.createElement("summary");
+      heading.className = "mixer-effect-category-heading";
       heading.textContent = category.name;
       const categoryEffects = document.createElement("div");
       categoryEffects.className = "mixer-effect-category-list";
@@ -872,8 +884,9 @@
         categoryEffects.append(effect);
       });
       group.append(heading, categoryEffects);
-      effectList.append(group);
+      pluginsGroup.append(group);
     });
+    effectList.append(pluginsGroup);
     library.append(libraryTitle, libraryHint, effectList);
     root.append(trackList, library);
     syncMixerMeters();

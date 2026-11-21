@@ -45,6 +45,22 @@
     if (persist) saveState();
   }
 
+  function setTrackAssetLibraryWidth(width, persist = true) {
+    const content = $("#track-view-content");
+    const lane = $("#track-view-asset-lane");
+    const resizer = $("#track-asset-resizer");
+    const maxWidth = content.clientWidth
+      ? Math.max(150, Math.min(600, content.clientWidth - 280))
+      : 600;
+    state.trackAssetLibraryWidth = Math.max(150, Math.min(maxWidth, Math.round(width)));
+    lane.style.width = `${state.trackAssetLibraryWidth}px`;
+    lane.style.flexBasis = `${state.trackAssetLibraryWidth}px`;
+    resizer.setAttribute("aria-valuemax", String(maxWidth));
+    resizer.setAttribute("aria-valuenow", String(state.trackAssetLibraryWidth));
+    resizer.setAttribute("aria-valuetext", `${state.trackAssetLibraryWidth} pixels`);
+    if (persist) saveState();
+  }
+
   function routeSelectedRackRowsToMixer(separateBuses) {
     const pattern = getPattern();
     const trackIds = [...state.selectedRackRows].filter((id) =>
@@ -204,6 +220,14 @@
   let rackTabDrag = null;
   let suppressRackTabClick = false;
 
+  function fitFloatingRackWindow() {
+    if (!state.rackUndocked) return;
+    const floating = $("#rack-floating-window");
+    if (floating.hidden) return;
+    floating.style.height = "auto";
+    floating.style.height = `${Math.min(floating.scrollHeight, window.innerHeight - 16)}px`;
+  }
+
   function floatRackWindow(clientX, clientY) {
     const floating = $("#rack-floating-window");
     const rack = $("#sequencer-view");
@@ -220,9 +244,10 @@
       }
     }
     const width = Math.min(860, window.innerWidth - 24);
-    const height = Math.min(560, window.innerHeight - 80);
     floating.style.width = `${width}px`;
-    floating.style.height = `${height}px`;
+    floating.style.height = "auto";
+    fitFloatingRackWindow();
+    const height = floating.offsetHeight;
     floating.style.left = `${Math.max(8, Math.min(clientX - 100, window.innerWidth - width - 8))}px`;
     floating.style.top = `${Math.max(8, Math.min(clientY - 16, window.innerHeight - height - 8))}px`;
   }
@@ -1125,6 +1150,41 @@
       menu.hidden = true;
     });
     $("#source-browser-button").addEventListener("click", () => openTrackAssetLibrary());
+    const assetLaneResizer = $("#track-asset-resizer");
+    assetLaneResizer.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || $("#track-view-asset-lane").hidden) return;
+      event.preventDefault();
+      const pointerId = event.pointerId;
+      const left = $("#track-view-content").getBoundingClientRect().left;
+      document.body.classList.add("is-resizing-track-assets");
+      const move = (moveEvent) => {
+        if (moveEvent.pointerId === pointerId) {
+          setTrackAssetLibraryWidth(moveEvent.clientX - left, false);
+        }
+      };
+      const finish = (finishEvent) => {
+        if (finishEvent.pointerId !== pointerId) return;
+        document.removeEventListener("pointermove", move);
+        document.removeEventListener("pointerup", finish);
+        document.removeEventListener("pointercancel", finish);
+        document.body.classList.remove("is-resizing-track-assets");
+        saveState();
+      };
+      document.addEventListener("pointermove", move);
+      document.addEventListener("pointerup", finish);
+      document.addEventListener("pointercancel", finish);
+    });
+    assetLaneResizer.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      setTrackAssetLibraryWidth(state.trackAssetLibraryWidth + (event.key === "ArrowRight" ? 12 : -12));
+    });
+    window.addEventListener("resize", () => {
+      if (!$("#track-view-asset-lane").hidden && $("#track-view-content").clientWidth) {
+        setTrackAssetLibraryWidth(state.trackAssetLibraryWidth, false);
+      }
+      fitFloatingRackWindow();
+    });
     $("#source-browser-close").addEventListener("click", () => {
       if (isTrackAssetLibraryOpen()) closeTrackAssetLibrary();
       else $("#source-browser-dialog").close();

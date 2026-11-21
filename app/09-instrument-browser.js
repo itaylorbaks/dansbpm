@@ -901,6 +901,7 @@
     const { parent, nextSibling } = trackAssetLaneHome;
     parent.insertBefore(sidebar, nextSibling?.parentNode === parent ? nextSibling : null);
     lane.hidden = true;
+    $("#track-asset-resizer").hidden = true;
     trackAssetLaneHome = null;
   }
 
@@ -925,6 +926,8 @@
     trackAssetLaneHome = { parent: sidebar.parentElement, nextSibling: sidebar.nextSibling };
     lane.append(sidebar);
     lane.hidden = false;
+    $("#track-asset-resizer").hidden = false;
+    setTrackAssetLibraryWidth(state.trackAssetLibraryWidth, false);
   }
 
   function restoreAssetLibraryDialogPosition() {

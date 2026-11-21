@@ -452,6 +452,10 @@
       if (Number.isFinite(saved.bottomMixerRatio)) {
         state.bottomMixerRatio = Math.max(20, Math.min(80, Math.round(saved.bottomMixerRatio)));
       }
+      if (Number.isFinite(saved.trackAssetLibraryWidth)) {
+        state.trackAssetLibraryWidth = Math.max(150, Math.min(600, Math.round(saved.trackAssetLibraryWidth)));
+      }
+      if (isTrackAssetLibraryOpen()) setTrackAssetLibraryWidth(state.trackAssetLibraryWidth, false);
       if (typeof saved.workspaceHidden === "boolean") state.workspaceHidden = saved.workspaceHidden;
       if (typeof saved.trackViewHidden === "boolean") state.trackViewHidden = saved.trackViewHidden;
       if (state.workspaceHidden && state.trackViewHidden) state.trackViewHidden = false;

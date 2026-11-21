@@ -125,6 +125,7 @@
     arrangementSelectionFromMarquee: false,
     workspaceRatio: 50,
     bottomMixerRatio: 36,
+    trackAssetLibraryWidth: 240,
     workspaceHidden: true,
     trackViewHidden: false,
     rackUndocked: false,

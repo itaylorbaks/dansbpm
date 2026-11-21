@@ -6791,6 +6791,7 @@ const DRIVE_SAMPLE_TRACKS = [
     arrangementSelectionFromMarquee: false,
     workspaceRatio: 50,
     bottomMixerRatio: 36,
+    trackAssetLibraryWidth: 240,
     workspaceHidden: true,
     trackViewHidden: false,
     rackUndocked: false,
@@ -11155,7 +11156,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=75e2f4b126e5");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=9c3f0b2d32d4");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -13683,6 +13684,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderInstrumentBrowser();
     renderPianoInstrumentOptions();
     renderQuickActionPanel();
+    fitFloatingRackWindow();
   }
 
   function makeSoundSelect(track, compact = false) {
@@ -20858,6 +20860,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   function renderMixer() {
     const root = $("#mixer-content");
     const channels = getMixerTracks();
+    const expandedLibraryGroups = new Set(
+      [...root.querySelectorAll(".mixer-effects-library details[open]")]
+        .map((group) => group.dataset.mixerLibraryGroup),
+    );
     root.replaceChildren();
     channels.forEach(({ track }) => ensureTrackMixerState(track));
     if (!channels.some(({ track }) => track.id === state.selectedMixerTrackId)) {
@@ -20972,17 +20978,18 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     library.className = "mixer-effects-library";
     const libraryTitle = document.createElement("h2");
     const masterSelected = state.selectedMixerTrackId === state.masterTrack.id;
-    libraryTitle.textContent = "Available Presets";
+    libraryTitle.textContent = "Mixer tools";
     const libraryHint = document.createElement("p");
-    libraryHint.textContent = masterSelected
-      ? "Drag a preset onto a track or use Apply; individual effects can be dragged onto tracks."
-      : "Drag a preset onto a track or use Apply. Presets replace that track's effect chain.";
+    libraryHint.textContent = "Choose a category or drag an effect onto a lane.";
     const effectList = document.createElement("div");
     effectList.className = "mixer-effects-library-list";
-    const presetGroup = document.createElement("section");
+    const presetGroup = document.createElement("details");
     presetGroup.className = "mixer-effect-category mixer-included-presets";
-    const presetHeading = document.createElement("h3");
-    presetHeading.textContent = "Included presets";
+    presetGroup.dataset.mixerLibraryGroup = "presets";
+    presetGroup.open = expandedLibraryGroups.has("presets");
+    const presetHeading = document.createElement("summary");
+    presetHeading.className = "mixer-effect-category-heading";
+    presetHeading.textContent = "Presets";
     const presetCards = document.createElement("div");
     presetCards.className = "mixer-preset-list";
     MIXER_PRESETS.forEach((preset) => {
@@ -21020,14 +21027,21 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     });
     presetGroup.append(presetHeading, presetCards);
     effectList.append(presetGroup);
-    const effectsHeading = document.createElement("h3");
-    effectsHeading.className = "mixer-individual-effects-heading";
-    effectsHeading.textContent = "Individual effects";
-    effectList.append(effectsHeading);
+    const pluginsGroup = document.createElement("details");
+    pluginsGroup.className = "mixer-plugin-dropdown";
+    pluginsGroup.dataset.mixerLibraryGroup = "plugins";
+    pluginsGroup.open = expandedLibraryGroups.has("plugins");
+    const pluginsHeading = document.createElement("summary");
+    pluginsHeading.className = "mixer-effect-category-heading";
+    pluginsHeading.textContent = "Effect plugins";
+    pluginsGroup.append(pluginsHeading);
     EFFECT_CATEGORIES.forEach((category) => {
-      const group = document.createElement("section");
+      const group = document.createElement("details");
       group.className = "mixer-effect-category";
-      const heading = document.createElement("h3");
+      group.dataset.mixerLibraryGroup = `category:${category.name}`;
+      group.open = expandedLibraryGroups.has(group.dataset.mixerLibraryGroup);
+      const heading = document.createElement("summary");
+      heading.className = "mixer-effect-category-heading";
       heading.textContent = category.name;
       const categoryEffects = document.createElement("div");
       categoryEffects.className = "mixer-effect-category-list";
@@ -21049,8 +21063,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         categoryEffects.append(effect);
       });
       group.append(heading, categoryEffects);
-      effectList.append(group);
+      pluginsGroup.append(group);
     });
+    effectList.append(pluginsGroup);
     library.append(libraryTitle, libraryHint, effectList);
     root.append(trackList, library);
     syncMixerMeters();
@@ -23749,6 +23764,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     const { parent, nextSibling } = trackAssetLaneHome;
     parent.insertBefore(sidebar, nextSibling?.parentNode === parent ? nextSibling : null);
     lane.hidden = true;
+    $("#track-asset-resizer").hidden = true;
     trackAssetLaneHome = null;
   }
 
@@ -23773,6 +23789,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     trackAssetLaneHome = { parent: sidebar.parentElement, nextSibling: sidebar.nextSibling };
     lane.append(sidebar);
     lane.hidden = false;
+    $("#track-asset-resizer").hidden = false;
+    setTrackAssetLibraryWidth(state.trackAssetLibraryWidth, false);
   }
 
   function restoreAssetLibraryDialogPosition() {
@@ -29789,6 +29807,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       arrangementSnap: state.arrangementSnap,
       workspaceRatio: state.workspaceRatio,
       bottomMixerRatio: state.bottomMixerRatio,
+      trackAssetLibraryWidth: state.trackAssetLibraryWidth,
       sequencerScale: state.sequencerScale,
       workspaceHidden: state.workspaceHidden,
       trackViewHidden: state.trackViewHidden,
@@ -32128,6 +32147,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       if (Number.isFinite(saved.bottomMixerRatio)) {
         state.bottomMixerRatio = Math.max(20, Math.min(80, Math.round(saved.bottomMixerRatio)));
       }
+      if (Number.isFinite(saved.trackAssetLibraryWidth)) {
+        state.trackAssetLibraryWidth = Math.max(150, Math.min(600, Math.round(saved.trackAssetLibraryWidth)));
+      }
+      if (isTrackAssetLibraryOpen()) setTrackAssetLibraryWidth(state.trackAssetLibraryWidth, false);
       if (typeof saved.workspaceHidden === "boolean") state.workspaceHidden = saved.workspaceHidden;
       if (typeof saved.trackViewHidden === "boolean") state.trackViewHidden = saved.trackViewHidden;
       if (state.workspaceHidden && state.trackViewHidden) state.trackViewHidden = false;
@@ -35149,6 +35172,22 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     if (persist) saveState();
   }
 
+  function setTrackAssetLibraryWidth(width, persist = true) {
+    const content = $("#track-view-content");
+    const lane = $("#track-view-asset-lane");
+    const resizer = $("#track-asset-resizer");
+    const maxWidth = content.clientWidth
+      ? Math.max(150, Math.min(600, content.clientWidth - 280))
+      : 600;
+    state.trackAssetLibraryWidth = Math.max(150, Math.min(maxWidth, Math.round(width)));
+    lane.style.width = `${state.trackAssetLibraryWidth}px`;
+    lane.style.flexBasis = `${state.trackAssetLibraryWidth}px`;
+    resizer.setAttribute("aria-valuemax", String(maxWidth));
+    resizer.setAttribute("aria-valuenow", String(state.trackAssetLibraryWidth));
+    resizer.setAttribute("aria-valuetext", `${state.trackAssetLibraryWidth} pixels`);
+    if (persist) saveState();
+  }
+
   function routeSelectedRackRowsToMixer(separateBuses) {
     const pattern = getPattern();
     const trackIds = [...state.selectedRackRows].filter((id) =>
@@ -35308,6 +35347,14 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   let rackTabDrag = null;
   let suppressRackTabClick = false;
 
+  function fitFloatingRackWindow() {
+    if (!state.rackUndocked) return;
+    const floating = $("#rack-floating-window");
+    if (floating.hidden) return;
+    floating.style.height = "auto";
+    floating.style.height = `${Math.min(floating.scrollHeight, window.innerHeight - 16)}px`;
+  }
+
   function floatRackWindow(clientX, clientY) {
     const floating = $("#rack-floating-window");
     const rack = $("#sequencer-view");
@@ -35324,9 +35371,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       }
     }
     const width = Math.min(860, window.innerWidth - 24);
-    const height = Math.min(560, window.innerHeight - 80);
     floating.style.width = `${width}px`;
-    floating.style.height = `${height}px`;
+    floating.style.height = "auto";
+    fitFloatingRackWindow();
+    const height = floating.offsetHeight;
     floating.style.left = `${Math.max(8, Math.min(clientX - 100, window.innerWidth - width - 8))}px`;
     floating.style.top = `${Math.max(8, Math.min(clientY - 16, window.innerHeight - height - 8))}px`;
   }
@@ -36229,6 +36277,41 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       menu.hidden = true;
     });
     $("#source-browser-button").addEventListener("click", () => openTrackAssetLibrary());
+    const assetLaneResizer = $("#track-asset-resizer");
+    assetLaneResizer.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || $("#track-view-asset-lane").hidden) return;
+      event.preventDefault();
+      const pointerId = event.pointerId;
+      const left = $("#track-view-content").getBoundingClientRect().left;
+      document.body.classList.add("is-resizing-track-assets");
+      const move = (moveEvent) => {
+        if (moveEvent.pointerId === pointerId) {
+          setTrackAssetLibraryWidth(moveEvent.clientX - left, false);
+        }
+      };
+      const finish = (finishEvent) => {
+        if (finishEvent.pointerId !== pointerId) return;
+        document.removeEventListener("pointermove", move);
+        document.removeEventListener("pointerup", finish);
+        document.removeEventListener("pointercancel", finish);
+        document.body.classList.remove("is-resizing-track-assets");
+        saveState();
+      };
+      document.addEventListener("pointermove", move);
+      document.addEventListener("pointerup", finish);
+      document.addEventListener("pointercancel", finish);
+    });
+    assetLaneResizer.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      setTrackAssetLibraryWidth(state.trackAssetLibraryWidth + (event.key === "ArrowRight" ? 12 : -12));
+    });
+    window.addEventListener("resize", () => {
+      if (!$("#track-view-asset-lane").hidden && $("#track-view-content").clientWidth) {
+        setTrackAssetLibraryWidth(state.trackAssetLibraryWidth, false);
+      }
+      fitFloatingRackWindow();
+    });
     $("#source-browser-close").addEventListener("click", () => {
       if (isTrackAssetLibraryOpen()) closeTrackAssetLibrary();
       else $("#source-browser-dialog").close();

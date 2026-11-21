@@ -1777,6 +1777,7 @@
     renderInstrumentBrowser();
     renderPianoInstrumentOptions();
     renderQuickActionPanel();
+    fitFloatingRackWindow();
   }
 
   function makeSoundSelect(track, compact = false) {

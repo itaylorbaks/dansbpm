@@ -1840,6 +1840,7 @@
       arrangementSnap: state.arrangementSnap,
       workspaceRatio: state.workspaceRatio,
       bottomMixerRatio: state.bottomMixerRatio,
+      trackAssetLibraryWidth: state.trackAssetLibraryWidth,
       sequencerScale: state.sequencerScale,
       workspaceHidden: state.workspaceHidden,
       trackViewHidden: state.trackViewHidden,
