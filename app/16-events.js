@@ -609,7 +609,16 @@
     document.addEventListener("pointerdown", clearStepSelectionOnPointerDown, true);
     document.addEventListener("pointerdown", clearMarqueeSelectionOnOutsidePointer, true);
     document.addEventListener("click", finishArrangementMarqueeDeselect, true);
-    $("#sequencer-pattern-select").addEventListener("change", (event) => {
+    const patternSelect = $("#sequencer-pattern-select");
+    patternSelect.draggable = true;
+    patternSelect.title = "Drag the selected pattern to Track View";
+    patternSelect.addEventListener("dragstart", (event) => {
+      const pattern = getPattern(patternSelect.value);
+      if (!pattern || !event.dataTransfer) return;
+      event.dataTransfer.setData("application/x-pulsegrid-pattern-source", JSON.stringify({ patternId: pattern.id }));
+      event.dataTransfer.effectAllowed = "copy";
+    });
+    patternSelect.addEventListener("change", (event) => {
       selectPattern(event.target.value);
       updateCollaborationLockUi();
     });

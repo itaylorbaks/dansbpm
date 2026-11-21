@@ -10907,7 +10907,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=5ecba0fa5e70");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=858c90c6f4b2");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -34667,7 +34667,16 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     document.addEventListener("pointerdown", clearStepSelectionOnPointerDown, true);
     document.addEventListener("pointerdown", clearMarqueeSelectionOnOutsidePointer, true);
     document.addEventListener("click", finishArrangementMarqueeDeselect, true);
-    $("#sequencer-pattern-select").addEventListener("change", (event) => {
+    const patternSelect = $("#sequencer-pattern-select");
+    patternSelect.draggable = true;
+    patternSelect.title = "Drag the selected pattern to Track View";
+    patternSelect.addEventListener("dragstart", (event) => {
+      const pattern = getPattern(patternSelect.value);
+      if (!pattern || !event.dataTransfer) return;
+      event.dataTransfer.setData("application/x-pulsegrid-pattern-source", JSON.stringify({ patternId: pattern.id }));
+      event.dataTransfer.effectAllowed = "copy";
+    });
+    patternSelect.addEventListener("change", (event) => {
       selectPattern(event.target.value);
       updateCollaborationLockUi();
     });
