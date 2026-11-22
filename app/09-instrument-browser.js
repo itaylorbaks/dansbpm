@@ -900,6 +900,7 @@
 
   function closeTrackAssetLibrary() {
     if (!trackAssetLaneHome) return;
+    stopInstrumentSoundPreview();
     const sidebar = $(".source-sidebar");
     const lane = $("#track-view-asset-lane");
     const { parent, nextSibling } = trackAssetLaneHome;
@@ -958,8 +959,19 @@
     closeTrackAssetLibrary();
     prepareAssetLibrary();
     const dialog = $("#source-browser-dialog");
+    dialog.classList.remove("is-docked");
+    document.body.classList.remove("asset-library-docked");
     if (!dialog.open) dialog.show();
     syncAssetLibraryDialogFullscreen();
+  }
+
+  function openDockedAssetLibrary() {
+    closeTrackAssetLibrary();
+    prepareAssetLibrary();
+    const dialog = $("#source-browser-dialog");
+    dialog.classList.add("is-docked");
+    document.body.classList.add("asset-library-docked");
+    if (!dialog.open) dialog.show();
   }
 
   function addPatternClip(startBar = state.arrangementCursor, patternId = state.selectedPatternId, trackId = patternId) {

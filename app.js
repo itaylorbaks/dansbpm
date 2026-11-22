@@ -11172,7 +11172,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=f2d427de93f9");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=92e04bf6f087");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -12824,7 +12824,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       try {
         await ensureAudio();
         if (track.sampleUrl || track.kind === "sample") await loadLibrarySample(track);
-        if (request !== stepMixPreviewSequence || !$("#step-track-mix-dialog").open) return;
+        if (request !== stepMixPreviewSequence) return;
         ensureTrackAudio(track);
         const preview = {
           track,
@@ -13962,6 +13962,22 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     }
   }
 
+  function showAssetLibrarySoundPreview(track) {
+    const panel = $("#asset-library-preview");
+    if (!panel) return;
+    stopStepMixPreview();
+    panel.hidden = false;
+    panel.replaceChildren(makeSoundWaveformEditor(track));
+  }
+
+  function hideAssetLibrarySoundPreview() {
+    const panel = $("#asset-library-preview");
+    if (!panel) return;
+    stopStepMixPreview();
+    panel.hidden = true;
+    panel.replaceChildren();
+  }
+
   async function previewInstrumentSound(track) {
     const soundId = getSoundDurationKey(track);
     if (activeInstrumentPreview?.soundId === soundId &&
@@ -13970,6 +13986,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       return;
     }
     stopInstrumentSoundPreview();
+    showAssetLibrarySoundPreview(track);
     const request = ++instrumentPreviewSequence;
     const preview = { soundId, track, pending: true, sources: new Set(), gain: null };
     activeInstrumentPreview = preview;
@@ -14029,6 +14046,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     instrumentPreviewSequence += 1;
     const preview = activeInstrumentPreview;
     activeInstrumentPreview = null;
+    hideAssetLibrarySoundPreview();
     if (!preview) return;
     const context = preview.gain?.context || state.audioContext;
     const stopTime = (context?.currentTime || 0) + 0.02;
@@ -23979,6 +23997,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
 
   function closeTrackAssetLibrary() {
     if (!trackAssetLaneHome) return;
+    stopInstrumentSoundPreview();
     const sidebar = $(".source-sidebar");
     const lane = $("#track-view-asset-lane");
     const { parent, nextSibling } = trackAssetLaneHome;
@@ -24037,8 +24056,19 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     closeTrackAssetLibrary();
     prepareAssetLibrary();
     const dialog = $("#source-browser-dialog");
+    dialog.classList.remove("is-docked");
+    document.body.classList.remove("asset-library-docked");
     if (!dialog.open) dialog.show();
     syncAssetLibraryDialogFullscreen();
+  }
+
+  function openDockedAssetLibrary() {
+    closeTrackAssetLibrary();
+    prepareAssetLibrary();
+    const dialog = $("#source-browser-dialog");
+    dialog.classList.add("is-docked");
+    document.body.classList.add("asset-library-docked");
+    if (!dialog.open) dialog.show();
   }
 
   function addPatternClip(startBar = state.arrangementCursor, patternId = state.selectedPatternId, trackId = patternId) {
@@ -36540,7 +36570,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       setSequencerScale(state.sequencerScale * Math.exp(-event.deltaY * 0.002), event.clientX);
       scheduleScaleSave();
     }, { passive: false });
-    $("#assets-button").addEventListener("click", () => openAssetLibrary());
+    $("#assets-button").addEventListener("click", () => openDockedAssetLibrary());
     $("#sequencer-browser-button").addEventListener("click", () => openAssetLibrary());
     const assetLibrarySearch = $("#asset-library-search-input");
     assetLibrarySearch.addEventListener("input", () => {
@@ -36774,6 +36804,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     $("#source-browser-dialog").addEventListener("close", () => {
       closeAssetContextMenu();
       closeSoundDurationMenu();
+      stopInstrumentSoundPreview();
+      $("#source-browser-dialog").classList.remove("is-docked");
+      document.body.classList.remove("asset-library-docked");
       restoreAssetLibraryDialogPosition();
       $("#source-browser-dialog").style.removeProperty("left");
       $("#source-browser-dialog").style.removeProperty("width");

@@ -901,7 +901,7 @@
       try {
         await ensureAudio();
         if (track.sampleUrl || track.kind === "sample") await loadLibrarySample(track);
-        if (request !== stepMixPreviewSequence || !$("#step-track-mix-dialog").open) return;
+        if (request !== stepMixPreviewSequence) return;
         ensureTrackAudio(track);
         const preview = {
           track,
@@ -2039,6 +2039,22 @@
     }
   }
 
+  function showAssetLibrarySoundPreview(track) {
+    const panel = $("#asset-library-preview");
+    if (!panel) return;
+    stopStepMixPreview();
+    panel.hidden = false;
+    panel.replaceChildren(makeSoundWaveformEditor(track));
+  }
+
+  function hideAssetLibrarySoundPreview() {
+    const panel = $("#asset-library-preview");
+    if (!panel) return;
+    stopStepMixPreview();
+    panel.hidden = true;
+    panel.replaceChildren();
+  }
+
   async function previewInstrumentSound(track) {
     const soundId = getSoundDurationKey(track);
     if (activeInstrumentPreview?.soundId === soundId &&
@@ -2047,6 +2063,7 @@
       return;
     }
     stopInstrumentSoundPreview();
+    showAssetLibrarySoundPreview(track);
     const request = ++instrumentPreviewSequence;
     const preview = { soundId, track, pending: true, sources: new Set(), gain: null };
     activeInstrumentPreview = preview;
@@ -2106,6 +2123,7 @@
     instrumentPreviewSequence += 1;
     const preview = activeInstrumentPreview;
     activeInstrumentPreview = null;
+    hideAssetLibrarySoundPreview();
     if (!preview) return;
     const context = preview.gain?.context || state.audioContext;
     const stopTime = (context?.currentTime || 0) + 0.02;

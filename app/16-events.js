@@ -1171,7 +1171,7 @@
       setSequencerScale(state.sequencerScale * Math.exp(-event.deltaY * 0.002), event.clientX);
       scheduleScaleSave();
     }, { passive: false });
-    $("#assets-button").addEventListener("click", () => openAssetLibrary());
+    $("#assets-button").addEventListener("click", () => openDockedAssetLibrary());
     $("#sequencer-browser-button").addEventListener("click", () => openAssetLibrary());
     const assetLibrarySearch = $("#asset-library-search-input");
     assetLibrarySearch.addEventListener("input", () => {
@@ -1405,6 +1405,9 @@
     $("#source-browser-dialog").addEventListener("close", () => {
       closeAssetContextMenu();
       closeSoundDurationMenu();
+      stopInstrumentSoundPreview();
+      $("#source-browser-dialog").classList.remove("is-docked");
+      document.body.classList.remove("asset-library-docked");
       restoreAssetLibraryDialogPosition();
       $("#source-browser-dialog").style.removeProperty("left");
       $("#source-browser-dialog").style.removeProperty("width");
