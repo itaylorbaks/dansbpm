@@ -1969,7 +1969,7 @@ body:has(#dj-view:not([hidden])).is-dj-expanded #workspace-area { grid-row: 1; b
 
 .app-shell:fullscreen {
   display: flex;
-  width: 100%;
+  width: 100vw;
   max-width: none;
   height: 100dvh;
   flex-direction: column;
@@ -1978,17 +1978,7 @@ body:has(#dj-view:not([hidden])).is-dj-expanded #workspace-area { grid-row: 1; b
   overflow: hidden;
   background: var(--page);
 }
-.app-shell:fullscreen > .topbar,
-.app-shell:fullscreen > .collaboration-presence-bar { display: none; }
 .app-shell:fullscreen > main { min-height: 0; flex: 1; }
-.app-shell:fullscreen > main > .transport-panel,
-.app-shell:fullscreen > main > .workspace-tabs,
-.app-shell:fullscreen .arrangement-heading,
-.app-shell:fullscreen .arrangement-footer,
-.app-shell:fullscreen #workspace-fullscreen-button,
-.app-shell:fullscreen #track-view-fullscreen-button { display: none; }
-.app-shell:fullscreen #arrangement-view { min-height: 0; height: 100%; flex: 1; }
-.app-shell:fullscreen #arrangement-card { min-height: 0; border: 0; border-radius: 0; }
 .app-shell:fullscreen .fullscreen-controls { display: flex; }
 .app-shell:fullscreen:has(#workspace-area:not([hidden])) #track-view-fullscreen-controls { display: none; }
 body:has(#arrangement-view:not([hidden])) .app-shell:fullscreen { padding: 0; }
