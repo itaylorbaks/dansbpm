@@ -1953,6 +1953,35 @@
           cacheRestoreError = error;
         }
         let cloudRestoreError = null;
+        if (!cachedSnapshotRestored && state.currentUser === "guest") {
+          const previousProjects = state.projects;
+          const previousProjectId = state.projectId;
+          const previousProjectName = state.projectName;
+          const previousActiveProjectIds = { ...state.activeProjectIds };
+          const previousProjectCreationCounts = { ...state.projectCreationCounts };
+          const guestProject = {
+            id: makeId(),
+            name: `New Proj ${getNextProjectNumber("guest")}`,
+            ownerId: "guest",
+            updatedAt: Date.now(),
+          };
+          state.projects = [guestProject, ...state.projects];
+          state.projectId = guestProject.id;
+          state.projectName = guestProject.name;
+          state.activeProjectIds = { ...state.activeProjectIds, guest: guestProject.id };
+          try {
+            writeProjectCatalog();
+            cachedSnapshotRestored = true;
+            showToast(`Opened a new Guest project because "${project.name}" has no local snapshot. The existing project entry was preserved.`);
+          } catch (error) {
+            state.projects = previousProjects;
+            state.projectId = previousProjectId;
+            state.projectName = previousProjectName;
+            state.activeProjectIds = previousActiveProjectIds;
+            state.projectCreationCounts = previousProjectCreationCounts;
+            cloudRestoreError = error;
+          }
+        }
         if (!cachedSnapshotRestored) {
           if (project.cloudBacked && getCloudToken()) {
             const unsyncedWarning = project.localDirty
