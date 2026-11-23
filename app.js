@@ -29050,7 +29050,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=2e886e520664");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=87d3ad9a6fe2");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -55230,37 +55230,47 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         } catch (error) {
           cacheRestoreError = error;
         }
+        let cloudRestoreError = null;
         if (!cachedSnapshotRestored) {
-          if (project.cloudBacked && project.cloudHasFile && getCloudToken()) {
+          if (project.cloudBacked && getCloudToken()) {
             const unsyncedWarning = project.localDirty
               ? " The missing local copy may have unsynced edits, which cannot be restored."
               : "";
             const shouldRestoreCloudCopy = window.confirm(
               `The local snapshot for "${project.name}" is missing. Restore the latest cloud-saved copy?${unsyncedWarning}`,
             );
-            if (!shouldRestoreCloudCopy) {
-              throw new Error("Cloud recovery was cancelled because the local project snapshot is missing.");
+            if (shouldRestoreCloudCopy) {
+              try {
+                cachedSnapshot = await downloadProjectToBrowser(project);
+                cachedSnapshotRestored = true;
+              } catch (error) {
+                cloudRestoreError = error;
+              }
+            } else {
+              cloudRestoreError = new Error("Cloud recovery was cancelled.");
             }
-            cachedSnapshot = await downloadProjectToBrowser(project);
-            cachedSnapshotRestored = true;
           }
         }
         if (!cachedSnapshotRestored) {
-          if (!project.cloudBacked || project.localDirty) {
-            throw new Error(`Could not restore the local project snapshot: ${
-              cacheRestoreError?.message || "the IndexedDB snapshot was not found."
-            }`);
-          }
-          project.localSnapshotStorage = null;
-          project.localCloudRevision = null;
+          let sessionClearError = null;
           try {
-            writeProjectCatalog();
+            window.sessionStorage.removeItem(ACTIVE_USER_KEY);
           } catch (error) {
-            showToast(`Could not update the project cache status: ${error.message || "browser storage is unavailable"}`);
+            sessionClearError = error.message || "session storage is unavailable";
           }
+          const recoveryDetail = cloudRestoreError?.message ||
+            (!project.cloudBacked
+              ? "This project has no cloud backup."
+              : !getCloudToken()
+                ? "Sign in to restore the cloud copy."
+                : cacheRestoreError?.message || "No cloud-saved copy is available.");
+          $("#login-error").textContent =
+            `Could not open "${project.name}": ${recoveryDetail} Choose another profile or sign in to a cloud account.` +
+            (sessionClearError ? ` ${sessionClearError}` : "");
+          state.currentUser = null;
         }
       }
-      restoreState(cachedSnapshot);
+      if (state.currentUser) restoreState(cachedSnapshot);
     }
     ensurePatternHasBlankRackTrack();
     restoreDjState(cachedSnapshot);
