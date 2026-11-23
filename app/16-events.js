@@ -885,21 +885,33 @@
     });
     const pianoRollDropTarget = $("#piano-roll-scroll");
     pianoRollDropTarget.addEventListener("dragover", (event) => {
-      if (!Array.from(event.dataTransfer?.types || []).includes("application/x-pulsegrid-vst")) return;
+      const types = Array.from(event.dataTransfer?.types || []);
+      const isVst = types.includes("application/x-pulsegrid-vst");
+      const isSample = types.includes("application/x-pulsegrid-sample-source");
+      if (!isVst && !isSample) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = "copy";
-      pianoRollDropTarget.classList.add("is-vst-drop-target");
+      pianoRollDropTarget.classList.toggle("is-vst-drop-target", isVst);
+      pianoRollDropTarget.classList.toggle("is-sample-drop-target", isSample);
     });
     pianoRollDropTarget.addEventListener("dragleave", (event) => {
       if (!pianoRollDropTarget.contains(event.relatedTarget)) {
         pianoRollDropTarget.classList.remove("is-vst-drop-target");
+        pianoRollDropTarget.classList.remove("is-sample-drop-target");
       }
     });
     pianoRollDropTarget.addEventListener("drop", (event) => {
+      pianoRollDropTarget.classList.remove("is-vst-drop-target");
+      pianoRollDropTarget.classList.remove("is-sample-drop-target");
+      const sampleId = event.dataTransfer?.getData("application/x-pulsegrid-sample-source");
+      if (sampleId) {
+        event.preventDefault();
+        void importSampleNoteToPianoRoll(sampleId, event);
+        return;
+      }
       const payload = event.dataTransfer?.getData("application/x-pulsegrid-vst");
       if (!payload) return;
       event.preventDefault();
-      pianoRollDropTarget.classList.remove("is-vst-drop-target");
       try {
         const { instrumentId, vstPluginId } = JSON.parse(payload);
         assignVstToPianoRoll(instrumentId, vstPluginId);

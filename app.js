@@ -28348,7 +28348,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       state.pianoRollAudioClipId = clip.id;
     }
     if (!keepMainView) setWorkspaceView("piano-roll", true);
-    $("#piano-audio-mode-select").value = "audio";
+    $("#piano-audio-mode-select").value = "instrument";
     const audioOptions = $("#piano-toolbar-audio-options");
     const audioToggle = document.querySelector('[aria-controls="piano-toolbar-audio-options"]');
     audioOptions.hidden = false;
@@ -28379,7 +28379,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     if (linkedMel) loadMel(linkedMel.id);
     else state.pianoRollAudioClipId = asset.id;
     if (!keepMainView) setWorkspaceView("piano-roll", true);
-    $("#piano-audio-mode-select").value = "audio";
+    $("#piano-audio-mode-select").value = "instrument";
     const audioOptions = $("#piano-toolbar-audio-options");
     const audioToggle = document.querySelector('[aria-controls="piano-toolbar-audio-options"]');
     audioOptions.hidden = false;
@@ -29050,7 +29050,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=83b2ea0d63ac");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=28fd514f16ed");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -29316,6 +29316,44 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
           note.midi, note.durationTicks / PIANO_TICKS_PER_BAR * (240 / state.bpm), note.velocity, track, null, note);
       })().catch((error) => showToast(error.message || "The instrument could not be played."));
     }
+  }
+
+  async function importSampleNoteToPianoRoll(instrumentId, event) {
+    const instrument = state.tracks.find((track) => track.id === instrumentId && track.kind === "sample");
+    if (!instrument) {
+      showToast("That sample is no longer available.");
+      return;
+    }
+    if (state.stepPianoEditContext) {
+      showToast("Return to the Piano Roll before adding a sample note.");
+      return;
+    }
+    const note = makePianoNoteFromPointer(event);
+    if (!note) {
+      showToast("Drop the sample onto a Piano Roll note row.");
+      return;
+    }
+    try {
+      await loadLibrarySample(instrument);
+    } catch (error) {
+      showToast(error.message || `Could not load ${instrument.name}.`);
+      return;
+    }
+    $("#piano-audio-mode-select").value = "instrument";
+    selectPianoInstrument(instrument.id);
+    note.trackId = instrument.id;
+    note.midi = Math.max(PIANO_BOTTOM_MIDI, Math.min(PIANO_TOP_MIDI,
+      Number.isFinite(instrument.sampleRootMidi) ? instrument.sampleRootMidi : 60));
+    state.pianoNotes.push(note);
+    markPianoRollAudioEdited();
+    state.selectedPianoNoteId = note.id;
+    state.selectedPianoNoteIds = new Set([note.id]);
+    state.pianoSelectionFromMarquee = false;
+    renderPianoRoll();
+    updateArrangementLength();
+    renderArrangement();
+    saveState();
+    showToast(`${instrument.name} added as a one-shot note`);
   }
 
   function scaleSelectedPianoNoteDurations(originals, anchorId, requestedDuration, totalTicks) {
@@ -41112,15 +41150,22 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     row.draggable = true;
     row.title = track.vstPluginId
       ? `Drag ${track.name} onto a Rack row or Piano Roll`
-      : `Drag ${track.name} to Track View to create an instrument track`;
+      : track.kind === "sample"
+        ? `Drag ${track.name} to Piano Roll to add a one-shot note, or to Track View to create an instrument track`
+        : `Drag ${track.name} to Track View to create an instrument track`;
     row.setAttribute("aria-label", track.vstPluginId
       ? `${track.name}, drag to a Rack row or Piano Roll`
-      : `${track.name}, drag to Track View to create an instrument track`);
+      : track.kind === "sample"
+        ? `${track.name}, drag to Piano Roll to add a one-shot note or to Track View to create an instrument track`
+        : `${track.name}, drag to Track View to create an instrument track`);
     row.addEventListener("dragstart", (event) => {
       if (!event.dataTransfer) return;
       event.dataTransfer.setData("application/x-pulsegrid-instrument-source", JSON.stringify({
         instrumentId: track.id,
       }));
+      if (track.kind === "sample") {
+        event.dataTransfer.setData("application/x-pulsegrid-sample-source", track.id);
+      }
       if (track.vstPluginId) {
         event.dataTransfer.setData("application/x-pulsegrid-vst", JSON.stringify({
           instrumentId: track.id,
@@ -47076,18 +47121,50 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   }
 
   function triggerClick(time, downbeat) {
-    const osc = state.audioContext.createOscillator();
-    registerArrangementPlaybackSource(osc);
-    const gain = state.audioContext.createGain();
+    triggerMetronomeSound(
+      time,
+      downbeat,
+      getMetronomeOutputNode(state.isPlaying && state.playbackMode === "arrangement"),
+    );
+  }
+
+  function triggerMetronomeSound(time, downbeat, output, pitchRatio = 1) {
+    const context = state.audioContext;
     const peakGain = Math.max(0.0001, 0.22 * userSettings.metronomeVolume / 100);
-    osc.frequency.setValueAtTime(downbeat ? 1350 : 950, time);
-    gain.gain.setValueAtTime(0.0001, time);
-    gain.gain.exponentialRampToValueAtTime(peakGain, time + 0.002);
-    gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.028);
-    osc.connect(gain);
-    gain.connect(getMetronomeOutputNode(state.isPlaying && state.playbackMode === "arrangement"));
-    osc.start(time);
-    osc.stop(time + 0.035);
+
+    if (userSettings.metronomeSound === "hi-hat") {
+      playNoise(context, output, time, 0.055, (downbeat ? 9500 : 8000) * pitchRatio,
+        peakGain * (downbeat ? 1 : 0.78), 0.55);
+      return;
+    }
+
+    const oscillator = context.createOscillator();
+    registerArrangementPlaybackSource(oscillator);
+    const envelope = context.createGain();
+    envelope.gain.setValueAtTime(0.0001, time);
+    envelope.gain.exponentialRampToValueAtTime(
+      userSettings.metronomeSound === "kick" ? peakGain * (downbeat ? 1 : 0.78) : peakGain,
+      time + 0.002,
+    );
+
+    if (userSettings.metronomeSound === "kick") {
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime((downbeat ? 150 : 115) * pitchRatio, time);
+      oscillator.frequency.exponentialRampToValueAtTime((downbeat ? 48 : 42) * pitchRatio, time + 0.1);
+      envelope.gain.exponentialRampToValueAtTime(0.0001, time + 0.14);
+      oscillator.connect(envelope);
+      envelope.connect(output);
+      oscillator.start(time);
+      oscillator.stop(time + 0.16);
+      return;
+    }
+
+    oscillator.frequency.setValueAtTime((downbeat ? 1350 : 950) * pitchRatio, time);
+    envelope.gain.exponentialRampToValueAtTime(0.0001, time + 0.028);
+    oscillator.connect(envelope);
+    envelope.connect(output);
+    oscillator.start(time);
+    oscillator.stop(time + 0.035);
   }
 
   async function startPlayback(mode = "arrangement", { startAtMs = null, remote = false } = {}) {
@@ -51281,6 +51358,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     audioOutputDeviceId: "",
     drummerDeviceId: "",
     metronomeVolume: 100,
+    metronomeSound: "click",
     theme: "dark",
     accent: "lime",
     fontSize: 100,
@@ -51338,6 +51416,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
           metronomeVolume: Number.isFinite(saved.metronomeVolume)
             ? Math.round(Math.max(0, Math.min(200, saved.metronomeVolume)))
             : 100,
+          metronomeSound: ["click", "hi-hat", "kick"].includes(saved.metronomeSound)
+            ? saved.metronomeSound
+            : "click",
           theme: saved.theme === "light" ? "light" : "dark",
           accent: ["lime", "blue", "violet", "coral"].includes(saved.accent) ? saved.accent : "lime",
           fontSize: Number.isFinite(saved.fontSize) ? Math.round(Math.max(85, Math.min(125, saved.fontSize))) : 100,
@@ -51398,6 +51479,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     $("#settings-audio-input").value = userSettings.audioInputDeviceId;
     $("#settings-audio-output").value = userSettings.audioOutputDeviceId;
     $("#settings-drummer-output").value = userSettings.drummerDeviceId;
+    $("#settings-metronome-sound").value = userSettings.metronomeSound;
     const metronomeVolume = $("#metronome-volume");
     metronomeVolume.value = String(userSettings.metronomeVolume);
     updateMetronomeVolumeUI();
@@ -51550,6 +51632,11 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     });
     $("#settings-drummer-output").addEventListener("change", (event) => {
       userSettings.drummerDeviceId = event.target.value;
+      persistUserSettings();
+    });
+    $("#settings-metronome-sound").addEventListener("change", (event) => {
+      if (!["click", "hi-hat", "kick"].includes(event.target.value)) return;
+      userSettings.metronomeSound = event.target.value;
       persistUserSettings();
     });
     $("#settings-refresh-devices").addEventListener("click", () => void refreshAudioDevices());
@@ -52724,17 +52811,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   }
 
   function triggerDjMetronomeClick(time, downbeat, pitchRatio) {
-    const oscillator = state.audioContext.createOscillator();
-    const envelope = state.audioContext.createGain();
-    const peakGain = Math.max(0.0001, 0.2 * userSettings.metronomeVolume / 100);
-    oscillator.frequency.setValueAtTime((downbeat ? 1350 : 950) * pitchRatio, time);
-    envelope.gain.setValueAtTime(0.0001, time);
-    envelope.gain.exponentialRampToValueAtTime(peakGain, time + 0.002);
-    envelope.gain.exponentialRampToValueAtTime(0.0001, time + 0.028);
-    oscillator.connect(envelope);
-    envelope.connect(getMetronomeOutputNode(drummerConnected));
-    oscillator.start(time);
-    oscillator.stop(time + 0.035);
+    triggerMetronomeSound(time, downbeat, getMetronomeOutputNode(drummerConnected), pitchRatio);
   }
 
   function loadCollaborationActivity() {
@@ -54163,21 +54240,33 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     });
     const pianoRollDropTarget = $("#piano-roll-scroll");
     pianoRollDropTarget.addEventListener("dragover", (event) => {
-      if (!Array.from(event.dataTransfer?.types || []).includes("application/x-pulsegrid-vst")) return;
+      const types = Array.from(event.dataTransfer?.types || []);
+      const isVst = types.includes("application/x-pulsegrid-vst");
+      const isSample = types.includes("application/x-pulsegrid-sample-source");
+      if (!isVst && !isSample) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = "copy";
-      pianoRollDropTarget.classList.add("is-vst-drop-target");
+      pianoRollDropTarget.classList.toggle("is-vst-drop-target", isVst);
+      pianoRollDropTarget.classList.toggle("is-sample-drop-target", isSample);
     });
     pianoRollDropTarget.addEventListener("dragleave", (event) => {
       if (!pianoRollDropTarget.contains(event.relatedTarget)) {
         pianoRollDropTarget.classList.remove("is-vst-drop-target");
+        pianoRollDropTarget.classList.remove("is-sample-drop-target");
       }
     });
     pianoRollDropTarget.addEventListener("drop", (event) => {
+      pianoRollDropTarget.classList.remove("is-vst-drop-target");
+      pianoRollDropTarget.classList.remove("is-sample-drop-target");
+      const sampleId = event.dataTransfer?.getData("application/x-pulsegrid-sample-source");
+      if (sampleId) {
+        event.preventDefault();
+        void importSampleNoteToPianoRoll(sampleId, event);
+        return;
+      }
       const payload = event.dataTransfer?.getData("application/x-pulsegrid-vst");
       if (!payload) return;
       event.preventDefault();
-      pianoRollDropTarget.classList.remove("is-vst-drop-target");
       try {
         const { instrumentId, vstPluginId } = JSON.parse(payload);
         assignVstToPianoRoll(instrumentId, vstPluginId);

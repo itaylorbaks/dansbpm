@@ -137,15 +137,22 @@
     row.draggable = true;
     row.title = track.vstPluginId
       ? `Drag ${track.name} onto a Rack row or Piano Roll`
-      : `Drag ${track.name} to Track View to create an instrument track`;
+      : track.kind === "sample"
+        ? `Drag ${track.name} to Piano Roll to add a one-shot note, or to Track View to create an instrument track`
+        : `Drag ${track.name} to Track View to create an instrument track`;
     row.setAttribute("aria-label", track.vstPluginId
       ? `${track.name}, drag to a Rack row or Piano Roll`
-      : `${track.name}, drag to Track View to create an instrument track`);
+      : track.kind === "sample"
+        ? `${track.name}, drag to Piano Roll to add a one-shot note or to Track View to create an instrument track`
+        : `${track.name}, drag to Track View to create an instrument track`);
     row.addEventListener("dragstart", (event) => {
       if (!event.dataTransfer) return;
       event.dataTransfer.setData("application/x-pulsegrid-instrument-source", JSON.stringify({
         instrumentId: track.id,
       }));
+      if (track.kind === "sample") {
+        event.dataTransfer.setData("application/x-pulsegrid-sample-source", track.id);
+      }
       if (track.vstPluginId) {
         event.dataTransfer.setData("application/x-pulsegrid-vst", JSON.stringify({
           instrumentId: track.id,

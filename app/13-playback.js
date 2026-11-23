@@ -976,18 +976,50 @@
   }
 
   function triggerClick(time, downbeat) {
-    const osc = state.audioContext.createOscillator();
-    registerArrangementPlaybackSource(osc);
-    const gain = state.audioContext.createGain();
+    triggerMetronomeSound(
+      time,
+      downbeat,
+      getMetronomeOutputNode(state.isPlaying && state.playbackMode === "arrangement"),
+    );
+  }
+
+  function triggerMetronomeSound(time, downbeat, output, pitchRatio = 1) {
+    const context = state.audioContext;
     const peakGain = Math.max(0.0001, 0.22 * userSettings.metronomeVolume / 100);
-    osc.frequency.setValueAtTime(downbeat ? 1350 : 950, time);
-    gain.gain.setValueAtTime(0.0001, time);
-    gain.gain.exponentialRampToValueAtTime(peakGain, time + 0.002);
-    gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.028);
-    osc.connect(gain);
-    gain.connect(getMetronomeOutputNode(state.isPlaying && state.playbackMode === "arrangement"));
-    osc.start(time);
-    osc.stop(time + 0.035);
+
+    if (userSettings.metronomeSound === "hi-hat") {
+      playNoise(context, output, time, 0.055, (downbeat ? 9500 : 8000) * pitchRatio,
+        peakGain * (downbeat ? 1 : 0.78), 0.55);
+      return;
+    }
+
+    const oscillator = context.createOscillator();
+    registerArrangementPlaybackSource(oscillator);
+    const envelope = context.createGain();
+    envelope.gain.setValueAtTime(0.0001, time);
+    envelope.gain.exponentialRampToValueAtTime(
+      userSettings.metronomeSound === "kick" ? peakGain * (downbeat ? 1 : 0.78) : peakGain,
+      time + 0.002,
+    );
+
+    if (userSettings.metronomeSound === "kick") {
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime((downbeat ? 150 : 115) * pitchRatio, time);
+      oscillator.frequency.exponentialRampToValueAtTime((downbeat ? 48 : 42) * pitchRatio, time + 0.1);
+      envelope.gain.exponentialRampToValueAtTime(0.0001, time + 0.14);
+      oscillator.connect(envelope);
+      envelope.connect(output);
+      oscillator.start(time);
+      oscillator.stop(time + 0.16);
+      return;
+    }
+
+    oscillator.frequency.setValueAtTime((downbeat ? 1350 : 950) * pitchRatio, time);
+    envelope.gain.exponentialRampToValueAtTime(0.0001, time + 0.028);
+    oscillator.connect(envelope);
+    envelope.connect(output);
+    oscillator.start(time);
+    oscillator.stop(time + 0.035);
   }
 
   async function startPlayback(mode = "arrangement", { startAtMs = null, remote = false } = {}) {

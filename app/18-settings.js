@@ -6,6 +6,7 @@
     audioOutputDeviceId: "",
     drummerDeviceId: "",
     metronomeVolume: 100,
+    metronomeSound: "click",
     theme: "dark",
     accent: "lime",
     fontSize: 100,
@@ -63,6 +64,9 @@
           metronomeVolume: Number.isFinite(saved.metronomeVolume)
             ? Math.round(Math.max(0, Math.min(200, saved.metronomeVolume)))
             : 100,
+          metronomeSound: ["click", "hi-hat", "kick"].includes(saved.metronomeSound)
+            ? saved.metronomeSound
+            : "click",
           theme: saved.theme === "light" ? "light" : "dark",
           accent: ["lime", "blue", "violet", "coral"].includes(saved.accent) ? saved.accent : "lime",
           fontSize: Number.isFinite(saved.fontSize) ? Math.round(Math.max(85, Math.min(125, saved.fontSize))) : 100,
@@ -123,6 +127,7 @@
     $("#settings-audio-input").value = userSettings.audioInputDeviceId;
     $("#settings-audio-output").value = userSettings.audioOutputDeviceId;
     $("#settings-drummer-output").value = userSettings.drummerDeviceId;
+    $("#settings-metronome-sound").value = userSettings.metronomeSound;
     const metronomeVolume = $("#metronome-volume");
     metronomeVolume.value = String(userSettings.metronomeVolume);
     updateMetronomeVolumeUI();
@@ -275,6 +280,11 @@
     });
     $("#settings-drummer-output").addEventListener("change", (event) => {
       userSettings.drummerDeviceId = event.target.value;
+      persistUserSettings();
+    });
+    $("#settings-metronome-sound").addEventListener("change", (event) => {
+      if (!["click", "hi-hat", "kick"].includes(event.target.value)) return;
+      userSettings.metronomeSound = event.target.value;
       persistUserSettings();
     });
     $("#settings-refresh-devices").addEventListener("click", () => void refreshAudioDevices());
@@ -1449,17 +1459,7 @@
   }
 
   function triggerDjMetronomeClick(time, downbeat, pitchRatio) {
-    const oscillator = state.audioContext.createOscillator();
-    const envelope = state.audioContext.createGain();
-    const peakGain = Math.max(0.0001, 0.2 * userSettings.metronomeVolume / 100);
-    oscillator.frequency.setValueAtTime((downbeat ? 1350 : 950) * pitchRatio, time);
-    envelope.gain.setValueAtTime(0.0001, time);
-    envelope.gain.exponentialRampToValueAtTime(peakGain, time + 0.002);
-    envelope.gain.exponentialRampToValueAtTime(0.0001, time + 0.028);
-    oscillator.connect(envelope);
-    envelope.connect(getMetronomeOutputNode(drummerConnected));
-    oscillator.start(time);
-    oscillator.stop(time + 0.035);
+    triggerMetronomeSound(time, downbeat, getMetronomeOutputNode(drummerConnected), pitchRatio);
   }
 
   function loadCollaborationActivity() {

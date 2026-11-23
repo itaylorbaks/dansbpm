@@ -2028,7 +2028,7 @@
       state.pianoRollAudioClipId = clip.id;
     }
     if (!keepMainView) setWorkspaceView("piano-roll", true);
-    $("#piano-audio-mode-select").value = "audio";
+    $("#piano-audio-mode-select").value = "instrument";
     const audioOptions = $("#piano-toolbar-audio-options");
     const audioToggle = document.querySelector('[aria-controls="piano-toolbar-audio-options"]');
     audioOptions.hidden = false;
@@ -2059,7 +2059,7 @@
     if (linkedMel) loadMel(linkedMel.id);
     else state.pianoRollAudioClipId = asset.id;
     if (!keepMainView) setWorkspaceView("piano-roll", true);
-    $("#piano-audio-mode-select").value = "audio";
+    $("#piano-audio-mode-select").value = "instrument";
     const audioOptions = $("#piano-toolbar-audio-options");
     const audioToggle = document.querySelector('[aria-controls="piano-toolbar-audio-options"]');
     audioOptions.hidden = false;
@@ -2996,6 +2996,44 @@
           note.midi, note.durationTicks / PIANO_TICKS_PER_BAR * (240 / state.bpm), note.velocity, track, null, note);
       })().catch((error) => showToast(error.message || "The instrument could not be played."));
     }
+  }
+
+  async function importSampleNoteToPianoRoll(instrumentId, event) {
+    const instrument = state.tracks.find((track) => track.id === instrumentId && track.kind === "sample");
+    if (!instrument) {
+      showToast("That sample is no longer available.");
+      return;
+    }
+    if (state.stepPianoEditContext) {
+      showToast("Return to the Piano Roll before adding a sample note.");
+      return;
+    }
+    const note = makePianoNoteFromPointer(event);
+    if (!note) {
+      showToast("Drop the sample onto a Piano Roll note row.");
+      return;
+    }
+    try {
+      await loadLibrarySample(instrument);
+    } catch (error) {
+      showToast(error.message || `Could not load ${instrument.name}.`);
+      return;
+    }
+    $("#piano-audio-mode-select").value = "instrument";
+    selectPianoInstrument(instrument.id);
+    note.trackId = instrument.id;
+    note.midi = Math.max(PIANO_BOTTOM_MIDI, Math.min(PIANO_TOP_MIDI,
+      Number.isFinite(instrument.sampleRootMidi) ? instrument.sampleRootMidi : 60));
+    state.pianoNotes.push(note);
+    markPianoRollAudioEdited();
+    state.selectedPianoNoteId = note.id;
+    state.selectedPianoNoteIds = new Set([note.id]);
+    state.pianoSelectionFromMarquee = false;
+    renderPianoRoll();
+    updateArrangementLength();
+    renderArrangement();
+    saveState();
+    showToast(`${instrument.name} added as a one-shot note`);
   }
 
   function scaleSelectedPianoNoteDurations(originals, anchorId, requestedDuration, totalTicks) {
