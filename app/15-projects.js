@@ -304,6 +304,7 @@
     } catch {
       showToast("Project downloaded, but its local project list could not be updated.");
     }
+    return snapshot;
   }
 
   async function importProjectFile(file) {

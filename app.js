@@ -29050,7 +29050,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=673d482796b0");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=2e886e520664");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -50141,6 +50141,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     } catch {
       showToast("Project downloaded, but its local project list could not be updated.");
     }
+    return snapshot;
   }
 
   async function importProjectFile(file) {
@@ -53494,6 +53495,18 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     pending.resolve(apply);
   }
 
+  function editProjectTempo() {
+    const entry = window.prompt("Set tempo (60–180 BPM)", String(state.bpm));
+    if (entry === null || !entry.trim()) return;
+    const value = Number(entry);
+    if (!Number.isFinite(value) || value < 60 || value > 180) {
+      showToast("Tempo must be between 60 and 180 BPM.");
+      return;
+    }
+    const bpm = roundBpm(value);
+    if (bpm !== state.bpm) void openProjectTempoChangeDialog(bpm);
+  }
+
   let rackTabDrag = null;
   let suppressRackTabClick = false;
   let rackAssetLibraryAutoFloated = false;
@@ -53811,16 +53824,9 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       saveState();
       if (resumePlayback) void startPlayback("arrangement");
     });
-    $("#tempo-control").addEventListener("click", () => {
-      const entry = window.prompt("Set tempo (60–180 BPM)", String(state.bpm));
-      if (entry === null || !entry.trim()) return;
-      const value = Number(entry);
-      if (!Number.isFinite(value) || value < 60 || value > 180) {
-        showToast("Tempo must be between 60 and 180 BPM.");
-        return;
-      }
-      const bpm = roundBpm(value);
-      if (bpm !== state.bpm) void openProjectTempoChangeDialog(bpm);
+    $("#tempo-control").addEventListener("click", editProjectTempo);
+    document.querySelectorAll(".fullscreen-tempo-control").forEach((button) => {
+      button.addEventListener("click", editProjectTempo);
     });
     $("#tempo-change-select-all").addEventListener("click", () => {
       $("#tempo-change-items").querySelectorAll('input[type="checkbox"]').forEach((checkbox) => {
@@ -55223,6 +55229,21 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
           }
         } catch (error) {
           cacheRestoreError = error;
+        }
+        if (!cachedSnapshotRestored) {
+          if (project.cloudBacked && project.cloudHasFile && getCloudToken()) {
+            const unsyncedWarning = project.localDirty
+              ? " The missing local copy may have unsynced edits, which cannot be restored."
+              : "";
+            const shouldRestoreCloudCopy = window.confirm(
+              `The local snapshot for "${project.name}" is missing. Restore the latest cloud-saved copy?${unsyncedWarning}`,
+            );
+            if (!shouldRestoreCloudCopy) {
+              throw new Error("Cloud recovery was cancelled because the local project snapshot is missing.");
+            }
+            cachedSnapshot = await downloadProjectToBrowser(project);
+            cachedSnapshotRestored = true;
+          }
         }
         if (!cachedSnapshotRestored) {
           if (!project.cloudBacked || project.localDirty) {

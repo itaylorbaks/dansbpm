@@ -217,6 +217,18 @@
     pending.resolve(apply);
   }
 
+  function editProjectTempo() {
+    const entry = window.prompt("Set tempo (60–180 BPM)", String(state.bpm));
+    if (entry === null || !entry.trim()) return;
+    const value = Number(entry);
+    if (!Number.isFinite(value) || value < 60 || value > 180) {
+      showToast("Tempo must be between 60 and 180 BPM.");
+      return;
+    }
+    const bpm = roundBpm(value);
+    if (bpm !== state.bpm) void openProjectTempoChangeDialog(bpm);
+  }
+
   let rackTabDrag = null;
   let suppressRackTabClick = false;
   let rackAssetLibraryAutoFloated = false;
@@ -534,16 +546,9 @@
       saveState();
       if (resumePlayback) void startPlayback("arrangement");
     });
-    $("#tempo-control").addEventListener("click", () => {
-      const entry = window.prompt("Set tempo (60–180 BPM)", String(state.bpm));
-      if (entry === null || !entry.trim()) return;
-      const value = Number(entry);
-      if (!Number.isFinite(value) || value < 60 || value > 180) {
-        showToast("Tempo must be between 60 and 180 BPM.");
-        return;
-      }
-      const bpm = roundBpm(value);
-      if (bpm !== state.bpm) void openProjectTempoChangeDialog(bpm);
+    $("#tempo-control").addEventListener("click", editProjectTempo);
+    document.querySelectorAll(".fullscreen-tempo-control").forEach((button) => {
+      button.addEventListener("click", editProjectTempo);
     });
     $("#tempo-change-select-all").addEventListener("click", () => {
       $("#tempo-change-items").querySelectorAll('input[type="checkbox"]').forEach((checkbox) => {
@@ -1946,6 +1951,21 @@
           }
         } catch (error) {
           cacheRestoreError = error;
+        }
+        if (!cachedSnapshotRestored) {
+          if (project.cloudBacked && project.cloudHasFile && getCloudToken()) {
+            const unsyncedWarning = project.localDirty
+              ? " The missing local copy may have unsynced edits, which cannot be restored."
+              : "";
+            const shouldRestoreCloudCopy = window.confirm(
+              `The local snapshot for "${project.name}" is missing. Restore the latest cloud-saved copy?${unsyncedWarning}`,
+            );
+            if (!shouldRestoreCloudCopy) {
+              throw new Error("Cloud recovery was cancelled because the local project snapshot is missing.");
+            }
+            cachedSnapshot = await downloadProjectToBrowser(project);
+            cachedSnapshotRestored = true;
+          }
         }
         if (!cachedSnapshotRestored) {
           if (!project.cloudBacked || project.localDirty) {
