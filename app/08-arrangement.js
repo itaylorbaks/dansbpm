@@ -709,6 +709,7 @@
   }
 
   function renderMixer() {
+    syncPatternLanesToMixer();
     const root = $("#mixer-content");
     const channels = getMixerTracks();
     const expandedLibraryGroups = new Set(

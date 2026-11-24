@@ -41,6 +41,28 @@
     return terms.every((term) => title.includes(term));
   }
 
+  function filterAssetLibrary(query = $("#asset-library-search-input").value) {
+    const terms = normalizeSoundSearch(query).split(/\s+/).filter(Boolean);
+    const matches = (item) => {
+      if (!terms.length) return true;
+      const text = normalizeSoundSearch(item.textContent);
+      return terms.every((term) => text.includes(term));
+    };
+    const items = $("#source-browser-dialog").querySelectorAll(
+      ".asset-source, .recording-source, .pattern-component-row, .instrument-source",
+    );
+    items.forEach((item) => { item.hidden = !matches(item); });
+    $("#source-browser-dialog").querySelectorAll(
+      ".recording-source-group, .pattern-component-group, .instrument-family-group, .instrument-kind-group",
+    ).forEach((group) => {
+      const hasMatch = Array.from(group.querySelectorAll(
+        ".asset-source, .recording-source, .pattern-component-row, .instrument-source",
+      )).some((item) => !item.hidden);
+      group.hidden = !hasMatch;
+      if (terms.length && hasMatch) group.open = true;
+    });
+  }
+
   function getStepPickerInstruments() {
     return state.tracks.filter((track) =>
       !track.sourceId && (["piano-roll", "mel-track"].includes(stepInstrumentPickerMode) || track.kind !== "drumkit"));
@@ -442,8 +464,10 @@
     menu.dataset.assetType = type;
     menu.dataset.assetId = id;
     const openAsset = $("#open-library-asset");
-    openAsset.hidden = !["pattern", "mel", "audio"].includes(type);
+    openAsset.hidden = type === "audio" || !["pattern", "mel"].includes(type);
     openAsset.textContent = type === "pattern" ? "Open in Rack" : "Open in Piano Roll";
+    $("#open-audio-as-instrument").hidden = type !== "audio";
+    $("#open-audio-as-pitch").hidden = type !== "audio";
     $("#draw-pattern-components").hidden = type !== "pattern";
     menu.hidden = false;
     positionContextMenuAtTarget(menu, event.currentTarget);
@@ -460,6 +484,8 @@
     delete menu.dataset.assetType;
     delete menu.dataset.assetId;
     $("#open-library-asset").hidden = true;
+    $("#open-audio-as-instrument").hidden = true;
+    $("#open-audio-as-pitch").hidden = true;
   }
 
   function getArrangementAsset(type, id) {
@@ -924,6 +950,7 @@
     renderRecordingBrowser();
     renderVstBrowser();
     renderInstrumentBrowser("", true);
+    filterAssetLibrary();
   }
 
   function openTrackAssetLibrary() {
@@ -981,6 +1008,46 @@
     if (!dialog.open) dialog.show();
   }
 
+  function routePatternLaneToMixer(trackId) {
+    const mixerIndex = getMixerSourceTracks().findIndex(({ track }) => track.id === trackId);
+    if (mixerIndex < 0) return;
+    while (state.effectTracks.length <= mixerIndex) {
+      const number = state.effectTracks.length + 1;
+      state.effectTracks.push(makeMixerBusTrack("mixer-effects", {
+        id: makeId(),
+        name: `Mixer ${String(number).padStart(2, "0")}`,
+      }));
+    }
+    state.effectTracks.forEach((bus) => {
+      bus.routedTrackIds = bus.routedTrackIds.filter((id) => id !== trackId);
+    });
+    state.effectTracks[mixerIndex].routedTrackIds = [trackId];
+    if (state.audioContext) rebuildMixerAudioRouting();
+  }
+
+  function syncPatternLanesToMixer() {
+    let changed = false;
+    getMixerSourceTracks().forEach(({ track, type }, mixerIndex) => {
+      if (type !== "Pattern") return;
+      while (state.effectTracks.length <= mixerIndex) {
+        const number = state.effectTracks.length + 1;
+        state.effectTracks.push(makeMixerBusTrack("mixer-effects", {
+          id: makeId(),
+          name: `Mixer ${String(number).padStart(2, "0")}`,
+        }));
+      }
+      const target = state.effectTracks[mixerIndex];
+      if (target.routedTrackIds.length === 1 && target.routedTrackIds[0] === track.id &&
+        state.effectTracks.every((bus) => bus === target || !bus.routedTrackIds.includes(track.id))) return;
+      state.effectTracks.forEach((bus) => {
+        bus.routedTrackIds = bus.routedTrackIds.filter((id) => id !== track.id);
+      });
+      target.routedTrackIds = [track.id];
+      changed = true;
+    });
+    if (changed && state.audioContext) rebuildMixerAudioRouting();
+  }
+
   function addPatternClip(startBar = state.arrangementCursor, patternId = state.selectedPatternId, trackId = patternId) {
     const pattern = getPattern(patternId);
     if (!pattern) return;
@@ -999,6 +1066,7 @@
       sourceOffsetBars: 0,
       startBar: clampArrangementStart(startBar, durationBars),
     });
+    routePatternLaneToMixer(trackId);
     state.patternClips.sort((left, right) => left.startBar - right.startBar);
     updateArrangementLength();
     renderArrangement();
@@ -1030,6 +1098,7 @@
       sourceOffsetBars: 0,
       startBar: clampArrangementStart(startBar, component.steps / 16),
     });
+    routePatternLaneToMixer(component.id);
     return component;
   }
 

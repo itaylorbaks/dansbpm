@@ -414,7 +414,7 @@
       Math.max(0, Number.isFinite(noteOptions.attack) ? noteOptions.attack : parameter("attack", 0.01)),
       Math.max(0.002, duration * 0.7),
     );
-    const decay = Math.min(parameter("decay", 0.25), Math.max(0, duration - attack));
+    const decay = Math.min(Math.max(0, parameter("decay", 0.25)), Math.max(0, duration - attack));
     const sustain = Math.max(0, Math.min(0.9, parameter("sustain", 0.55)));
     const release = Math.max(0.01, Number.isFinite(noteOptions.soundFadeOut)
       ? noteOptions.soundFadeOut
@@ -428,7 +428,8 @@
     const cutoff = Math.max(80, Math.min(18000, Number(patch.cutoff) || 3200));
     const filterPeak = Math.min(18000, cutoff * Math.pow(2, parameter("filterEnvOctaves", 0)));
     const filterAttack = Math.min(Math.max(0, parameter("filterAttack", 0.02)), duration * 0.7);
-    const filterDecay = Math.min(parameter("filterDecay", 0.35), Math.max(0, duration - filterAttack));
+    const filterDecay = Math.min(Math.max(0, parameter("filterDecay", 0.35)),
+      Math.max(0, duration - filterAttack));
     const filterSustain = Math.max(0, Math.min(1, parameter("filterSustain", 0.25)));
     const filterSustainFrequency = cutoff * Math.pow(2, Math.log2(Math.max(1, filterPeak / cutoff)) * filterSustain);
 
@@ -704,7 +705,7 @@
     const frequency = 440 * Math.pow(2, (midi - 69) / 12);
     const noteAttack = Number.isFinite(noteOptions.attack) ? noteOptions.attack : patchValue("attack", 0.005);
     const attack = Math.min(Math.max(0, noteAttack), Math.max(0.002, duration * 0.7));
-    const decay = Math.min(patchValue("decay", 0.1), Math.max(0.005, duration - attack));
+    const decay = Math.min(Math.max(0, patchValue("decay", 0.1)), Math.max(0.005, duration - attack));
     const soundDurationScale = Number.isFinite(noteOptions.soundDurationScale)
       ? Math.max(0.01, Math.min(1, noteOptions.soundDurationScale))
       : 1;

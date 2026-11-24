@@ -2007,7 +2007,7 @@
     }
   }
 
-  async function openAudioClipInPianoRoll(trackId, clipId, keepMainView = false) {
+  async function openAudioClipInPianoRoll(trackId, clipId, keepMainView = false, audioMode = "instrument") {
     if (state.stepPianoEditContext) {
       showToast("Return to the Piano Roll before editing an audio segment.");
       return;
@@ -2028,7 +2028,7 @@
       state.pianoRollAudioClipId = clip.id;
     }
     if (!keepMainView) setWorkspaceView("piano-roll", true);
-    $("#piano-audio-mode-select").value = "instrument";
+    $("#piano-audio-mode-select").value = audioMode === "audio" ? "audio" : "instrument";
     const audioOptions = $("#piano-toolbar-audio-options");
     const audioToggle = document.querySelector('[aria-controls="piano-toolbar-audio-options"]');
     audioOptions.hidden = false;
@@ -2044,7 +2044,7 @@
     await transcribeAudioClipToPianoRoll(clip);
   }
 
-  async function openAudioAssetInPianoRoll(asset, keepMainView = false) {
+  async function openAudioAssetInPianoRoll(asset, keepMainView = false, audioMode = "instrument") {
     if (!asset?.buffer) {
       showToast("That audio asset is no longer available.");
       return;
@@ -2059,7 +2059,7 @@
     if (linkedMel) loadMel(linkedMel.id);
     else state.pianoRollAudioClipId = asset.id;
     if (!keepMainView) setWorkspaceView("piano-roll", true);
-    $("#piano-audio-mode-select").value = "instrument";
+    $("#piano-audio-mode-select").value = audioMode === "audio" ? "audio" : "instrument";
     const audioOptions = $("#piano-toolbar-audio-options");
     const audioToggle = document.querySelector('[aria-controls="piano-toolbar-audio-options"]');
     audioOptions.hidden = false;

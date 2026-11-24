@@ -28327,7 +28327,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     }
   }
 
-  async function openAudioClipInPianoRoll(trackId, clipId, keepMainView = false) {
+  async function openAudioClipInPianoRoll(trackId, clipId, keepMainView = false, audioMode = "instrument") {
     if (state.stepPianoEditContext) {
       showToast("Return to the Piano Roll before editing an audio segment.");
       return;
@@ -28348,7 +28348,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       state.pianoRollAudioClipId = clip.id;
     }
     if (!keepMainView) setWorkspaceView("piano-roll", true);
-    $("#piano-audio-mode-select").value = "instrument";
+    $("#piano-audio-mode-select").value = audioMode === "audio" ? "audio" : "instrument";
     const audioOptions = $("#piano-toolbar-audio-options");
     const audioToggle = document.querySelector('[aria-controls="piano-toolbar-audio-options"]');
     audioOptions.hidden = false;
@@ -28364,7 +28364,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     await transcribeAudioClipToPianoRoll(clip);
   }
 
-  async function openAudioAssetInPianoRoll(asset, keepMainView = false) {
+  async function openAudioAssetInPianoRoll(asset, keepMainView = false, audioMode = "instrument") {
     if (!asset?.buffer) {
       showToast("That audio asset is no longer available.");
       return;
@@ -28379,7 +28379,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     if (linkedMel) loadMel(linkedMel.id);
     else state.pianoRollAudioClipId = asset.id;
     if (!keepMainView) setWorkspaceView("piano-roll", true);
-    $("#piano-audio-mode-select").value = "instrument";
+    $("#piano-audio-mode-select").value = audioMode === "audio" ? "audio" : "instrument";
     const audioOptions = $("#piano-toolbar-audio-options");
     const audioToggle = document.querySelector('[aria-controls="piano-toolbar-audio-options"]');
     audioOptions.hidden = false;
@@ -29050,7 +29050,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=28fd514f16ed");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=b94bb2f8f9b5");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -39008,6 +39008,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   }
 
   function renderMixer() {
+    syncPatternLanesToMixer();
     const root = $("#mixer-content");
     const channels = getMixerTracks();
     const expandedLibraryGroups = new Set(
@@ -41054,6 +41055,28 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     return terms.every((term) => title.includes(term));
   }
 
+  function filterAssetLibrary(query = $("#asset-library-search-input").value) {
+    const terms = normalizeSoundSearch(query).split(/\s+/).filter(Boolean);
+    const matches = (item) => {
+      if (!terms.length) return true;
+      const text = normalizeSoundSearch(item.textContent);
+      return terms.every((term) => text.includes(term));
+    };
+    const items = $("#source-browser-dialog").querySelectorAll(
+      ".asset-source, .recording-source, .pattern-component-row, .instrument-source",
+    );
+    items.forEach((item) => { item.hidden = !matches(item); });
+    $("#source-browser-dialog").querySelectorAll(
+      ".recording-source-group, .pattern-component-group, .instrument-family-group, .instrument-kind-group",
+    ).forEach((group) => {
+      const hasMatch = Array.from(group.querySelectorAll(
+        ".asset-source, .recording-source, .pattern-component-row, .instrument-source",
+      )).some((item) => !item.hidden);
+      group.hidden = !hasMatch;
+      if (terms.length && hasMatch) group.open = true;
+    });
+  }
+
   function getStepPickerInstruments() {
     return state.tracks.filter((track) =>
       !track.sourceId && (["piano-roll", "mel-track"].includes(stepInstrumentPickerMode) || track.kind !== "drumkit"));
@@ -41455,8 +41478,10 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     menu.dataset.assetType = type;
     menu.dataset.assetId = id;
     const openAsset = $("#open-library-asset");
-    openAsset.hidden = !["pattern", "mel", "audio"].includes(type);
+    openAsset.hidden = type === "audio" || !["pattern", "mel"].includes(type);
     openAsset.textContent = type === "pattern" ? "Open in Rack" : "Open in Piano Roll";
+    $("#open-audio-as-instrument").hidden = type !== "audio";
+    $("#open-audio-as-pitch").hidden = type !== "audio";
     $("#draw-pattern-components").hidden = type !== "pattern";
     menu.hidden = false;
     positionContextMenuAtTarget(menu, event.currentTarget);
@@ -41473,6 +41498,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     delete menu.dataset.assetType;
     delete menu.dataset.assetId;
     $("#open-library-asset").hidden = true;
+    $("#open-audio-as-instrument").hidden = true;
+    $("#open-audio-as-pitch").hidden = true;
   }
 
   function getArrangementAsset(type, id) {
@@ -41937,6 +41964,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderRecordingBrowser();
     renderVstBrowser();
     renderInstrumentBrowser("", true);
+    filterAssetLibrary();
   }
 
   function openTrackAssetLibrary() {
@@ -41994,6 +42022,46 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     if (!dialog.open) dialog.show();
   }
 
+  function routePatternLaneToMixer(trackId) {
+    const mixerIndex = getMixerSourceTracks().findIndex(({ track }) => track.id === trackId);
+    if (mixerIndex < 0) return;
+    while (state.effectTracks.length <= mixerIndex) {
+      const number = state.effectTracks.length + 1;
+      state.effectTracks.push(makeMixerBusTrack("mixer-effects", {
+        id: makeId(),
+        name: `Mixer ${String(number).padStart(2, "0")}`,
+      }));
+    }
+    state.effectTracks.forEach((bus) => {
+      bus.routedTrackIds = bus.routedTrackIds.filter((id) => id !== trackId);
+    });
+    state.effectTracks[mixerIndex].routedTrackIds = [trackId];
+    if (state.audioContext) rebuildMixerAudioRouting();
+  }
+
+  function syncPatternLanesToMixer() {
+    let changed = false;
+    getMixerSourceTracks().forEach(({ track, type }, mixerIndex) => {
+      if (type !== "Pattern") return;
+      while (state.effectTracks.length <= mixerIndex) {
+        const number = state.effectTracks.length + 1;
+        state.effectTracks.push(makeMixerBusTrack("mixer-effects", {
+          id: makeId(),
+          name: `Mixer ${String(number).padStart(2, "0")}`,
+        }));
+      }
+      const target = state.effectTracks[mixerIndex];
+      if (target.routedTrackIds.length === 1 && target.routedTrackIds[0] === track.id &&
+        state.effectTracks.every((bus) => bus === target || !bus.routedTrackIds.includes(track.id))) return;
+      state.effectTracks.forEach((bus) => {
+        bus.routedTrackIds = bus.routedTrackIds.filter((id) => id !== track.id);
+      });
+      target.routedTrackIds = [track.id];
+      changed = true;
+    });
+    if (changed && state.audioContext) rebuildMixerAudioRouting();
+  }
+
   function addPatternClip(startBar = state.arrangementCursor, patternId = state.selectedPatternId, trackId = patternId) {
     const pattern = getPattern(patternId);
     if (!pattern) return;
@@ -42012,6 +42080,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       sourceOffsetBars: 0,
       startBar: clampArrangementStart(startBar, durationBars),
     });
+    routePatternLaneToMixer(trackId);
     state.patternClips.sort((left, right) => left.startBar - right.startBar);
     updateArrangementLength();
     renderArrangement();
@@ -42043,6 +42112,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       sourceOffsetBars: 0,
       startBar: clampArrangementStart(startBar, component.steps / 16),
     });
+    routePatternLaneToMixer(component.id);
     return component;
   }
 
@@ -46559,7 +46629,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       Math.max(0, Number.isFinite(noteOptions.attack) ? noteOptions.attack : parameter("attack", 0.01)),
       Math.max(0.002, duration * 0.7),
     );
-    const decay = Math.min(parameter("decay", 0.25), Math.max(0, duration - attack));
+    const decay = Math.min(Math.max(0, parameter("decay", 0.25)), Math.max(0, duration - attack));
     const sustain = Math.max(0, Math.min(0.9, parameter("sustain", 0.55)));
     const release = Math.max(0.01, Number.isFinite(noteOptions.soundFadeOut)
       ? noteOptions.soundFadeOut
@@ -46573,7 +46643,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     const cutoff = Math.max(80, Math.min(18000, Number(patch.cutoff) || 3200));
     const filterPeak = Math.min(18000, cutoff * Math.pow(2, parameter("filterEnvOctaves", 0)));
     const filterAttack = Math.min(Math.max(0, parameter("filterAttack", 0.02)), duration * 0.7);
-    const filterDecay = Math.min(parameter("filterDecay", 0.35), Math.max(0, duration - filterAttack));
+    const filterDecay = Math.min(Math.max(0, parameter("filterDecay", 0.35)),
+      Math.max(0, duration - filterAttack));
     const filterSustain = Math.max(0, Math.min(1, parameter("filterSustain", 0.25)));
     const filterSustainFrequency = cutoff * Math.pow(2, Math.log2(Math.max(1, filterPeak / cutoff)) * filterSustain);
 
@@ -46849,7 +46920,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     const frequency = 440 * Math.pow(2, (midi - 69) / 12);
     const noteAttack = Number.isFinite(noteOptions.attack) ? noteOptions.attack : patchValue("attack", 0.005);
     const attack = Math.min(Math.max(0, noteAttack), Math.max(0.002, duration * 0.7));
-    const decay = Math.min(patchValue("decay", 0.1), Math.max(0.005, duration - attack));
+    const decay = Math.min(Math.max(0, patchValue("decay", 0.1)), Math.max(0.005, duration - attack));
     const soundDurationScale = Number.isFinite(noteOptions.soundDurationScale)
       ? Math.max(0.01, Math.min(1, noteOptions.soundDurationScale))
       : 1;
@@ -53429,14 +53500,16 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         state.effectTracks.forEach((bus) => {
           bus.routedTrackIds = bus.routedTrackIds.filter((id) => id !== trackId);
         });
-        const trackName = state.tracks.find((track) => track.id === trackId)?.name || "Row";
-        const bus = makeMixerBusTrack("mixer-effects", {
-          id: makeId(),
-          name: `Rack ${trackName}`,
-          routedTrackIds: [trackId],
-        });
+        let bus = state.effectTracks.find((candidate) => !candidate.routedTrackIds?.length);
+        if (!bus) {
+          const trackName = state.tracks.find((track) => track.id === trackId)?.name || "Row";
+          bus = makeMixerBusTrack("mixer-effects", {
+            id: makeId(),
+            name: `Rack ${trackName}`,
+          });
+          state.effectTracks.push(bus);
+        }
         bus.routedTrackIds = [trackId];
-        state.effectTracks.push(bus);
       });
     } else {
       let targetBus = state.effectTracks.find((bus) => bus.id === state.selectedMixerTrackId);
@@ -53662,8 +53735,8 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     const panelWidth = Math.min(320, Math.max(180, Math.floor(window.innerWidth * 0.32)));
     if (!state.rackUndocked) {
       rackAssetLibraryAutoFloated = true;
-      floatRackWindow(panelWidth + 108, 80);
     }
+    floatRackWindow(panelWidth + 108, 80);
 
     const rackWindow = $("#rack-floating-window");
     const rackWidth = Math.max(1, Math.min(860, window.innerWidth - panelWidth - gap * 3));
@@ -53772,15 +53845,15 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     }
   }
 
-  function openAudioAssetInPianoRollWindow(type, assetId) {
+  function openAudioAssetInPianoRollWindow(type, assetId, mode = "instrument") {
     const asset = getArrangementAsset(type, assetId);
     if (asset && state.audioAssets.includes(asset)) {
       if (state.view === "piano-roll" && !state.workspaceHidden && !state.pianoRollUndocked) {
-        void openAudioAssetInPianoRoll(asset);
+        void openAudioAssetInPianoRoll(asset, false, mode);
       } else {
         if (state.pianoRollUndocked) $("#piano-floating-window").hidden = false;
         else floatPianoRollWindow(window.innerWidth / 2, window.innerHeight / 3);
-        void openAudioAssetInPianoRoll(asset, true);
+        void openAudioAssetInPianoRoll(asset, true, mode);
       }
       return;
     }
@@ -53791,11 +53864,11 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
       return;
     }
     if (state.view === "piano-roll" && !state.workspaceHidden && !state.pianoRollUndocked) {
-      void openAudioClipInPianoRoll(track.id, assetId);
+      void openAudioClipInPianoRoll(track.id, assetId, false, mode);
     } else {
       if (state.pianoRollUndocked) $("#piano-floating-window").hidden = false;
       else floatPianoRollWindow(window.innerWidth / 2, window.innerHeight / 3);
-      void openAudioClipInPianoRoll(track.id, assetId, true);
+      void openAudioClipInPianoRoll(track.id, assetId, true, mode);
     }
   }
 
@@ -54466,6 +54539,16 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
         else openAudioAssetInPianoRollWindow(assetType, assetId);
       }
     });
+    const openAudioAssetInMode = (mode) => {
+      const { assetType, assetId } = $("#asset-context-menu").dataset;
+      closeAssetContextMenu();
+      if ($("#source-browser-dialog").open) $("#source-browser-dialog").close();
+      if (assetType === "audio" && assetId) {
+        openAudioAssetInPianoRollWindow(assetType, assetId, mode);
+      }
+    };
+    $("#open-audio-as-instrument").addEventListener("click", () => openAudioAssetInMode("instrument"));
+    $("#open-audio-as-pitch").addEventListener("click", () => openAudioAssetInMode("audio"));
     $("#draw-pattern-components").addEventListener("click", () => {
       const { assetType, assetId } = $("#asset-context-menu").dataset;
       closeAssetContextMenu();
@@ -54547,10 +54630,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     $("#sequencer-browser-button").addEventListener("click", () => openAssetLibrary());
     const assetLibrarySearch = $("#asset-library-search-input");
     assetLibrarySearch.addEventListener("input", () => {
-      const query = assetLibrarySearch.value.trim().toLowerCase();
-      document.querySelectorAll("#source-browser-dialog .asset-source, #source-browser-dialog .recording-source, #source-browser-dialog .instrument-source").forEach((item) => {
-        item.hidden = Boolean(query) && !item.textContent.toLowerCase().includes(query);
-      });
+      filterAssetLibrary(assetLibrarySearch.value);
     });
     const selectedAssetIndicator = $("#selected-asset-indicator");
     const selectedAssetMenu = $("#selected-asset-menu");

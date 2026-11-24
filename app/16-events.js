@@ -74,14 +74,16 @@
         state.effectTracks.forEach((bus) => {
           bus.routedTrackIds = bus.routedTrackIds.filter((id) => id !== trackId);
         });
-        const trackName = state.tracks.find((track) => track.id === trackId)?.name || "Row";
-        const bus = makeMixerBusTrack("mixer-effects", {
-          id: makeId(),
-          name: `Rack ${trackName}`,
-          routedTrackIds: [trackId],
-        });
+        let bus = state.effectTracks.find((candidate) => !candidate.routedTrackIds?.length);
+        if (!bus) {
+          const trackName = state.tracks.find((track) => track.id === trackId)?.name || "Row";
+          bus = makeMixerBusTrack("mixer-effects", {
+            id: makeId(),
+            name: `Rack ${trackName}`,
+          });
+          state.effectTracks.push(bus);
+        }
         bus.routedTrackIds = [trackId];
-        state.effectTracks.push(bus);
       });
     } else {
       let targetBus = state.effectTracks.find((bus) => bus.id === state.selectedMixerTrackId);
@@ -307,8 +309,8 @@
     const panelWidth = Math.min(320, Math.max(180, Math.floor(window.innerWidth * 0.32)));
     if (!state.rackUndocked) {
       rackAssetLibraryAutoFloated = true;
-      floatRackWindow(panelWidth + 108, 80);
     }
+    floatRackWindow(panelWidth + 108, 80);
 
     const rackWindow = $("#rack-floating-window");
     const rackWidth = Math.max(1, Math.min(860, window.innerWidth - panelWidth - gap * 3));
@@ -417,15 +419,15 @@
     }
   }
 
-  function openAudioAssetInPianoRollWindow(type, assetId) {
+  function openAudioAssetInPianoRollWindow(type, assetId, mode = "instrument") {
     const asset = getArrangementAsset(type, assetId);
     if (asset && state.audioAssets.includes(asset)) {
       if (state.view === "piano-roll" && !state.workspaceHidden && !state.pianoRollUndocked) {
-        void openAudioAssetInPianoRoll(asset);
+        void openAudioAssetInPianoRoll(asset, false, mode);
       } else {
         if (state.pianoRollUndocked) $("#piano-floating-window").hidden = false;
         else floatPianoRollWindow(window.innerWidth / 2, window.innerHeight / 3);
-        void openAudioAssetInPianoRoll(asset, true);
+        void openAudioAssetInPianoRoll(asset, true, mode);
       }
       return;
     }
@@ -436,11 +438,11 @@
       return;
     }
     if (state.view === "piano-roll" && !state.workspaceHidden && !state.pianoRollUndocked) {
-      void openAudioClipInPianoRoll(track.id, assetId);
+      void openAudioClipInPianoRoll(track.id, assetId, false, mode);
     } else {
       if (state.pianoRollUndocked) $("#piano-floating-window").hidden = false;
       else floatPianoRollWindow(window.innerWidth / 2, window.innerHeight / 3);
-      void openAudioClipInPianoRoll(track.id, assetId, true);
+      void openAudioClipInPianoRoll(track.id, assetId, true, mode);
     }
   }
 
@@ -1111,6 +1113,16 @@
         else openAudioAssetInPianoRollWindow(assetType, assetId);
       }
     });
+    const openAudioAssetInMode = (mode) => {
+      const { assetType, assetId } = $("#asset-context-menu").dataset;
+      closeAssetContextMenu();
+      if ($("#source-browser-dialog").open) $("#source-browser-dialog").close();
+      if (assetType === "audio" && assetId) {
+        openAudioAssetInPianoRollWindow(assetType, assetId, mode);
+      }
+    };
+    $("#open-audio-as-instrument").addEventListener("click", () => openAudioAssetInMode("instrument"));
+    $("#open-audio-as-pitch").addEventListener("click", () => openAudioAssetInMode("audio"));
     $("#draw-pattern-components").addEventListener("click", () => {
       const { assetType, assetId } = $("#asset-context-menu").dataset;
       closeAssetContextMenu();
@@ -1192,10 +1204,7 @@
     $("#sequencer-browser-button").addEventListener("click", () => openAssetLibrary());
     const assetLibrarySearch = $("#asset-library-search-input");
     assetLibrarySearch.addEventListener("input", () => {
-      const query = assetLibrarySearch.value.trim().toLowerCase();
-      document.querySelectorAll("#source-browser-dialog .asset-source, #source-browser-dialog .recording-source, #source-browser-dialog .instrument-source").forEach((item) => {
-        item.hidden = Boolean(query) && !item.textContent.toLowerCase().includes(query);
-      });
+      filterAssetLibrary(assetLibrarySearch.value);
     });
     const selectedAssetIndicator = $("#selected-asset-indicator");
     const selectedAssetMenu = $("#selected-asset-menu");

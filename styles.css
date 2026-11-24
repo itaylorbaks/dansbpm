@@ -603,6 +603,11 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .instrument-source .sound-variant { width: 100%; height: 20px; margin: 0; font-size: 8px; }
 .asset-browser { display: flex; flex-direction: column; gap: 3px; }
 .asset-source { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid transparent; border-radius: 4px; background: transparent; padding: 6px 5px; color: #aeb0b1; cursor: grab; }
+.source-browser-dialog .asset-source[hidden],
+.source-browser-dialog .recording-source[hidden],
+.source-browser-dialog .pattern-component-row[hidden],
+.source-browser-dialog .instrument-source[hidden],
+.source-browser-dialog details[hidden] { display: none !important; }
 .asset-source:hover, .asset-source:focus-visible { border-color: #36373c; background: #242529; outline: none; }
 .asset-source.is-selected, .recording-source.is-selected, .pattern-component-row.is-selected { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .asset-source:active { cursor: grabbing; }
