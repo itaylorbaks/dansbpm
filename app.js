@@ -25609,6 +25609,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     state.selectedPianoNoteId = null;
     state.selectedPianoNoteIds.clear();
     state.pianoSelectionFromMarquee = false;
+    $("#piano-audio-mode-select").value = "instrument";
     renderPianoInstrumentOptions();
     updateStepPianoEditorControls();
     $("#step-track-mix-dialog").close();
@@ -29050,7 +29051,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=d1c78f84f0e9");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=a3eb8f40527e");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -31360,52 +31361,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     const track = state.tracks.find((item) => item.id === trackId);
     if (!track) return;
     if (action === "piano-roll") {
-      if (track.kind === "sample" && track.sample?.buffer) {
-        state.selectedPianoTrackId = track.id;
-        const audio = {
-          id: track.id,
-          name: track.name,
-          buffer: track.sample.buffer,
-          audioMetadata: track.audioMetadata,
-          durationSeconds: track.sample.buffer.duration,
-          sourceOffsetSeconds: 0,
-          assetId: track.id,
-        };
-        const useMainPianoRoll = state.view === "piano-roll" &&
-          !state.workspaceHidden && !state.pianoRollUndocked;
-        if (!useMainPianoRoll) {
-          if (state.pianoRollUndocked) $("#piano-floating-window").hidden = false;
-          else floatPianoRollWindow(window.innerWidth / 2, window.innerHeight / 3);
-        }
-        void openAudioAssetInPianoRoll(audio, !useMainPianoRoll).then(() => {
-          const mel = state.mels.find((item) => item.audioSourceClipId === track.id);
-          const pattern = getPattern();
-          if (!mel || !pattern || !getPatternTrackIds(pattern).includes(track.id)) return;
-          captureCurrentPattern();
-          pattern.stepPianoNotes ||= {};
-          pattern.steps = Math.max(pattern.steps, normalizePatternSteps((mel.bars || 1) * 16));
-          state.steps = pattern.steps;
-          const notes = mel.notes.map((note) => ({
-            ...note,
-            id: makeId(),
-            trackId: track.id,
-          }));
-          pattern.stepPianoNotes[track.id] = notes;
-          const cells = Array(STEP_COUNT).fill(false);
-          const ticksPerStep = getGridTicksPerStep(pattern);
-          notes.forEach((note) => {
-            const step = Math.floor(note.startTick / ticksPerStep);
-            if (step >= 0 && step < getGridStepCount(pattern)) cells[step] = true;
-          });
-          pattern.cells[track.id] = cells;
-          track.cells = [...cells];
-          renderTracks();
-          renderArrangement();
-          saveState();
-        });
-      } else {
-        openStepInstrumentPianoRoll(track.id);
-      }
+      openStepInstrumentPianoRoll(track.id);
     } else if (action === "edit-sound") {
       openStepTrackMix(track);
     } else if (action === "rename") {

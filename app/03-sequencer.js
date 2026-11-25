@@ -276,6 +276,7 @@
     state.selectedPianoNoteId = null;
     state.selectedPianoNoteIds.clear();
     state.pianoSelectionFromMarquee = false;
+    $("#piano-audio-mode-select").value = "instrument";
     renderPianoInstrumentOptions();
     updateStepPianoEditorControls();
     $("#step-track-mix-dialog").close();
