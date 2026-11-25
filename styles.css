@@ -597,6 +597,7 @@ kbd { border: 1px solid #393a3f; border-radius: 3px; padding: 2px 4px; color: #b
 .instrument-source[draggable="true"] { cursor: grab; }
 .instrument-source[draggable="true"]:active { cursor: grabbing; }
 .instrument-source.is-search-target, .instrument-family-group.is-search-target, .instrument-kind-group.is-search-target, .step-instrument-choice.is-search-target, .step-instrument-group.is-search-target { border-radius: 4px; outline: 1px solid #687641; background: rgba(211,243,107,.05); }
+.instrument-source.is-previewing { border-radius: 4px; outline: 1px solid var(--accent); background: rgba(211,243,107,.09); }
 .source-color { width: 6px; height: 6px; border-radius: 2px; }
 .instrument-source-name { overflow: hidden; border: 0; background: transparent; padding: 0; color: #b6b7b8; font-size: 9px; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .instrument-source-name:hover, .instrument-source-name:focus-visible { color: #f0f1ec; outline: none; }

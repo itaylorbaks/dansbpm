@@ -774,7 +774,7 @@
     const headingRow = document.createElement("div");
     headingRow.className = "step-mix-waveform-heading";
     const heading = document.createElement("h3");
-    heading.textContent = "Waveform · trim and fades";
+    heading.textContent = `${track.name} · trim and fades`;
     const playButton = makeStepMixPreviewButton(track);
     headingRow.append(heading, playButton);
     const stage = document.createElement("div");
@@ -1521,52 +1521,7 @@
     const track = state.tracks.find((item) => item.id === trackId);
     if (!track) return;
     if (action === "piano-roll") {
-      if (track.kind === "sample" && track.sample?.buffer) {
-        state.selectedPianoTrackId = track.id;
-        const audio = {
-          id: track.id,
-          name: track.name,
-          buffer: track.sample.buffer,
-          audioMetadata: track.audioMetadata,
-          durationSeconds: track.sample.buffer.duration,
-          sourceOffsetSeconds: 0,
-          assetId: track.id,
-        };
-        const useMainPianoRoll = state.view === "piano-roll" &&
-          !state.workspaceHidden && !state.pianoRollUndocked;
-        if (!useMainPianoRoll) {
-          if (state.pianoRollUndocked) $("#piano-floating-window").hidden = false;
-          else floatPianoRollWindow(window.innerWidth / 2, window.innerHeight / 3);
-        }
-        void openAudioAssetInPianoRoll(audio, !useMainPianoRoll).then(() => {
-          const mel = state.mels.find((item) => item.audioSourceClipId === track.id);
-          const pattern = getPattern();
-          if (!mel || !pattern || !getPatternTrackIds(pattern).includes(track.id)) return;
-          captureCurrentPattern();
-          pattern.stepPianoNotes ||= {};
-          pattern.steps = Math.max(pattern.steps, normalizePatternSteps((mel.bars || 1) * 16));
-          state.steps = pattern.steps;
-          const notes = mel.notes.map((note) => ({
-            ...note,
-            id: makeId(),
-            trackId: track.id,
-          }));
-          pattern.stepPianoNotes[track.id] = notes;
-          const cells = Array(STEP_COUNT).fill(false);
-          const ticksPerStep = getGridTicksPerStep(pattern);
-          notes.forEach((note) => {
-            const step = Math.floor(note.startTick / ticksPerStep);
-            if (step >= 0 && step < getGridStepCount(pattern)) cells[step] = true;
-          });
-          pattern.cells[track.id] = cells;
-          track.cells = [...cells];
-          renderTracks();
-          renderArrangement();
-          saveState();
-        });
-      } else {
-        openStepInstrumentPianoRoll(track.id);
-      }
+      openStepInstrumentPianoRoll(track.id);
     } else if (action === "edit-sound") {
       openStepTrackMix(track);
     } else if (action === "rename") {
@@ -2067,6 +2022,7 @@
     const request = ++instrumentPreviewSequence;
     const preview = { soundId, track, pending: true, sources: new Set(), gain: null };
     activeInstrumentPreview = preview;
+    setAssetLibraryPreviewHighlight(soundId, true);
     try {
       await ensureAudio();
       await loadLibrarySample(track);
@@ -2116,7 +2072,14 @@
   function finishInstrumentSoundPreview(preview) {
     if (activeInstrumentPreview !== preview || preview.pending || preview.sources.size > 0) return;
     activeInstrumentPreview = null;
+    setAssetLibraryPreviewHighlight(preview.soundId, false);
     preview.gain?.disconnect();
+  }
+
+  function setAssetLibraryPreviewHighlight(soundId, isPreviewing) {
+    document.querySelectorAll(".source-sidebar .instrument-source").forEach((row) => {
+      if (row.dataset.soundId === soundId) row.classList.toggle("is-previewing", isPreviewing);
+    });
   }
 
   function stopInstrumentSoundPreview() {
@@ -2125,6 +2088,7 @@
     activeInstrumentPreview = null;
     hideAssetLibrarySoundPreview();
     if (!preview) return;
+    setAssetLibraryPreviewHighlight(preview.soundId, false);
     const context = preview.gain?.context || state.audioContext;
     const stopTime = (context?.currentTime || 0) + 0.02;
     if (preview.gain && context) {

@@ -29050,7 +29050,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     renderPianoAudioStemControls();
     try {
       await ensureAudio();
-      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=38bc66d3bff6");
+      const { separateAudioBuffer } = await import("./app/audio-separation.js?v=d1c78f84f0e9");
       const result = await separateAudioBuffer(clip.buffer, (progress) => {
         if (progress.stage === "download") {
           const loaded = (progress.loaded / 1024 / 1024).toFixed(0);
@@ -30613,7 +30613,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     const headingRow = document.createElement("div");
     headingRow.className = "step-mix-waveform-heading";
     const heading = document.createElement("h3");
-    heading.textContent = "Waveform · trim and fades";
+    heading.textContent = `${track.name} · trim and fades`;
     const playButton = makeStepMixPreviewButton(track);
     headingRow.append(heading, playButton);
     const stage = document.createElement("div");
@@ -31906,6 +31906,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     const request = ++instrumentPreviewSequence;
     const preview = { soundId, track, pending: true, sources: new Set(), gain: null };
     activeInstrumentPreview = preview;
+    setAssetLibraryPreviewHighlight(soundId, true);
     try {
       await ensureAudio();
       await loadLibrarySample(track);
@@ -31955,7 +31956,14 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
   function finishInstrumentSoundPreview(preview) {
     if (activeInstrumentPreview !== preview || preview.pending || preview.sources.size > 0) return;
     activeInstrumentPreview = null;
+    setAssetLibraryPreviewHighlight(preview.soundId, false);
     preview.gain?.disconnect();
+  }
+
+  function setAssetLibraryPreviewHighlight(soundId, isPreviewing) {
+    document.querySelectorAll(".source-sidebar .instrument-source").forEach((row) => {
+      if (row.dataset.soundId === soundId) row.classList.toggle("is-previewing", isPreviewing);
+    });
   }
 
   function stopInstrumentSoundPreview() {
@@ -31964,6 +31972,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     activeInstrumentPreview = null;
     hideAssetLibrarySoundPreview();
     if (!preview) return;
+    setAssetLibraryPreviewHighlight(preview.soundId, false);
     const context = preview.gain?.context || state.audioContext;
     const stopTime = (context?.currentTime || 0) + 0.02;
     if (preview.gain && context) {
@@ -41170,6 +41179,7 @@ function getArrangementClipSourceWindows(sourceLength, sourceOffset, repeatCount
     const row = document.createElement("div");
     row.className = "instrument-source";
     row.dataset.soundId = track.id;
+    row.classList.toggle("is-previewing", activeInstrumentPreview?.soundId === getSoundDurationKey(track));
     row.tabIndex = 0;
     row.draggable = true;
     row.title = track.vstPluginId

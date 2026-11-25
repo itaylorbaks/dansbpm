@@ -156,6 +156,7 @@
     const row = document.createElement("div");
     row.className = "instrument-source";
     row.dataset.soundId = track.id;
+    row.classList.toggle("is-previewing", activeInstrumentPreview?.soundId === getSoundDurationKey(track));
     row.tabIndex = 0;
     row.draggable = true;
     row.title = track.vstPluginId
