@@ -43,16 +43,17 @@
 
   function filterAssetLibrary(query = $("#asset-library-search-input").value) {
     const terms = normalizeSoundSearch(query).split(/\s+/).filter(Boolean);
+    const sidebar = $(".source-sidebar");
     const matches = (item) => {
       if (!terms.length) return true;
       const text = normalizeSoundSearch(item.textContent);
       return terms.every((term) => text.includes(term));
     };
-    const items = $("#source-browser-dialog").querySelectorAll(
+    const items = sidebar.querySelectorAll(
       ".asset-source, .recording-source, .pattern-component-row, .instrument-source",
     );
     items.forEach((item) => { item.hidden = !matches(item); });
-    $("#source-browser-dialog").querySelectorAll(
+    sidebar.querySelectorAll(
       ".recording-source-group, .pattern-component-group, .instrument-family-group, .instrument-kind-group",
     ).forEach((group) => {
       const hasMatch = Array.from(group.querySelectorAll(

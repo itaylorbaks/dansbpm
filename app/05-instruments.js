@@ -991,7 +991,7 @@
     voice.envelope.gain.setValueAtTime(voice.envelope.gain.value, context.currentTime);
     voice.envelope.gain.linearRampToValueAtTime(0.0001, endTime);
     try {
-      voice.source.stop(endTime + 0.005);
+      stopAudioSource(voice.source, endTime + 0.005);
     } catch (error) {
       if (error.name !== "InvalidStateError") throw error;
     }
@@ -2134,7 +2134,7 @@
     }
     preview.sources.forEach((source) => {
       try {
-        source.stop(stopTime);
+        stopAudioSource(source, stopTime);
       } catch (error) {
         if (error.name !== "InvalidStateError") throw error;
       }

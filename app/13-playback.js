@@ -15,6 +15,16 @@
     source.addEventListener("ended", () => state.arrangementSources.delete(source), { once: true });
   }
 
+  function scheduleExponentialRamp(param, value, time) {
+    if (!Number.isFinite(value) || value <= 0 || !Number.isFinite(time)) return;
+    param.exponentialRampToValueAtTime(value, time);
+  }
+
+  function stopAudioSource(source, time) {
+    if (Number.isFinite(time)) source.stop(time);
+    else source.stop();
+  }
+
   function scheduleArrangementVoice(schedule) {
     const wasSchedulingArrangementVoice = state.isSchedulingArrangementVoice;
     state.isSchedulingArrangementVoice = true;
@@ -571,7 +581,7 @@
       if (settings.pitchDrop > 0) {
         const startFrequency = settings.rate * Math.pow(2, settings.pitchDrop / 12);
         oscillator.frequency.setValueAtTime(startFrequency, time);
-        oscillator.frequency.exponentialRampToValueAtTime(settings.rate,
+        scheduleExponentialRamp(oscillator.frequency, settings.rate,
           time + Math.max(0.01, settings.pitchDropTime ||
             parameter("pitchDropTime", engine === "dansbpm-kick" ? 0.045 : 0.11)));
       } else {
@@ -580,7 +590,7 @@
       oscillator.detune.setValueAtTime(settings.detune, time);
       gain.gain.setValueAtTime(settings.level, time);
       if (settings.decay) {
-        gain.gain.exponentialRampToValueAtTime(0.0001,
+        scheduleExponentialRamp(gain.gain, 0.0001,
           time + Math.max(0.02, Math.min(8, settings.decay)));
       }
       const periodicWave = makeVstPeriodicWave(context, settings.type, settings.wavetablePosition || 0, settings.rate);
@@ -595,7 +605,7 @@
       }
       oscillator.connect(gain);
       oscillator.start(time);
-      oscillator.stop(gateEnd + release + 0.02);
+      stopAudioSource(oscillator, gateEnd + release + 0.02);
       if (settings.fm > 0) {
         const modulator = context.createOscillator();
         registerArrangementPlaybackSource(modulator);
@@ -606,7 +616,7 @@
         modulator.connect(modulatorGain);
         modulatorGain.connect(oscillator.frequency);
         modulator.start(time);
-        modulator.stop(gateEnd + release + 0.02);
+        stopAudioSource(modulator, gateEnd + release + 0.02);
       }
       return oscillator;
     });
@@ -643,14 +653,14 @@
         clickFilter.frequency.setValueAtTime(parameter("clickTone", 3800), time);
         noise.connect(clickFilter);
         clickFilter.connect(noiseGain);
-        noiseGain.gain.exponentialRampToValueAtTime(0.0001, time +
+        scheduleExponentialRamp(noiseGain.gain, 0.0001, time +
           (isKick ? parameter("kickClickDuration", 0.025) : parameter("clickDuration", 0.045)));
       } else {
         noise.connect(noiseGain);
       }
       noiseGain.connect(filter);
       noise.start(time);
-      noise.stop(is808 || isKick
+      stopAudioSource(noise, is808 || isKick
         ? time + (isKick
           ? parameter("kickClickDuration", 0.025) + 0.015
           : parameter("clickDuration", 0.045) + 0.015)
@@ -687,7 +697,7 @@
       else if (target === "amp") lfoGain.connect(envelope.gain);
       else activeOscillators.forEach((oscillator) => lfoGain.connect(oscillator.detune));
       lfo.start(time);
-      lfo.stop(gateEnd + release + 0.02);
+      stopAudioSource(lfo, gateEnd + release + 0.02);
     }
   }
 
@@ -734,7 +744,7 @@
     filter.connect(envelope);
     envelope.connect(outputNode);
     oscillator.start(time);
-    oscillator.stop(gateEnd + release + 0.02);
+    stopAudioSource(oscillator, gateEnd + release + 0.02);
     const harmonic = patchValue("harmonic", 0);
     if (harmonic > 0) {
       const overtone = context.createOscillator();
@@ -747,7 +757,7 @@
       overtone.connect(overtoneGain);
       overtoneGain.connect(filter);
       overtone.start(time);
-      overtone.stop(gateEnd + release + 0.02);
+      stopAudioSource(overtone, gateEnd + release + 0.02);
     }
   }
 
@@ -810,14 +820,14 @@
     const envelope = context.createGain();
     oscillator.type = kit === "industrial" ? "triangle" : "sine";
     oscillator.frequency.setValueAtTime(startPitch, time);
-    oscillator.frequency.exponentialRampToValueAtTime(endPitch, time + duration * 0.72);
+    scheduleExponentialRamp(oscillator.frequency, endPitch, time + duration * 0.72);
     envelope.gain.setValueAtTime(0.0001, time);
-    envelope.gain.exponentialRampToValueAtTime(Math.max(0.0002, velocity * 0.72), time + 0.004);
-    envelope.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+    scheduleExponentialRamp(envelope.gain, Math.max(0.0002, velocity * 0.72), time + 0.004);
+    scheduleExponentialRamp(envelope.gain, 0.0001, time + duration);
     oscillator.connect(envelope);
     envelope.connect(output);
     oscillator.start(time);
-    oscillator.stop(time + duration + 0.02);
+    stopAudioSource(oscillator, time + duration + 0.02);
   }
 
   function playDrumKitBell(output, time, frequency, velocity, scale) {
@@ -825,8 +835,8 @@
     const envelope = context.createGain();
     const duration = Math.min(0.55, 0.28 * scale);
     envelope.gain.setValueAtTime(0.0001, time);
-    envelope.gain.exponentialRampToValueAtTime(Math.max(0.0002, velocity * 0.24), time + 0.003);
-    envelope.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+    scheduleExponentialRamp(envelope.gain, Math.max(0.0002, velocity * 0.24), time + 0.003);
+    scheduleExponentialRamp(envelope.gain, 0.0001, time + duration);
     [frequency, frequency * 1.48].forEach((partial, index) => {
       const oscillator = context.createOscillator();
       registerArrangementPlaybackSource(oscillator);
@@ -837,7 +847,7 @@
       oscillator.connect(partialGain);
       partialGain.connect(envelope);
       oscillator.start(time);
-      oscillator.stop(time + duration + 0.02);
+      stopAudioSource(oscillator, time + duration + 0.02);
     });
     envelope.connect(output);
   }
@@ -850,12 +860,12 @@
     oscillator.type = "sine";
     oscillator.frequency.setValueAtTime(frequency, time);
     envelope.gain.setValueAtTime(0.0001, time);
-    envelope.gain.exponentialRampToValueAtTime(Math.max(0.0002, velocity * 0.2), time + 0.004);
-    envelope.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+    scheduleExponentialRamp(envelope.gain, Math.max(0.0002, velocity * 0.2), time + 0.004);
+    scheduleExponentialRamp(envelope.gain, 0.0001, time + duration);
     oscillator.connect(envelope);
     envelope.connect(output);
     oscillator.start(time);
-    oscillator.stop(time + duration + 0.02);
+    stopAudioSource(oscillator, time + duration + 0.02);
   }
 
   function playKick(context, output, time, variant, durationScale, pitchRatio = 1) {
@@ -876,14 +886,14 @@
     const pitch = settings.start * pitchRatio;
     osc.type = settings.wave || "sine";
     osc.frequency.setValueAtTime(pitch, time);
-    osc.frequency.exponentialRampToValueAtTime(settings.end * pitchRatio, time + duration * (settings.sweep || 0.38));
+    scheduleExponentialRamp(osc.frequency, settings.end * pitchRatio, time + duration * (settings.sweep || 0.38));
     envelope.gain.setValueAtTime(0.0001, time);
-    envelope.gain.exponentialRampToValueAtTime(1, time + 0.004);
-    envelope.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+    scheduleExponentialRamp(envelope.gain, 1, time + 0.004);
+    scheduleExponentialRamp(envelope.gain, 0.0001, time + duration);
     osc.connect(envelope);
     envelope.connect(output);
     osc.start(time);
-    osc.stop(time + duration + 0.02);
+    stopAudioSource(osc, time + duration + 0.02);
     if (settings.clickPeak) {
       playNoise(context, output, time, 0.018 * durationScale, settings.clickCutoff, settings.clickPeak);
     }
@@ -899,13 +909,13 @@
     filter.Q.value = resonance;
     const envelope = context.createGain();
     envelope.gain.setValueAtTime(0.0001, time);
-    envelope.gain.exponentialRampToValueAtTime(peak, time + 0.003);
-    envelope.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+    scheduleExponentialRamp(envelope.gain, peak, time + 0.003);
+    scheduleExponentialRamp(envelope.gain, 0.0001, time + duration);
     source.connect(filter);
     filter.connect(envelope);
     envelope.connect(output);
     source.start(time);
-    source.stop(time + duration + 0.015);
+    stopAudioSource(source, time + duration + 0.015);
   }
 
   function playSnare(context, output, time, variant, durationScale, pitchRatio = 1) {
@@ -928,11 +938,11 @@
     body.type = settings.bodyWave || "triangle";
     body.frequency.setValueAtTime(settings.bodyHz * pitchRatio, time);
     envelope.gain.setValueAtTime(settings.bodyPeak, time);
-    envelope.gain.exponentialRampToValueAtTime(0.0001, time + settings.bodyDuration * durationScale);
+    scheduleExponentialRamp(envelope.gain, 0.0001, time + settings.bodyDuration * durationScale);
     body.connect(envelope);
     envelope.connect(output);
     body.start(time);
-    body.stop(time + settings.bodyDuration * durationScale + 0.02);
+    stopAudioSource(body, time + settings.bodyDuration * durationScale + 0.02);
   }
 
   function playClap(context, output, time, variant, durationScale, pitchRatio = 1) {
@@ -967,13 +977,13 @@
     osc.type = "triangle";
     const pitch = { classic: [880, 420], low: [190, 110], high: [1450, 720], wood: [560, 250] }[variant] || [880, 420];
     osc.frequency.setValueAtTime(pitch[0] * pitchRatio, time);
-    osc.frequency.exponentialRampToValueAtTime(pitch[1] * pitchRatio, time + 0.045 * durationScale);
+    scheduleExponentialRamp(osc.frequency, pitch[1] * pitchRatio, time + 0.045 * durationScale);
     envelope.gain.setValueAtTime(0.32, time);
-    envelope.gain.exponentialRampToValueAtTime(0.0001, time + 0.075 * durationScale);
+    scheduleExponentialRamp(envelope.gain, 0.0001, time + 0.075 * durationScale);
     osc.connect(envelope);
     envelope.connect(output);
     osc.start(time);
-    osc.stop(time + 0.09 * durationScale);
+    stopAudioSource(osc, time + 0.09 * durationScale);
   }
 
   function triggerClick(time, downbeat) {
@@ -998,7 +1008,7 @@
     registerArrangementPlaybackSource(oscillator);
     const envelope = context.createGain();
     envelope.gain.setValueAtTime(0.0001, time);
-    envelope.gain.exponentialRampToValueAtTime(
+    scheduleExponentialRamp(envelope.gain,
       userSettings.metronomeSound === "kick" ? peakGain * (downbeat ? 1 : 0.78) : peakGain,
       time + 0.002,
     );
@@ -1006,21 +1016,21 @@
     if (userSettings.metronomeSound === "kick") {
       oscillator.type = "sine";
       oscillator.frequency.setValueAtTime((downbeat ? 150 : 115) * pitchRatio, time);
-      oscillator.frequency.exponentialRampToValueAtTime((downbeat ? 48 : 42) * pitchRatio, time + 0.1);
-      envelope.gain.exponentialRampToValueAtTime(0.0001, time + 0.14);
+      scheduleExponentialRamp(oscillator.frequency, (downbeat ? 48 : 42) * pitchRatio, time + 0.1);
+      scheduleExponentialRamp(envelope.gain, 0.0001, time + 0.14);
       oscillator.connect(envelope);
       envelope.connect(output);
       oscillator.start(time);
-      oscillator.stop(time + 0.16);
+      stopAudioSource(oscillator, time + 0.16);
       return;
     }
 
     oscillator.frequency.setValueAtTime((downbeat ? 1350 : 950) * pitchRatio, time);
-    envelope.gain.exponentialRampToValueAtTime(0.0001, time + 0.028);
+    scheduleExponentialRamp(envelope.gain, 0.0001, time + 0.028);
     oscillator.connect(envelope);
     envelope.connect(output);
     oscillator.start(time);
-    oscillator.stop(time + 0.035);
+    stopAudioSource(oscillator, time + 0.035);
   }
 
   async function startPlayback(mode = "arrangement", { startAtMs = null, remote = false } = {}) {
@@ -1340,7 +1350,7 @@
     state.stepTimers.forEach((timerId) => window.clearTimeout(timerId));
     state.stepTimers.clear();
     state.arrangementSources.forEach((source) => {
-      try { source.stop(state.audioContext?.currentTime || 0); } catch { /* The source may have ended between scheduler ticks. */ }
+      try { stopAudioSource(source, state.audioContext?.currentTime || 0); } catch { /* The source may have ended between scheduler ticks. */ }
     });
     state.arrangementSources.clear();
     if (stoppedPlaybackMode === "arrangement") {
